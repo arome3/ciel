@@ -1,0 +1,10 @@
+{
+  "queryPrompt": "What is the current value?",
+  "openaiApiKey": "sk-placeholder",
+  "anthropicApiKey": "sk-placeholder",
+  "geminiApiKey": "placeholder",
+  "maxDeviation": 10,
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "chainName": "base-sepolia",
+  "cronSchedule": "0 */10 * * * *"
+}

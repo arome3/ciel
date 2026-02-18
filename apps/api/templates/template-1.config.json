@@ -1,0 +1,10 @@
+{
+  "priceApiUrl": "https://api.coingecko.com/api/v3/simple/price",
+  "assetId": "ethereum",
+  "threshold": 3000,
+  "direction": "below",
+  "alertWebhookUrl": "https://hooks.slack.com/services/placeholder",
+  "cronSchedule": "0 */5 * * * *",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "chainName": "base-sepolia"
+}

@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+.next/
+out/
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/lib/
+
+# Turborepo
+.turbo/
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Lock files (binary)
+*.lockb
+
+# Documentation (internal only)
+docs/
+*.md
+!README.md
+
+# OS
+.DS_Store

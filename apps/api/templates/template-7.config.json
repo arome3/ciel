@@ -1,0 +1,12 @@
+{
+  "weatherApiUrl": "https://api.weather.gov/points",
+  "location": "40.7128,-74.0060",
+  "parameterName": "rainfall",
+  "triggerThreshold": 50,
+  "triggerDirection": "below",
+  "payoutAmount": 1000000000000000000,
+  "beneficiaryAddress": "0x0000000000000000000000000000000000000000",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "chainName": "base-sepolia",
+  "cronSchedule": "0 0 */6 * * *"
+}

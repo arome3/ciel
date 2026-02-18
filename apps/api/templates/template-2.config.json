@@ -1,0 +1,9 @@
+{
+  "portfolioApiUrl": "https://api.example.com/portfolio",
+  "targetAllocations": "{\"ETH\":50,\"BTC\":30,\"LINK\":20}",
+  "driftThreshold": 5,
+  "chains": "base-sepolia,ethereum-sepolia",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "chainName": "base-sepolia",
+  "cronSchedule": "0 0 * * * *"
+}

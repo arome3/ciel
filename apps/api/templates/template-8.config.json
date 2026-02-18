@@ -1,0 +1,10 @@
+{
+  "complianceApiUrl": "https://api.example.com/compliance",
+  "sanctionsApiUrl": "https://api.example.com/sanctions",
+  "operatorAddress": "0x0000000000000000000000000000000000000000",
+  "operationType": "swap",
+  "operationData": "{}",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "chainName": "base-sepolia",
+  "cronSchedule": "0 */1 * * * *"
+}

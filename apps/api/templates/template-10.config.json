@@ -1,0 +1,8 @@
+{
+  "dataSources": "[{\"url\":\"https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd\",\"weight\":1,\"path\":\"ethereum.usd\"},{\"url\":\"https://api.example.com/price\",\"weight\":1,\"path\":\"price\"}]",
+  "aggregationMethod": "weighted_average",
+  "minSources": 2,
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "chainName": "base-sepolia",
+  "cronSchedule": "0 */5 * * * *"
+}

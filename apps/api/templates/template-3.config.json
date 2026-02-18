@@ -1,0 +1,9 @@
+{
+  "marketContract": "0x0000000000000000000000000000000000000000",
+  "eventSignature": "MarketResolution(uint256,string)",
+  "openaiApiKey": "sk-placeholder",
+  "anthropicApiKey": "sk-placeholder",
+  "geminiApiKey": "placeholder",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "chainName": "base-sepolia"
+}

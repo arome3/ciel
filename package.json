@@ -1,0 +1,21 @@
+{
+  "name": "ciel",
+  "private": true,
+  "packageManager": "bun@1.3.5",
+  "workspaces": ["apps/*", "contracts", "agent", "packages/*"],
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:web": "turbo run dev --filter=web",
+    "dev:api": "turbo run dev --filter=api",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "deploy:contracts": "cd contracts && forge script script/Deploy.s.sol --broadcast --rpc-url base-sepolia --verify",
+    "db:push": "cd apps/api && bunx drizzle-kit push",
+    "db:seed": "cd apps/api && bun src/db/seed.ts"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.3.0"
+  }
+}

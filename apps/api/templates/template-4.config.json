@@ -1,0 +1,10 @@
+{
+  "complianceApiUrl": "https://api.example.com/compliance",
+  "reserveApiUrl": "https://api.example.com/reserves",
+  "depositorAddress": "0x0000000000000000000000000000000000000000",
+  "mintAmount": 1000,
+  "minReserveRatio": 1.0,
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "chainName": "base-sepolia",
+  "cronSchedule": "0 */1 * * * *"
+}

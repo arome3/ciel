@@ -1,0 +1,19 @@
+{
+  "name": "agent",
+  "private": true,
+  "scripts": {
+    "start": "bun src/index.ts",
+    "dev": "bun --watch src/index.ts"
+  },
+  "dependencies": {
+    "@x402/fetch": "latest",
+    "@x402/core": "latest",
+    "@x402/extensions": "latest",
+    "viem": "^2.0.0",
+    "dotenv": "^16.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "bun-types": "latest"
+  }
+}
