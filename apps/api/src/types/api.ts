@@ -10,10 +10,18 @@ export const GenerateRequestSchema = z.object({
   parameters: z.record(z.unknown()).optional(),
 })
 
-export const SimulateRequestSchema = z.object({
-  workflowId: z.string().uuid(),
-  config: z.record(z.unknown()).optional(),
-})
+export const SimulateRequestSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("stored"),
+    workflowId: z.string().uuid(),
+    config: z.record(z.unknown()).optional(),
+  }),
+  z.object({
+    mode: z.literal("direct"),
+    code: z.string().min(1, "Workflow code is required").max(50_000, "Code exceeds 50KB limit"),
+    config: z.record(z.unknown()).default({}),
+  }),
+])
 
 export const PublishRequestSchema = z.object({
   workflowId: z.string().uuid(),

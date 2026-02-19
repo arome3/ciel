@@ -24,6 +24,14 @@ export const executeLimiter = rateLimit({
   message: rateLimitMessage,
 })
 
+export const simulateLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: rateLimitMessage,
+})
+
 export const defaultLimiter = rateLimit({
   windowMs: 60_000,
   limit: 100,

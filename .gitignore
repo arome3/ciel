@@ -31,6 +31,7 @@ contracts/lib/
 docs/
 *.md
 !README.md
+!CLAUDE.md
 
 # OS
 .DS_Store
