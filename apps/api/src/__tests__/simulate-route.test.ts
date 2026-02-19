@@ -66,7 +66,10 @@ mock.module(resolve(SRC, "db/schema.ts"), () => ({
     id: "id",
     code: "code",
     config: "config",
+    totalExecutions: "total_executions",
+    successfulExecutions: "successful_executions",
   },
+  executions: { id: "id" },
 }))
 
 // ── Compiler mock ──
