@@ -4,6 +4,7 @@ import type {
   Simulation,
   WorkflowListItem,
 } from "./api"
+import { api } from "./api"
 
 export interface SSEEvent {
   type: string
@@ -15,7 +16,7 @@ export interface SSEEvent {
   timestamp: number
 }
 
-interface BuilderState {
+interface WorkflowState {
   // Builder flow
   prompt: string
   generatedWorkflow: GeneratedWorkflow | null
@@ -31,6 +32,13 @@ interface BuilderState {
 
   // Marketplace
   workflows: WorkflowListItem[]
+  searchQuery: string
+  filters: {
+    category: string | null
+    chain: string | null
+    sortBy: string
+  }
+  isLoadingWorkflows: boolean
 
   // Agent events (capped at 50)
   agentEvents: SSEEvent[]
@@ -38,7 +46,7 @@ interface BuilderState {
   // Error
   error: string | null
 
-  // Actions
+  // Builder actions
   setPrompt: (prompt: string) => void
   setGeneratedWorkflow: (workflow: GeneratedWorkflow | null) => void
   setSimulation: (simulation: Simulation | null) => void
@@ -50,11 +58,17 @@ interface BuilderState {
   addAgentEvent: (event: SSEEvent) => void
   setError: (error: string | null) => void
   resetBuilder: () => void
+
+  // Marketplace actions
+  setSearchQuery: (query: string) => void
+  setFilter: (key: "category" | "chain" | "sortBy", value: string | null) => void
+  clearFilters: () => void
+  fetchWorkflows: () => Promise<void>
 }
 
 const MAX_AGENT_EVENTS = 50
 
-export const useBuilderStore = create<BuilderState>((set) => ({
+export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   prompt: "",
   generatedWorkflow: null,
   simulation: null,
@@ -63,6 +77,13 @@ export const useBuilderStore = create<BuilderState>((set) => ({
   isPublishing: false,
   walletAddress: null,
   workflows: [],
+  searchQuery: "",
+  filters: {
+    category: null,
+    chain: null,
+    sortBy: "newest",
+  },
+  isLoadingWorkflows: false,
   agentEvents: [],
   error: null,
 
@@ -89,4 +110,34 @@ export const useBuilderStore = create<BuilderState>((set) => ({
       isPublishing: false,
       error: null,
     }),
+
+  setSearchQuery: (searchQuery) => set({ searchQuery }),
+  setFilter: (key, value) =>
+    set((state) => ({
+      filters: { ...state.filters, [key]: value },
+    })),
+  clearFilters: () =>
+    set({
+      searchQuery: "",
+      filters: { category: null, chain: null, sortBy: "newest" },
+    }),
+  fetchWorkflows: async () => {
+    const { searchQuery, filters } = get()
+    set({ isLoadingWorkflows: true })
+    try {
+      const res = await api.listWorkflows({
+        search: searchQuery || undefined,
+        category: filters.category ?? undefined,
+        sort: filters.sortBy,
+      })
+      set({ workflows: res.workflows })
+    } catch {
+      // list fetch failure is non-fatal — keep stale data
+    } finally {
+      set({ isLoadingWorkflows: false })
+    }
+  },
 }))
+
+/** @deprecated Use useWorkflowStore instead */
+export const useBuilderStore = useWorkflowStore

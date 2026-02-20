@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react"
 import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
-import { useBuilderStore } from "@/lib/store"
+import { useWorkflowStore } from "@/lib/store"
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
@@ -37,7 +37,7 @@ const EDITOR_OPTIONS = {
 }
 
 export function CodePreview() {
-  const generatedWorkflow = useBuilderStore((s) => s.generatedWorkflow)
+  const generatedWorkflow = useWorkflowStore((s) => s.generatedWorkflow)
   const [copied, setCopied] = useState(false)
 
   const handleCopy = useCallback(async () => {

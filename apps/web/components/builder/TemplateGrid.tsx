@@ -1,6 +1,6 @@
 "use client"
 
-import { useBuilderStore } from "@/lib/store"
+import { useWorkflowStore } from "@/lib/store"
 
 const CATEGORY_VARIANTS: Record<string, string> = {
   DeFi: "bg-green-900/60 text-green-300",
@@ -105,7 +105,7 @@ const TEMPLATES: Template[] = [
 ]
 
 export function TemplateGrid() {
-  const setPrompt = useBuilderStore((s) => s.setPrompt)
+  const setPrompt = useWorkflowStore((s) => s.setPrompt)
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

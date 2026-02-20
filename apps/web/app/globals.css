@@ -6,17 +6,17 @@
   :root {
     --background: 240 20% 4%;
     --foreground: 0 0% 91%;
-    --card: 240 17% 5%;
+    --card: 240 24% 7%;
     --card-foreground: 0 0% 91%;
-    --popover: 240 20% 6%;
+    --popover: 240 20% 8%;
     --popover-foreground: 0 0% 91%;
     --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 10% 15%;
+    --secondary: 240 23% 14%;
     --secondary-foreground: 0 0% 91%;
     --muted: 240 14% 11%;
     --muted-foreground: 240 5% 55%;
-    --accent: 240 14% 14%;
+    --accent: 217 33% 17%;
     --accent-foreground: 0 0% 91%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;

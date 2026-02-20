@@ -136,6 +136,25 @@ export interface WorkflowListItem {
   chains: string[]
   totalExecutions: number
   successfulExecutions: number
+  ownerAddress: string
+}
+
+export interface WorkflowDetail extends WorkflowListItem {
+  code: string
+  config: Record<string, unknown>
+  simulationTrace: Array<{ step: string; status: string; duration: number; output: string }> | null
+  templateId: number
+  templateName: string
+  prompt: string
+  published: boolean
+  publishTxHash: string | null
+  x402Endpoint: string | null
+  consumerSol: string | null
+  onchainWorkflowId: string | null
+  inputSchema: unknown
+  outputSchema: unknown
+  createdAt: string
+  updatedAt: string
 }
 
 interface WorkflowsListResponse {
@@ -220,19 +239,55 @@ export const api = {
     limit?: number
     category?: string
     search?: string
+    sort?: string
   }): Promise<WorkflowsListResponse> {
     const query = new URLSearchParams()
     if (params?.page) query.set("page", String(params.page))
     if (params?.limit) query.set("limit", String(params.limit))
     if (params?.category) query.set("category", params.category)
     if (params?.search) query.set("search", params.search)
+    if (params?.sort) query.set("sort", params.sort)
     const qs = query.toString()
     return request<WorkflowsListResponse>(
       `/api/workflows${qs ? `?${qs}` : ""}`,
     )
   },
 
-  async getWorkflow(id: string): Promise<WorkflowListItem> {
-    return request<WorkflowListItem>(`/api/workflows/${id}`)
+  async getWorkflow(id: string): Promise<WorkflowDetail> {
+    return request<WorkflowDetail>(`/api/workflows/${id}`)
+  },
+
+  async executeWorkflow(
+    id: string,
+    ownerAuth?: { address: string; signature: string },
+  ): Promise<{ success: boolean; result: unknown }> {
+    const headers: Record<string, string> = {}
+    if (ownerAuth) {
+      headers["X-Owner-Address"] = ownerAuth.address
+      headers["X-Owner-Signature"] = ownerAuth.signature
+    }
+
+    const res = await fetch(`${API_BASE}/api/workflows/${id}/execute`, {
+      headers,
+    })
+
+    if (res.status === 402) {
+      const body = await res.json().catch(() => ({}))
+      const err = new ApiError(402, body.message ?? "Payment required")
+      throw err
+    }
+
+    if (!res.ok) {
+      let message = `Execution failed (${res.status})`
+      try {
+        const body = await res.json()
+        if (body.message) message = body.message
+      } catch {
+        // use default
+      }
+      throw new ApiError(res.status, message)
+    }
+
+    return res.json()
   },
 }

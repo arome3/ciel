@@ -53,6 +53,7 @@ router.get("/workflows", async (req, res, next) => {
         chains: JSON.parse(w.chains),
         totalExecutions: w.totalExecutions,
         successfulExecutions: w.successfulExecutions,
+        ownerAddress: w.ownerAddress,
       })),
       total,
       page,

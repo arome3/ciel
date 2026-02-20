@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { useBuilderStore } from "@/lib/store"
+import { useWorkflowStore } from "@/lib/store"
 import { api } from "@/lib/api"
 
 function StatusBadge({ status }: { status: string }) {
@@ -60,7 +60,7 @@ export function SimulationPanel() {
     setIsSimulating,
     setSimulation,
     setError,
-  } = useBuilderStore()
+  } = useWorkflowStore()
 
   const [localError, setLocalError] = useState<string | null>(null)
 

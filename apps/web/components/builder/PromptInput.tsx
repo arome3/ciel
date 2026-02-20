@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { useBuilderStore } from "@/lib/store"
+import { useWorkflowStore } from "@/lib/store"
 import { api } from "@/lib/api"
 
 const MIN_CHARS = 20
@@ -18,7 +18,7 @@ export function PromptInput() {
     setGeneratedWorkflow,
     setSimulation,
     setError,
-  } = useBuilderStore()
+  } = useWorkflowStore()
 
   const [localError, setLocalError] = useState<string | null>(null)
 
