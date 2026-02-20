@@ -3,6 +3,7 @@ import { paymentMiddleware, x402ResourceServer } from "@x402/express"
 import { HTTPFacilitatorClient } from "@x402/core/server"
 import { registerExactEvmScheme } from "@x402/evm/exact/server"
 import { eq, and, isNull, isNotNull, desc } from "drizzle-orm"
+import { registerBazaarExtension, getWorkflowDiscoveryExtension } from "./bazaar"
 import { config } from "../../config"
 import { createLogger } from "../../lib/logger"
 import { db } from "../../db"
@@ -18,6 +19,7 @@ const facilitatorClient = new HTTPFacilitatorClient({
 // ── Resource server with EVM exact-amount scheme ──
 const resourceServer = new x402ResourceServer(facilitatorClient)
 registerExactEvmScheme(resourceServer)
+registerBazaarExtension(resourceServer)
 
 // ── Dynamic price lookup ──
 // Called during 402 challenge to determine per-workflow price.
@@ -59,6 +61,7 @@ const routes = {
       },
     ],
     description: "Execute Ciel CRE workflow",
+    extensions: getWorkflowDiscoveryExtension(),
   },
 }
 

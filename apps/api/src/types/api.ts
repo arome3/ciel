@@ -39,6 +39,28 @@ export const WorkflowsListQuerySchema = z.object({
   search: z.string().optional(),
 })
 
+export const DiscoverQuerySchema = z.object({
+  category: z.string().optional(),
+  chain: z.string().optional(),
+  capability: z.string().optional(),
+})
+
+export interface DiscoveredWorkflow {
+  workflowId: string
+  name: string
+  description: string
+  category: string
+  chains: string[]
+  capabilities: string[]
+  priceUsdc: number
+  x402Endpoint: string
+  totalExecutions: number
+  successfulExecutions: number
+  source: "registry" | "bazaar"
+  inputSchema?: unknown
+  outputSchema?: unknown
+}
+
 // ─────────────────────────────────────────────
 // Response Interfaces
 // ─────────────────────────────────────────────

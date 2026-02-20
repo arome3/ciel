@@ -39,3 +39,19 @@ export const defaultLimiter = rateLimit({
   legacyHeaders: false,
   message: rateLimitMessage,
 })
+
+export const discoverLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: rateLimitMessage,
+})
+
+export const publishLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: rateLimitMessage,
+})

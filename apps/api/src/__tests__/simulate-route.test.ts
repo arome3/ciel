@@ -70,6 +70,7 @@ mock.module(resolve(SRC, "db/schema.ts"), () => ({
     successfulExecutions: "successful_executions",
   },
   executions: { id: "id" },
+  events: { id: "id", type: "type", data: "data" },
 }))
 
 // ── Compiler mock ──
@@ -96,14 +97,18 @@ mock.module(resolve(SRC, "middleware/rate-limiter.ts"), () => ({
   generateLimiter: (_req: any, _res: any, next: any) => next(),
   executeLimiter: (_req: any, _res: any, next: any) => next(),
   defaultLimiter: (_req: any, _res: any, next: any) => next(),
+  discoverLimiter: (_req: any, _res: any, next: any) => next(),
+  publishLimiter: (_req: any, _res: any, next: any) => next(),
 }))
 
-// ── LRU Cache mock (pass-through, no actual caching in tests) ──
+// ── LRU Cache mock (functional Map-based, no TTL) ──
 mock.module(resolve(SRC, "lib/lru-cache.ts"), () => ({
   LRUCache: class {
-    get() { return undefined }
-    set() {}
-    clear() {}
+    private _map = new Map()
+    get(key: string) { return this._map.get(key) }
+    set(key: string, value: any) { this._map.set(key, value) }
+    clear() { this._map.clear() }
+    get size() { return this._map.size }
   },
 }))
 

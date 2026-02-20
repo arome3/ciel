@@ -10,10 +10,8 @@ const SRC = resolve(import.meta.dir, "..")
 // ── Config mock ──
 mock.module(resolve(SRC, "config.ts"), () => ({
   config: {
-    WALLET_ADDRESS: "0xTestWallet",
-    X402_FACILITATOR_URL: "https://facilitator.test",
+    NEXT_PUBLIC_API_URL: "http://localhost:3001",
     NODE_ENV: "test",
-    DATABASE_PATH: ":memory:",
   },
 }))
 
@@ -29,41 +27,35 @@ mock.module(resolve(SRC, "lib/logger.ts"), () => ({
 
 // ── DB mock ──
 const TEST_ID = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+const OWNER_ADDR = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 const TEST_WORKFLOW = {
   id: TEST_ID,
   name: "Test Workflow",
-  published: true,
+  description: "A test workflow",
+  published: false,
   priceUsdc: 10000,
-  templateId: 1,
-  onchainWorkflowId: "0xabc123",
+  category: "core-defi",
+  capabilities: '["price-feed"]',
+  chains: '["base-sepolia"]',
+  ownerAddress: OWNER_ADDR,
+  inputSchema: null,
+  outputSchema: null,
 }
 
 let mockSelectResult: any = TEST_WORKFLOW
 let mockInsertError = false
-let mockUpdateError = false
-let insertCalled = false
-let updateCalled = false
-let insertValues: any = null
 
 const mockInsertValues = mock((vals: any) => {
-  insertCalled = true
-  insertValues = vals
   if (mockInsertError) return Promise.reject(new Error("DB insert error"))
   return Promise.resolve()
 })
 const mockInsert = mock(() => ({ values: mockInsertValues }))
 
-const mockUpdateWhere = mock(() => {
-  updateCalled = true
-  if (mockUpdateError) return Promise.reject(new Error("DB update error"))
-  return Promise.resolve()
-})
+const mockUpdateWhere = mock(() => Promise.resolve())
 const mockUpdateSet = mock(() => ({ where: mockUpdateWhere }))
 const mockUpdate = mock(() => ({ set: mockUpdateSet }))
 
-const mockSelectGet = mock(() => {
-  return Promise.resolve(mockSelectResult)
-})
+const mockSelectGet = mock(() => Promise.resolve(mockSelectResult))
 const mockSelectWhere = mock(() => ({ get: mockSelectGet }))
 const mockSelectFrom = mock(() => ({ where: mockSelectWhere }))
 const mockSelect = mock(() => ({ from: mockSelectFrom }))
@@ -83,15 +75,28 @@ mock.module(resolve(SRC, "db/schema.ts"), () => ({
   workflows: {
     id: "id",
     name: "name",
+    description: "description",
     published: "published",
     priceUsdc: "price_usdc",
-    templateId: "template_id",
+    ownerAddress: "owner_address",
     onchainWorkflowId: "onchain_workflow_id",
+    publishTxHash: "publish_tx_hash",
+    x402Endpoint: "x402_endpoint",
+    updatedAt: "updated_at",
+    category: "category",
+    capabilities: "capabilities",
+    chains: "chains",
+    inputSchema: "input_schema",
+    outputSchema: "output_schema",
     totalExecutions: "total_executions",
     successfulExecutions: "successful_executions",
   },
   executions: { id: "id" },
-  events: { id: "id", type: "type", data: "data" },
+  events: {
+    id: "id",
+    type: "type",
+    data: "data",
+  },
 }))
 
 // ── Rate limiter mock ──
@@ -104,29 +109,20 @@ mock.module(resolve(SRC, "middleware/rate-limiter.ts"), () => ({
   publishLimiter: (_req: any, _res: any, next: any) => next(),
 }))
 
-// ── Owner-verify mock ──
-mock.module(resolve(SRC, "middleware/owner-verify.ts"), () => ({
-  ownerVerify: (req: any, _res: any, next: any) => next(),
-}))
-
-// ── x402 middleware mock ──
-mock.module(resolve(SRC, "services/x402/middleware.ts"), () => ({
-  conditionalPayment: (req: any, _res: any, next: any) => next(),
-}))
-
 // ── Registry mock ──
-let recordExecutionCalled = false
-let recordExecutionArgs: any[] = []
+let mockPublishError = false
 
-const mockRecordExecution = mock((...args: any[]) => {
-  recordExecutionCalled = true
-  recordExecutionArgs = args
-  return Promise.resolve()
+const mockPublishToRegistry = mock(() => {
+  if (mockPublishError) return Promise.reject(new Error("Registry tx failed"))
+  return Promise.resolve({
+    workflowId: "0xabc123",
+    txHash: "0xtx1",
+  })
 })
 
 mock.module(resolve(SRC, "services/blockchain/registry.ts"), () => ({
-  recordExecution: mockRecordExecution,
-  publishToRegistry: mock(() => Promise.resolve({ workflowId: "0x0", txHash: "0x0" })),
+  publishToRegistry: mockPublishToRegistry,
+  recordExecution: mock(() => Promise.resolve()),
   updateWorkflow: mock(() => Promise.resolve()),
   deactivateWorkflow: mock(() => Promise.resolve()),
   reactivateWorkflow: mock(() => Promise.resolve()),
@@ -147,10 +143,22 @@ mock.module(resolve(SRC, "services/blockchain/provider.ts"), () => ({
 
 mock.module(resolve(SRC, "services/blockchain/retry.ts"), () => ({
   withRetry: (fn: any) => fn(),
+  isRetryableRpcError: () => false,
 }))
 
 mock.module(resolve(SRC, "services/blockchain/nonce-manager.ts"), () => ({
   txMutex: { withLock: (fn: any) => fn() },
+}))
+
+// ── viem mock ──
+let mockVerifyResult = true
+let mockVerifyThrows = false
+
+mock.module("viem", () => ({
+  verifyMessage: mock(async () => {
+    if (mockVerifyThrows) throw new Error("Bad signature encoding")
+    return mockVerifyResult
+  }),
 }))
 
 // ─────────────────────────────────────────────
@@ -160,37 +168,40 @@ mock.module(resolve(SRC, "services/blockchain/nonce-manager.ts"), () => ({
 let router: any
 
 beforeAll(async () => {
-  const mod = await import("../routes/execute")
+  const mod = await import("../routes/publish")
   router = mod.default
 })
 
 beforeEach(() => {
   mockSelectResult = { ...TEST_WORKFLOW }
   mockInsertError = false
-  mockUpdateError = false
-  insertCalled = false
-  updateCalled = false
-  insertValues = null
-  recordExecutionCalled = false
-  recordExecutionArgs = []
+  mockPublishError = false
+  mockVerifyResult = true
+  mockVerifyThrows = false
 })
 
 // ─────────────────────────────────────────────
-// Helpers
+// Helper
 // ─────────────────────────────────────────────
 
 async function invokeRoute(opts: {
-  id?: string
-  skipPayment?: boolean
-  ownerAddress?: string
+  body?: any
+  headers?: Record<string, string>
 } = {}) {
   let nextErr: any = null
   let jsonResult: any = null
 
   const req = {
-    params: { id: opts.id ?? TEST_ID },
-    skipPayment: opts.skipPayment,
-    ownerAddress: opts.ownerAddress,
+    body: opts.body ?? {
+      workflowId: TEST_ID,
+      name: "Published Workflow",
+      description: "A workflow being published",
+      priceUsdc: 10000,
+    },
+    headers: opts.headers ?? {
+      "x-owner-address": OWNER_ADDR,
+      "x-owner-signature": "0xvalidsig",
+    },
   } as any
 
   const res = {
@@ -201,7 +212,7 @@ async function invokeRoute(opts: {
   const next = (err?: any) => { if (err) nextErr = err }
 
   const layer = router.stack.find(
-    (l: any) => l.route?.path === "/workflows/:id/execute" && l.route?.methods?.get,
+    (l: any) => l.route?.path === "/publish" && l.route?.methods?.post,
   )
   expect(layer).toBeTruthy()
 
@@ -221,34 +232,64 @@ async function invokeRoute(opts: {
 // Tests
 // ─────────────────────────────────────────────
 
-describe("execute route — UUID validation", () => {
-  test("returns 400 for non-UUID workflow ID", async () => {
-    const { error } = await invokeRoute({ id: "not-a-uuid" })
+describe("publish route — ownership verification", () => {
+  test("returns 403 when both ownership headers missing", async () => {
+    const { error } = await invokeRoute({ headers: {} })
 
     expect(error).toBeTruthy()
-    expect(error.code).toBe("INVALID_INPUT")
-    expect(error.statusCode).toBe(400)
+    expect(error.code).toBe("PUBLISH_FAILED")
+    expect(error.statusCode).toBe(403)
+    expect(error.message).toContain("ownership headers")
   })
 
-  test("returns 400 for path traversal attempt", async () => {
-    const { error } = await invokeRoute({ id: "../../etc/passwd" })
+  test("returns 403 when x-owner-signature missing", async () => {
+    const { error } = await invokeRoute({
+      headers: { "x-owner-address": OWNER_ADDR },
+    })
 
     expect(error).toBeTruthy()
-    expect(error.code).toBe("INVALID_INPUT")
-    expect(error.statusCode).toBe(400)
+    expect(error.code).toBe("PUBLISH_FAILED")
+    expect(error.statusCode).toBe(403)
   })
 
-  test("accepts valid UUID v4", async () => {
-    const { error } = await invokeRoute({ id: TEST_ID })
+  test("returns 403 when signature verification returns false", async () => {
+    mockVerifyResult = false
 
-    // Should not be INVALID_INPUT — may be 404 or success
-    if (error) {
-      expect(error.code).not.toBe("INVALID_INPUT")
-    }
+    const { error } = await invokeRoute()
+
+    expect(error).toBeTruthy()
+    expect(error.code).toBe("PUBLISH_FAILED")
+    expect(error.statusCode).toBe(403)
+    expect(error.message).toContain("Signature verification failed")
+  })
+
+  test("returns 403 for wrong owner address", async () => {
+    const { error } = await invokeRoute({
+      headers: {
+        "x-owner-address": "0x0000000000000000000000000000000000000001",
+        "x-owner-signature": "0xvalidsig",
+      },
+    })
+
+    expect(error).toBeTruthy()
+    expect(error.code).toBe("PUBLISH_FAILED")
+    expect(error.statusCode).toBe(403)
+    expect(error.message).toContain("Not authorized")
+  })
+
+  test("returns 403 when verifyMessage throws (bad format)", async () => {
+    mockVerifyThrows = true
+
+    const { error } = await invokeRoute()
+
+    expect(error).toBeTruthy()
+    expect(error.code).toBe("PUBLISH_FAILED")
+    expect(error.statusCode).toBe(403)
+    expect(error.message).toContain("Invalid signature format")
   })
 })
 
-describe("execute route — workflow validation", () => {
+describe("publish route — workflow validation", () => {
   test("returns 404 for non-existent workflow", async () => {
     mockSelectResult = null
 
@@ -259,126 +300,56 @@ describe("execute route — workflow validation", () => {
     expect(error.statusCode).toBe(404)
   })
 
-  test("returns 404 for unpublished workflow", async () => {
-    mockSelectResult = { ...TEST_WORKFLOW, published: false }
+  test("returns 409 for already published workflow", async () => {
+    mockSelectResult = { ...TEST_WORKFLOW, published: true }
 
     const { error } = await invokeRoute()
 
     expect(error).toBeTruthy()
-    expect(error.code).toBe("WORKFLOW_NOT_FOUND")
-    expect(error.statusCode).toBe(404)
+    expect(error.code).toBe("PUBLISH_FAILED")
+    expect(error.statusCode).toBe(409)
   })
 })
 
-describe("execute route — success response", () => {
-  test("returns correct response shape", async () => {
+describe("publish route — success", () => {
+  test("returns correct PublishResponse shape", async () => {
     const { json, error } = await invokeRoute()
 
     expect(error).toBeNull()
     expect(json).toBeTruthy()
-    expect(json.executionId).toBeString()
     expect(json.workflowId).toBe(TEST_ID)
-    expect(json.success).toBe(true)
-    expect(json.result).toHaveProperty("output")
-    expect(json.result).toHaveProperty("templateId")
-    expect(json.duration).toBeNumber()
-    expect(json.payment).toBeTruthy()
+    expect(json.onchainWorkflowId).toBe("0xabc123")
+    expect(json.publishTxHash).toBe("0xtx1")
+    expect(json.x402Endpoint).toContain(`/api/workflows/${TEST_ID}/execute`)
   })
 
-  test("includes templateId in result", async () => {
-    const { json } = await invokeRoute()
+  test("still succeeds when capabilities JSON is invalid", async () => {
+    mockSelectResult = { ...TEST_WORKFLOW, capabilities: "not-json{{" }
 
-    expect(json.result.templateId).toBe(1)
-  })
-})
-
-describe("execute route — payment flags", () => {
-  test("amountUsdc is null when owner-bypassed", async () => {
-    const { json } = await invokeRoute({ skipPayment: true })
-
-    expect(json.payment.paid).toBe(false)
-    expect(json.payment.amountUsdc).toBeNull()
-    expect(json.payment.ownerBypassed).toBe(true)
-  })
-
-  test("amountUsdc is workflow.priceUsdc when paid", async () => {
-    const { json } = await invokeRoute({ skipPayment: false })
-
-    expect(json.payment.paid).toBe(true)
-    expect(json.payment.amountUsdc).toBe(10000)
-    expect(json.payment.ownerBypassed).toBe(false)
-  })
-})
-
-describe("execute route — paid vs bypassed insert strategy", () => {
-  test("paid: insert is awaited before response (record exists for settlement)", async () => {
-    // For paid requests, insert happens BEFORE res.json()
-    // We verify by checking that insert was called with correct values
-    const { json, error } = await invokeRoute({ skipPayment: false })
+    const { json, error } = await invokeRoute()
 
     expect(error).toBeNull()
-    expect(insertCalled).toBe(true)
-    expect(insertValues.amountUsdc).toBe(10000)
+    expect(json).toBeTruthy()
+    expect(json.workflowId).toBe(TEST_ID)
   })
+})
 
-  test("paid: DB insert failure propagates as error", async () => {
-    mockInsertError = true
+describe("publish route — error propagation", () => {
+  test("publishToRegistry failure propagates as error", async () => {
+    mockPublishError = true
 
-    const { error } = await invokeRoute({ skipPayment: false })
+    const { error } = await invokeRoute()
 
-    // For paid requests, insert failure should be caught by handler's try/catch
     expect(error).toBeTruthy()
   })
 
-  test("bypassed: DB insert failure does NOT crash handler", async () => {
+  test("SSE event insert failure still succeeds", async () => {
     mockInsertError = true
-
-    const { json, error } = await invokeRoute({ skipPayment: true })
-
-    // For bypassed requests, insert is fire-and-forget
-    expect(error).toBeNull()
-    expect(json).toBeTruthy()
-    expect(json.success).toBe(true)
-  })
-
-  test("insert has null paymentTxHash (x402 settles after response)", async () => {
-    await invokeRoute()
-
-    expect(insertValues.paymentTxHash).toBeNull()
-  })
-})
-
-describe("execute route — fire-and-forget stats update", () => {
-  test("updates workflow stats", async () => {
-    await invokeRoute()
-
-    expect(updateCalled).toBe(true)
-  })
-
-  test("DB update error does not crash handler", async () => {
-    mockUpdateError = true
 
     const { json, error } = await invokeRoute()
 
+    // SSE insert is fire-and-forget, should not block response
     expect(error).toBeNull()
     expect(json).toBeTruthy()
-  })
-})
-
-describe("execute route — on-chain recording", () => {
-  test("calls recordExecution with workflow onchainWorkflowId", async () => {
-    await invokeRoute()
-
-    expect(recordExecutionCalled).toBe(true)
-    expect(recordExecutionArgs[0]).toBe("0xabc123")
-    expect(recordExecutionArgs[1]).toBe(true)
-  })
-
-  test("skips on-chain recording when no onchainWorkflowId", async () => {
-    mockSelectResult = { ...TEST_WORKFLOW, onchainWorkflowId: null }
-
-    await invokeRoute()
-
-    expect(recordExecutionCalled).toBe(false)
   })
 })

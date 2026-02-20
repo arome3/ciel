@@ -12,6 +12,7 @@ import simulateRouter from "./routes/simulate"
 import publishRouter from "./routes/publish"
 import executeRouter from "./routes/execute"
 import eventsRouter from "./routes/events"
+import discoverRouter from "./routes/discover"
 import { checkCRECli } from "./services/cre/compiler"
 import { warmDependencyCache } from "./services/cre/dep-cache"
 
@@ -57,6 +58,7 @@ app.use("/api", simulateRouter)
 app.use("/api", publishRouter)
 app.use("/api", executeRouter)
 app.use("/api", eventsRouter)
+app.use("/api", discoverRouter)
 
 // ── Error handler (must be last) ──
 app.use(errorHandler)
