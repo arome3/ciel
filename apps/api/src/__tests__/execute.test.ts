@@ -102,6 +102,14 @@ mock.module(resolve(SRC, "middleware/rate-limiter.ts"), () => ({
   defaultLimiter: (_req: any, _res: any, next: any) => next(),
   discoverLimiter: (_req: any, _res: any, next: any) => next(),
   publishLimiter: (_req: any, _res: any, next: any) => next(),
+  eventsSseLimiter: (_req: any, _res: any, next: any) => next(),
+}))
+
+// ── Emitter mock (prevents better-sse import) ──
+mock.module(resolve(SRC, "services/events/emitter.ts"), () => ({
+  emitEvent: mock(() => {}),
+  getAgentChannel: mock(() => ({})),
+  getConnectedClientCount: mock(() => 0),
 }))
 
 // ── Owner-verify mock ──

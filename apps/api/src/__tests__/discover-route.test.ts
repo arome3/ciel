@@ -25,6 +25,14 @@ mock.module(resolve(SRC, "middleware/rate-limiter.ts"), () => ({
   defaultLimiter: (_req: any, _res: any, next: any) => next(),
   discoverLimiter: (_req: any, _res: any, next: any) => next(),
   publishLimiter: (_req: any, _res: any, next: any) => next(),
+  eventsSseLimiter: (_req: any, _res: any, next: any) => next(),
+}))
+
+// ── Emitter mock (prevents better-sse import) ──
+mock.module(resolve(SRC, "services/events/emitter.ts"), () => ({
+  emitEvent: mock(() => {}),
+  getAgentChannel: mock(() => ({})),
+  getConnectedClientCount: mock(() => 0),
 }))
 
 // ── Discovery client mock ──
@@ -59,8 +67,8 @@ beforeAll(async () => {
 })
 
 // ── Express-like request/response helpers ──
-function mockReq(query: Record<string, string> = {}) {
-  return { query } as any
+function mockReq(query: Record<string, string> = {}, headers: Record<string, string> = {}) {
+  return { query, headers } as any
 }
 
 function mockRes() {

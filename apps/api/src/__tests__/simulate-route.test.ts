@@ -99,6 +99,7 @@ mock.module(resolve(SRC, "middleware/rate-limiter.ts"), () => ({
   defaultLimiter: (_req: any, _res: any, next: any) => next(),
   discoverLimiter: (_req: any, _res: any, next: any) => next(),
   publishLimiter: (_req: any, _res: any, next: any) => next(),
+  eventsSseLimiter: (_req: any, _res: any, next: any) => next(),
 }))
 
 // ── LRU Cache mock (functional Map-based, no TTL) ──

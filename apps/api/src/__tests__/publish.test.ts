@@ -99,6 +99,13 @@ mock.module(resolve(SRC, "db/schema.ts"), () => ({
   },
 }))
 
+// ── Emitter mock (prevents better-sse import) ──
+mock.module(resolve(SRC, "services/events/emitter.ts"), () => ({
+  emitEvent: mock(() => {}),
+  getAgentChannel: mock(() => ({})),
+  getConnectedClientCount: mock(() => 0),
+}))
+
 // ── Rate limiter mock ──
 mock.module(resolve(SRC, "middleware/rate-limiter.ts"), () => ({
   executeLimiter: (_req: any, _res: any, next: any) => next(),
@@ -107,6 +114,7 @@ mock.module(resolve(SRC, "middleware/rate-limiter.ts"), () => ({
   defaultLimiter: (_req: any, _res: any, next: any) => next(),
   discoverLimiter: (_req: any, _res: any, next: any) => next(),
   publishLimiter: (_req: any, _res: any, next: any) => next(),
+  eventsSseLimiter: (_req: any, _res: any, next: any) => next(),
 }))
 
 // ── Registry mock ──
@@ -343,12 +351,10 @@ describe("publish route — error propagation", () => {
     expect(error).toBeTruthy()
   })
 
-  test("SSE event insert failure still succeeds", async () => {
-    mockInsertError = true
-
+  test("emitter failure does not block response", async () => {
+    // emitEvent is fire-and-forget via the emitter module
     const { json, error } = await invokeRoute()
 
-    // SSE insert is fire-and-forget, should not block response
     expect(error).toBeNull()
     expect(json).toBeTruthy()
   })

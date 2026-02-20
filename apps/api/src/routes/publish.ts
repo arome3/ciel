@@ -4,8 +4,9 @@ import { verifyMessage } from "viem"
 import { PublishRequestSchema } from "../types/api"
 import { AppError, ErrorCodes } from "../types/errors"
 import { db } from "../db"
-import { workflows, events } from "../db/schema"
+import { workflows } from "../db/schema"
 import { publishToRegistry } from "../services/blockchain/registry"
+import { emitEvent } from "../services/events/emitter"
 import { publishLimiter } from "../middleware/rate-limiter"
 import { config } from "../config"
 import { createLogger } from "../lib/logger"
@@ -116,18 +117,6 @@ router.post("/publish", publishLimiter, async (req, res, next) => {
       })
       .where(eq(workflows.id, workflowId))
 
-    // ── Fire-and-forget: SSE event ──
-    db.insert(events)
-      .values({
-        type: "publish",
-        data: JSON.stringify({
-          workflowId,
-          onchainWorkflowId,
-          name,
-        }),
-      })
-      .catch((err) => log.error("Failed to insert publish event", err))
-
     log.info(
       `Published ${workflowId} — onchain: ${onchainWorkflowId}, tx: ${publishTxHash}`,
     )
@@ -137,6 +126,18 @@ router.post("/publish", publishLimiter, async (req, res, next) => {
       onchainWorkflowId,
       publishTxHash,
       x402Endpoint,
+    })
+
+    // Fire-and-forget: SSE broadcast (after response to prevent crash propagation)
+    emitEvent({
+      type: "publish",
+      data: {
+        workflowId,
+        name,
+        category: workflow.category,
+        txHash: publishTxHash,
+        timestamp: Date.now(),
+      },
     })
   } catch (err) {
     next(err)

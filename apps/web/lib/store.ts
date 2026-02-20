@@ -8,12 +8,16 @@ import { api } from "./api"
 
 export interface SSEEvent {
   type: string
-  workflowId: string
-  workflowName: string
+  workflowId?: string
+  workflowName?: string
   agentAddress: string
   result?: unknown
   error?: string
   timestamp: number
+  query?: string
+  matchCount?: number
+  category?: string
+  txHash?: string
 }
 
 interface WorkflowState {

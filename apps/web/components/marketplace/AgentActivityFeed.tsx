@@ -1,9 +1,8 @@
 "use client"
 
-import { useEffect } from "react"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { useWorkflowStore, type SSEEvent } from "@/lib/store"
-import { createSSEConnection } from "@/lib/sse"
+import { useAgentActivity } from "@/hooks/useAgentActivity"
+import type { SSEEvent } from "@/lib/store"
 
 function truncateAddress(address: string): string {
   if (address.length <= 12) return address
@@ -30,6 +29,8 @@ function EventItem({ event }: { event: SSEEvent }) {
     className: "text-muted-foreground",
   }
 
+  const displayName = event.workflowName ?? event.query ?? "Unknown"
+
   return (
     <div className="flex items-start gap-3 rounded-lg bg-muted/50 p-3">
       <span className={`font-mono text-xs font-bold ${badge.className}`}>
@@ -37,7 +38,7 @@ function EventItem({ event }: { event: SSEEvent }) {
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-sm text-foreground">
-          <span className="font-medium">{event.workflowName}</span>
+          <span className="font-medium">{displayName}</span>
         </p>
         <div className="mt-0.5 flex items-center gap-2">
           <span className="font-mono text-xs text-muted-foreground">
@@ -56,30 +57,27 @@ function EventItem({ event }: { event: SSEEvent }) {
 }
 
 export function AgentActivityFeed() {
-  const agentEvents = useWorkflowStore((s) => s.agentEvents)
-  const addAgentEvent = useWorkflowStore((s) => s.addAgentEvent)
-
-  useEffect(() => {
-    const cleanup = createSSEConnection({
-      onExecution: (data) =>
-        addAgentEvent({ ...(data as SSEEvent), type: "execution" }),
-      onPublish: (data) =>
-        addAgentEvent({ ...(data as SSEEvent), type: "publish" }),
-      onDiscovery: (data) =>
-        addAgentEvent({ ...(data as SSEEvent), type: "discovery" }),
-    })
-    return cleanup
-  }, [addAgentEvent])
+  const { agentEvents, isConnected, connectionError } = useAgentActivity()
 
   return (
     <div className="rounded-xl border border-border bg-card">
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+        <span
+          className={`h-2 w-2 rounded-full ${
+            isConnected
+              ? "animate-pulse bg-green-500"
+              : connectionError
+                ? "bg-red-500"
+                : "bg-yellow-500"
+          }`}
+        />
         <h3 className="text-sm font-semibold text-foreground">
           Agent Activity
         </h3>
-        <span className="text-xs text-muted-foreground">Live</span>
+        <span className="text-xs text-muted-foreground">
+          {isConnected ? "Live" : connectionError ? "Disconnected" : "Connecting..."}
+        </span>
       </div>
 
       {/* Event list */}
@@ -91,7 +89,10 @@ export function AgentActivityFeed() {
             </p>
           ) : (
             agentEvents.map((event, i) => (
-              <EventItem key={`${event.workflowId}-${event.timestamp}-${i}`} event={event} />
+              <EventItem
+                key={`${event.type}-${event.timestamp}-${i}`}
+                event={event}
+              />
             ))
           )}
         </div>

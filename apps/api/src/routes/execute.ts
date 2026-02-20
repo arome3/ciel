@@ -8,6 +8,7 @@ import { conditionalPayment } from "../services/x402/middleware"
 import { db } from "../db"
 import { workflows, executions } from "../db/schema"
 import { recordExecution } from "../services/blockchain/registry"
+import { emitEvent } from "../services/events/emitter"
 import { createLogger } from "../lib/logger"
 import type { Hex } from "viem"
 
@@ -96,6 +97,18 @@ router.get(
           paid: isPaid,
           amountUsdc,
           ownerBypassed: !isPaid,
+        },
+      })
+
+      // ── Fire-and-forget: SSE broadcast ──
+      emitEvent({
+        type: "execution",
+        data: {
+          workflowId,
+          workflowName: workflow.name,
+          agentAddress: req.ownerAddress ?? "anonymous",
+          result,
+          timestamp: Date.now(),
         },
       })
 

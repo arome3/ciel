@@ -4,6 +4,7 @@ export interface SSEHandlers {
   onExecution?: (data: unknown) => void
   onPublish?: (data: unknown) => void
   onDiscovery?: (data: unknown) => void
+  onOpen?: () => void
 }
 
 /**
@@ -24,8 +25,12 @@ export function createSSEConnection(
 
     es = new EventSource(`${API_BASE}/api/events`)
 
-    es.addEventListener("execution", (e) => {
+    es.addEventListener("open", () => {
       reconnectDelay = 1000
+      handlers.onOpen?.()
+    })
+
+    es.addEventListener("execution", (e) => {
       try {
         const data = JSON.parse((e as MessageEvent).data)
         handlers.onExecution?.(data)
@@ -35,7 +40,6 @@ export function createSSEConnection(
     })
 
     es.addEventListener("publish", (e) => {
-      reconnectDelay = 1000
       try {
         const data = JSON.parse((e as MessageEvent).data)
         handlers.onPublish?.(data)
@@ -45,7 +49,6 @@ export function createSSEConnection(
     })
 
     es.addEventListener("discovery", (e) => {
-      reconnectDelay = 1000
       try {
         const data = JSON.parse((e as MessageEvent).data)
         handlers.onDiscovery?.(data)
@@ -53,11 +56,6 @@ export function createSSEConnection(
         // malformed event data — ignore
       }
     })
-
-    // Reset backoff on any successful message (keepalive or named)
-    es.onmessage = () => {
-      reconnectDelay = 1000
-    }
 
     es.onerror = (err) => {
       onError?.(err)

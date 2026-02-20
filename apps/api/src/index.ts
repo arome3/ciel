@@ -47,6 +47,9 @@ app.use(
 // ── Body parsing ──
 app.use(express.json({ limit: "1mb" }))
 
+// ── SSE route (before global limiter — has its own eventsSseLimiter) ──
+app.use("/api", eventsRouter)
+
 // ── Global rate limiter ──
 app.use(defaultLimiter)
 
@@ -57,7 +60,6 @@ app.use("/api", generateRouter)
 app.use("/api", simulateRouter)
 app.use("/api", publishRouter)
 app.use("/api", executeRouter)
-app.use("/api", eventsRouter)
 app.use("/api", discoverRouter)
 
 // ── Error handler (must be last) ──
