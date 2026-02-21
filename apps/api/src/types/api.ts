@@ -30,6 +30,15 @@ export const PublishRequestSchema = z.object({
   priceUsdc: z.number().int().min(1000).max(10_000_000),
 })
 
+export const PublishResponseSchema = z.object({
+  workflowId: z.string().uuid(),
+  onchainWorkflowId: z.string(),
+  publishTxHash: z.string(),
+  x402Endpoint: z.string(),
+  deployStatus: z.enum(["pending", "deployed", "failed"]),
+  donWorkflowId: z.string().nullable(),
+})
+
 export const WorkflowsListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -108,6 +117,8 @@ export interface PublishResponse {
   onchainWorkflowId: string
   publishTxHash: string
   x402Endpoint: string
+  deployStatus: "pending" | "deployed" | "failed"
+  donWorkflowId: string | null
 }
 
 export interface WorkflowSummary {

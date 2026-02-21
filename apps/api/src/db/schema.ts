@@ -29,6 +29,8 @@ export const workflows = sqliteTable("workflows", {
   published: integer("published", { mode: "boolean" }).default(false),
   onchainWorkflowId: text("onchain_workflow_id"),           // bytes32 from registry
   publishTxHash: text("publish_tx_hash"),
+  donWorkflowId: text("don_workflow_id"),                   // CRE DON workflow ID (set async after deploy)
+  deployStatus: text("deploy_status").default("none"),      // "none" | "pending" | "deployed" | "failed"
   ownerAddress: text("owner_address").notNull(),   // Wallet address of workflow creator
   inputSchema: text("input_schema", { mode: "json" }),   // JSON Schema for workflow inputs
   outputSchema: text("output_schema", { mode: "json" }),  // JSON Schema for workflow outputs

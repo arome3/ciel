@@ -22,6 +22,14 @@ export interface PublishEventData {
   timestamp: number
 }
 
+export interface DeployEventData {
+  workflowId: string
+  status: "deployed" | "failed"
+  donWorkflowId?: string
+  error?: string
+  timestamp: number
+}
+
 export interface DiscoveryEventData {
   agentAddress: string
   query: string
@@ -41,10 +49,16 @@ export interface PublishEvent {
   data: PublishEventData
 }
 
+export interface DeployEvent {
+  type: "deploy"
+  silent?: boolean
+  data: DeployEventData
+}
+
 export interface DiscoveryEvent {
   type: "discovery"
   silent?: boolean
   data: DiscoveryEventData
 }
 
-export type SSEEvent = ExecutionEvent | PublishEvent | DiscoveryEvent
+export type SSEEvent = ExecutionEvent | PublishEvent | DeployEvent | DiscoveryEvent

@@ -8,6 +8,7 @@ import { conditionalPayment } from "../services/x402/middleware"
 import { db } from "../db"
 import { workflows, executions } from "../db/schema"
 import { recordExecution } from "../services/blockchain/registry"
+import { simulateWorkflow } from "../services/cre/compiler"
 import { emitEvent } from "../services/events/emitter"
 import { createLogger } from "../lib/logger"
 import type { Hex } from "viem"
@@ -36,7 +37,7 @@ router.get(
         )
       }
 
-      // ── Fetch workflow (projection — skip heavy code/config blobs) ──
+      // ── Fetch workflow (include code/config for simulation + DON status) ──
       const workflow = await db
         .select({
           id: workflows.id,
@@ -45,6 +46,10 @@ router.get(
           priceUsdc: workflows.priceUsdc,
           templateId: workflows.templateId,
           onchainWorkflowId: workflows.onchainWorkflowId,
+          donWorkflowId: workflows.donWorkflowId,
+          deployStatus: workflows.deployStatus,
+          code: workflows.code,
+          config: workflows.config,
         })
         .from(workflows)
         .where(eq(workflows.id, workflowId))
@@ -58,11 +63,34 @@ router.get(
         )
       }
 
-      // ── Execute (stub — real CRE execution is a future doc) ──
-      const result = {
-        output: `Workflow ${workflow.name} executed successfully`,
-        templateId: workflow.templateId,
+      // ── Execute via simulation ──
+      let execSuccess = true
+      let result: Record<string, unknown>
+
+      try {
+        let configObj: Record<string, unknown> = {}
+        try { configObj = JSON.parse(workflow.config) } catch {
+          log.warn(`Invalid config JSON for workflow ${workflowId}, using empty config`)
+        }
+
+        const simResult = await simulateWorkflow(workflow.code, configObj)
+        execSuccess = simResult.success
+        result = {
+          output: simResult.success ? simResult.executionTrace : simResult.errors,
+          templateId: workflow.templateId,
+          success: simResult.success,
+          duration: simResult.duration,
+          warnings: simResult.warnings,
+        }
+      } catch (err) {
+        execSuccess = false
+        result = {
+          output: `Execution error: ${(err as Error).message}`,
+          templateId: workflow.templateId,
+          success: false,
+        }
       }
+
       const duration = Date.now() - start
 
       // ── Determine payment info ──
@@ -76,7 +104,7 @@ router.get(
         agentAddress: req.ownerAddress ?? null,
         paymentTxHash: null,
         amountUsdc: amountUsdc ?? null,
-        success: true,
+        success: execSuccess,
         result: JSON.stringify(result),
         duration,
       }
@@ -87,12 +115,15 @@ router.get(
         await db.insert(executions).values(executionRecord)
       }
 
+      // Beta: always simulates — DON execution requires CRE runtime (not yet available)
       res.json({
         executionId,
         workflowId,
-        success: true,
+        success: execSuccess,
         result,
         duration,
+        donWorkflowId: workflow.donWorkflowId ?? null,
+        deployStatus: workflow.deployStatus ?? "none",
         payment: {
           paid: isPaid,
           amountUsdc,
@@ -122,7 +153,7 @@ router.get(
       db.update(workflows)
         .set({
           totalExecutions: sql`${workflows.totalExecutions} + 1`,
-          successfulExecutions: sql`${workflows.successfulExecutions} + 1`,
+          ...(execSuccess === true ? { successfulExecutions: sql`${workflows.successfulExecutions} + 1` } : {}),
           updatedAt: new Date().toISOString(),
         })
         .where(eq(workflows.id, workflowId))
@@ -130,7 +161,7 @@ router.get(
 
       // ── Fire-and-forget: On-chain recording ──
       if (workflow.onchainWorkflowId) {
-        recordExecution(workflow.onchainWorkflowId as Hex, true)
+        recordExecution(workflow.onchainWorkflowId as Hex, execSuccess)
           .catch((err) => log.error("Failed to record execution on-chain", err))
       }
     } catch (err) {

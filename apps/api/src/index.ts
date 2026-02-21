@@ -11,10 +11,15 @@ import generateRouter from "./routes/generate"
 import simulateRouter from "./routes/simulate"
 import publishRouter from "./routes/publish"
 import executeRouter from "./routes/execute"
+import redeployRouter from "./routes/redeploy"
 import eventsRouter from "./routes/events"
 import discoverRouter from "./routes/discover"
+import { createLogger } from "./lib/logger"
 import { checkCRECli } from "./services/cre/compiler"
 import { warmDependencyCache } from "./services/cre/dep-cache"
+import { sweepStalePendingDeploys } from "./services/cre/deploy-sweep"
+
+const log = createLogger("Server")
 
 const app = express()
 
@@ -60,6 +65,7 @@ app.use("/api", generateRouter)
 app.use("/api", simulateRouter)
 app.use("/api", publishRouter)
 app.use("/api", executeRouter)
+app.use("/api", redeployRouter)
 app.use("/api", discoverRouter)
 
 // ── Error handler (must be last) ──
@@ -67,11 +73,13 @@ app.use(errorHandler)
 
 // ── Start server ──
 app.listen(config.API_PORT, () => {
-  console.log(`[ciel-api] Listening on http://localhost:${config.API_PORT}`)
+  log.info(`Listening on http://localhost:${config.API_PORT}`)
   // Fire-and-forget CRE CLI check — log-only, never crash
   checkCRECli().catch(() => {})
   // Pre-warm dependency cache for faster first simulation
   warmDependencyCache().catch(() => {})
+  // Sweep stale pending deploys from previous crashed processes
+  sweepStalePendingDeploys().catch(() => {})
 })
 
 export default app

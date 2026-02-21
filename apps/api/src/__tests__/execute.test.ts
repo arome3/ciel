@@ -36,6 +36,10 @@ const TEST_WORKFLOW = {
   priceUsdc: 10000,
   templateId: 1,
   onchainWorkflowId: "0xabc123",
+  donWorkflowId: null,
+  deployStatus: "none",
+  code: "// test workflow code",
+  config: '{"test": true}',
 }
 
 let mockSelectResult: any = TEST_WORKFLOW
@@ -87,6 +91,10 @@ mock.module(resolve(SRC, "db/schema.ts"), () => ({
     priceUsdc: "price_usdc",
     templateId: "template_id",
     onchainWorkflowId: "onchain_workflow_id",
+    donWorkflowId: "don_workflow_id",
+    deployStatus: "deploy_status",
+    code: "code",
+    config: "config",
     totalExecutions: "total_executions",
     successfulExecutions: "successful_executions",
   },
@@ -120,6 +128,27 @@ mock.module(resolve(SRC, "middleware/owner-verify.ts"), () => ({
 // ── x402 middleware mock ──
 mock.module(resolve(SRC, "services/x402/middleware.ts"), () => ({
   conditionalPayment: (req: any, _res: any, next: any) => next(),
+}))
+
+// ── Compiler mock ──
+let mockSimulateError = false
+
+const mockSimulateWorkflow = mock(() => {
+  if (mockSimulateError) return Promise.reject(new Error("Simulation crashed"))
+  return Promise.resolve({
+    success: true,
+    executionTrace: [{ step: "trigger", status: "ok", duration: 10, output: "fired" }],
+    duration: 42,
+    errors: [],
+    warnings: [],
+    rawOutput: "ok",
+  })
+})
+
+mock.module(resolve(SRC, "services/cre/compiler.ts"), () => ({
+  simulateWorkflow: mockSimulateWorkflow,
+  checkCRECli: mock(() => Promise.resolve(true)),
+  _getSimState: mock(() => ({ activeSimCount: 0, queueLength: 0 })),
 }))
 
 // ── Registry mock ──
@@ -176,6 +205,7 @@ beforeEach(() => {
   mockSelectResult = { ...TEST_WORKFLOW }
   mockInsertError = false
   mockUpdateError = false
+  mockSimulateError = false
   insertCalled = false
   updateCalled = false
   insertValues = null
@@ -279,7 +309,7 @@ describe("execute route — workflow validation", () => {
 })
 
 describe("execute route — success response", () => {
-  test("returns correct response shape", async () => {
+  test("returns correct response shape with simulation result", async () => {
     const { json, error } = await invokeRoute()
 
     expect(error).toBeNull()
@@ -289,6 +319,9 @@ describe("execute route — success response", () => {
     expect(json.success).toBe(true)
     expect(json.result).toHaveProperty("output")
     expect(json.result).toHaveProperty("templateId")
+    expect(json.result).toHaveProperty("success")
+    expect(json.result.success).toBe(true)
+    expect(Array.isArray(json.result.output)).toBe(true)
     expect(json.duration).toBeNumber()
     expect(json.payment).toBeTruthy()
   })
@@ -297,6 +330,40 @@ describe("execute route — success response", () => {
     const { json } = await invokeRoute()
 
     expect(json.result.templateId).toBe(1)
+  })
+
+  test("response includes donWorkflowId and deployStatus", async () => {
+    const { json } = await invokeRoute()
+
+    expect(json).toHaveProperty("donWorkflowId")
+    expect(json).toHaveProperty("deployStatus")
+    expect(json.donWorkflowId).toBeNull()
+    expect(json.deployStatus).toBe("none")
+  })
+
+  test("deployed workflow surfaces donWorkflowId", async () => {
+    mockSelectResult = {
+      ...TEST_WORKFLOW,
+      donWorkflowId: "don-123",
+      deployStatus: "deployed",
+    }
+
+    const { json } = await invokeRoute()
+
+    expect(json.donWorkflowId).toBe("don-123")
+    expect(json.deployStatus).toBe("deployed")
+  })
+
+  test("simulation failure sets success to false", async () => {
+    mockSimulateError = true
+
+    const { json, error } = await invokeRoute()
+
+    expect(error).toBeNull()
+    expect(json).toBeTruthy()
+    expect(json.success).toBe(false)
+    expect(json.result.success).toBe(false)
+    expect(json.result.output).toContain("Execution error")
   })
 })
 
@@ -374,7 +441,7 @@ describe("execute route — fire-and-forget stats update", () => {
 })
 
 describe("execute route — on-chain recording", () => {
-  test("calls recordExecution with workflow onchainWorkflowId", async () => {
+  test("calls recordExecution with workflow onchainWorkflowId and success flag", async () => {
     await invokeRoute()
 
     expect(recordExecutionCalled).toBe(true)

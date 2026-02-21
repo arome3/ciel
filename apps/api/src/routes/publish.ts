@@ -6,6 +6,7 @@ import { AppError, ErrorCodes } from "../types/errors"
 import { db } from "../db"
 import { workflows } from "../db/schema"
 import { publishToRegistry } from "../services/blockchain/registry"
+import { deployWorkflow, handleDeployResult } from "../services/cre/deployer"
 import { emitEvent } from "../services/events/emitter"
 import { publishLimiter } from "../middleware/rate-limiter"
 import { config } from "../config"
@@ -113,6 +114,7 @@ router.post("/publish", publishLimiter, async (req, res, next) => {
         priceUsdc,
         name,
         description,
+        deployStatus: "pending",
         updatedAt: new Date().toISOString(),
       })
       .where(eq(workflows.id, workflowId))
@@ -121,11 +123,14 @@ router.post("/publish", publishLimiter, async (req, res, next) => {
       `Published ${workflowId} — onchain: ${onchainWorkflowId}, tx: ${publishTxHash}`,
     )
 
+    // Response returned immediately — DON deployment is async
     res.json({
       workflowId,
       onchainWorkflowId,
       publishTxHash,
       x402Endpoint,
+      deployStatus: "pending",
+      donWorkflowId: null,
     })
 
     // Fire-and-forget: SSE broadcast (after response to prevent crash propagation)
@@ -139,6 +144,22 @@ router.post("/publish", publishLimiter, async (req, res, next) => {
         timestamp: Date.now(),
       },
     })
+
+    // Fire-and-forget: Deploy to CRE DON (after response)
+    let configObj: Record<string, unknown> = {}
+    try { configObj = JSON.parse(workflow.config) } catch {
+      log.warn(`Invalid config JSON for workflow ${workflowId}, using empty config`)
+    }
+
+    handleDeployResult(
+      workflowId,
+      deployWorkflow({
+        code: workflow.code,
+        configJson: configObj,
+        consumerAddress: config.CONSUMER_CONTRACT_ADDRESS,
+      }),
+      log,
+    )
   } catch (err) {
     next(err)
   }
