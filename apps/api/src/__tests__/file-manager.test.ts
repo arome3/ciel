@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { loadTemplateFile, loadTemplateConfig, buildFallbackConfig } from "../services/ai-engine/file-manager"
+import { loadTemplateFile, loadTemplateConfig, buildFallbackConfig, detectStateKeyword, detectOnchainStateKeyword } from "../services/ai-engine/file-manager"
 import type { ParsedIntent } from "../services/ai-engine/types"
 import type { TemplateDefinition } from "../services/ai-engine/template-matcher"
 
@@ -204,6 +204,120 @@ describe("buildFallbackConfig", () => {
 })
 
 // ─────────────────────────────────────────────
+// buildFallbackConfig — state keyword detection
+// ─────────────────────────────────────────────
+
+describe("buildFallbackConfig — state keyword detection", () => {
+  test("adds KV config when 'history' keyword present", () => {
+    const intent = makeIntent({ keywords: ["price", "history", "monitor"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.kvStoreUrl).toBeDefined()
+    expect(config.kvApiKey).toBeDefined()
+    expect(config.stateKey).toBeDefined()
+  })
+
+  test("adds KV config when 'portfolio' keyword present", () => {
+    const intent = makeIntent({ keywords: ["portfolio", "rebalance"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.kvStoreUrl).toBeDefined()
+    expect(config.kvApiKey).toBeDefined()
+    expect(config.stateKey).toBeDefined()
+  })
+
+  test("adds KV config when 'average' keyword present", () => {
+    const intent = makeIntent({ keywords: ["price", "average", "compute"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.kvStoreUrl).toBeDefined()
+  })
+
+  test("adds KV config when 'track' keyword present", () => {
+    const intent = makeIntent({ keywords: ["track", "token", "balance"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.kvStoreUrl).toBeDefined()
+  })
+
+  test("omits KV config when no state keywords present", () => {
+    const intent = makeIntent({ keywords: ["price", "monitor", "alert"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.kvStoreUrl).toBeUndefined()
+    expect(config.kvApiKey).toBeUndefined()
+    expect(config.stateKey).toBeUndefined()
+  })
+
+  test("KV config has expected placeholder values with dynamic stateKey", () => {
+    const intent = makeIntent({ keywords: ["price", "trend", "weekly"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.kvStoreUrl).toBe("https://your-kv-store.upstash.io")
+    expect(config.kvApiKey).toBe("kv-api-key-placeholder")
+    expect(config.stateKey).toBe("ciel-trend-data")
+  })
+
+  // ── Expanded keyword coverage ──
+
+  test("adds KV config when 'remember' keyword present", () => {
+    const intent = makeIntent({ keywords: ["remember", "price", "last"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.kvStoreUrl).toBeDefined()
+    expect(config.stateKey).toBe("ciel-remember-data")
+  })
+
+  test("adds KV config when 'persist' keyword present", () => {
+    const intent = makeIntent({ keywords: ["persist", "data", "store"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.kvStoreUrl).toBeDefined()
+  })
+
+  test("adds KV config when 'rolling' keyword present", () => {
+    const intent = makeIntent({ keywords: ["rolling", "average", "compute"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.kvStoreUrl).toBeDefined()
+  })
+
+  test("adds KV config when 'daily' keyword present", () => {
+    const intent = makeIntent({ keywords: ["daily", "price", "report"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.kvStoreUrl).toBeDefined()
+  })
+
+  // ── Dynamic stateKey ──
+
+  test("stateKey is dynamic based on matched keyword", () => {
+    const intent = makeIntent({ keywords: ["price", "history", "monitor"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.stateKey).toBe("ciel-history-data")
+  })
+
+  test("different keywords produce different stateKeys", () => {
+    const intent1 = makeIntent({ keywords: ["portfolio", "rebalance"] })
+    const intent2 = makeIntent({ keywords: ["counter", "increment"] })
+    const config1 = JSON.parse(buildFallbackConfig(intent1, makeTemplate()))
+    const config2 = JSON.parse(buildFallbackConfig(intent2, makeTemplate()))
+    expect(config1.stateKey).toBe("ciel-portfolio-data")
+    expect(config2.stateKey).toBe("ciel-counter-data")
+  })
+
+  // ── Pattern 2: Onchain state detection ──
+
+  test("'onchain' keyword adds onchainWorkflowId", () => {
+    const intent = makeIntent({ keywords: ["onchain", "balance", "monitor"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.onchainWorkflowId).toBe("workflow-id-placeholder")
+  })
+
+  test("'trustless' keyword adds onchainWorkflowId", () => {
+    const intent = makeIntent({ keywords: ["trustless", "audit", "trail"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.onchainWorkflowId).toBe("workflow-id-placeholder")
+  })
+
+  test("no onchain keywords means no onchainWorkflowId", () => {
+    const intent = makeIntent({ keywords: ["price", "monitor", "alert"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.onchainWorkflowId).toBeUndefined()
+  })
+})
+
+// ─────────────────────────────────────────────
 // loadTemplateFile — templates 2-10
 // ─────────────────────────────────────────────
 
@@ -234,4 +348,118 @@ describe("loadTemplateConfig — templates 2-10", () => {
       expect(parsed).toHaveProperty("chainName")
     })
   }
+})
+
+// ─────────────────────────────────────────────
+// detectStateKeyword — stemmed matching
+// ─────────────────────────────────────────────
+
+describe("detectStateKeyword — stemmed matching", () => {
+  test("exact keyword 'track' returns 'track'", () => {
+    expect(detectStateKeyword(["track", "price"])).toBe("track")
+  })
+
+  test("inflected 'tracking' matches via stemmer", () => {
+    const result = detectStateKeyword(["tracking", "price"])
+    expect(result).toBe("tracking")
+  })
+
+  test("inflected 'averaging' matches via stemmer", () => {
+    const result = detectStateKeyword(["averaging", "compute"])
+    expect(result).toBe("averaging")
+  })
+
+  test("inflected 'stored' matches via stemmer", () => {
+    expect(detectStateKeyword(["stored", "data"])).toBe("stored")
+  })
+
+  test("inflected 'storing' matches via stemmer", () => {
+    expect(detectStateKeyword(["storing", "data"])).toBe("storing")
+  })
+
+  test("inflected 'saved' matches via stemmer", () => {
+    expect(detectStateKeyword(["saved", "data"])).toBe("saved")
+  })
+
+  test("inflected 'saving' matches via stemmer", () => {
+    expect(detectStateKeyword(["saving", "data"])).toBe("saving")
+  })
+
+  test("inflected 'accumulated' matches via stemmer", () => {
+    expect(detectStateKeyword(["accumulated", "value"])).toBe("accumulated")
+  })
+
+  test("inflected 'counters' matches via stemmer (plural of counter)", () => {
+    expect(detectStateKeyword(["counters", "items"])).toBe("counters")
+  })
+
+  test("inflected 'persisted' matches via stemmer", () => {
+    expect(detectStateKeyword(["persisted", "state"])).toBe("persisted")
+  })
+
+  test("no state keywords returns null", () => {
+    expect(detectStateKeyword(["price", "monitor", "alert"])).toBeNull()
+  })
+
+  test("prefers exact match over stemmed match", () => {
+    // "track" is exact; "tracking" would also match via stem
+    const result = detectStateKeyword(["tracking", "track"])
+    expect(result).toBe("track")
+  })
+})
+
+// ─────────────────────────────────────────────
+// detectOnchainStateKeyword — stemmed + expanded
+// ─────────────────────────────────────────────
+
+describe("detectOnchainStateKeyword — stemmed + expanded", () => {
+  test("'onchain' matches", () => {
+    expect(detectOnchainStateKeyword(["onchain", "data"])).toBe("onchain")
+  })
+
+  test("'immutable' matches (expanded keyword)", () => {
+    expect(detectOnchainStateKeyword(["immutable", "record"])).toBe("immutable")
+  })
+
+  test("'transparent' matches (expanded keyword)", () => {
+    expect(detectOnchainStateKeyword(["transparent", "audit"])).toBe("transparent")
+  })
+
+  test("'blockchain' matches (expanded keyword)", () => {
+    expect(detectOnchainStateKeyword(["blockchain", "state"])).toBe("blockchain")
+  })
+
+  test("'tamperproof' matches (expanded keyword)", () => {
+    expect(detectOnchainStateKeyword(["tamperproof", "log"])).toBe("tamperproof")
+  })
+
+  test("no onchain keywords returns null", () => {
+    expect(detectOnchainStateKeyword(["price", "monitor"])).toBeNull()
+  })
+})
+
+// ─────────────────────────────────────────────
+// buildFallbackConfig — stemmed state keywords
+// ─────────────────────────────────────────────
+
+describe("buildFallbackConfig — stemmed state keywords", () => {
+  test("inflected 'tracking' triggers KV config with dynamic stateKey", () => {
+    const intent = makeIntent({ keywords: ["tracking", "token", "balance"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.kvStoreUrl).toBe("https://your-kv-store.upstash.io")
+    expect(config.kvApiKey).toBe("kv-api-key-placeholder")
+    expect(config.stateKey).toBe("ciel-tracking-data")
+  })
+
+  test("inflected 'averaging' triggers KV config", () => {
+    const intent = makeIntent({ keywords: ["averaging", "compute"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.kvStoreUrl).toBeDefined()
+  })
+
+  test("inflected 'stored' triggers KV config", () => {
+    const intent = makeIntent({ keywords: ["stored", "value"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.kvStoreUrl).toBeDefined()
+  })
 })

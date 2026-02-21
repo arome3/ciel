@@ -349,6 +349,34 @@ function checkConfigJson(code: string, configJson: string): string[] {
   return errors
 }
 
+/**
+ * (g) State Pattern Check — KV store access must use ConfidentialHTTPClient.
+ *     If config has a non-empty kvStoreUrl, the code MUST reference ConfidentialHTTPClient.
+ */
+function checkStatePatterns(code: string, configJson: string): string[] {
+  const errors: string[] = []
+
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(configJson) as Record<string, unknown>
+  } catch {
+    return errors  // Invalid JSON caught by checkConfigJson
+  }
+
+  const kvStoreUrl = parsed.kvStoreUrl
+  if (typeof kvStoreUrl === "string" && kvStoreUrl.length > 0) {
+    if (!/new\s+ConfidentialHTTPClient\s*\(/.test(code)) {
+      errors.push(
+        "[STATE] Config includes kvStoreUrl but code does not use ConfidentialHTTPClient. " +
+        "KV store access MUST use ConfidentialHTTPClient (not HTTPClient) to protect API keys across DON nodes. " +
+        "REPLACE the HTTPClient used for KV access with ConfidentialHTTPClient.",
+      )
+    }
+  }
+
+  return errors
+}
+
 // ─────────────────────────────────────────────
 // TypeScript Compilation Check
 // ─────────────────────────────────────────────
@@ -654,6 +682,7 @@ export async function validateWorkflow(
   errors.push(...checkMainExport(code))
   errors.push(...checkZodSchema(code))
   errors.push(...checkConfigJson(code, configJson))
+  errors.push(...checkStatePatterns(code, configJson))
 
   // Phase 2: Expensive check — only if Phase 1 passes (cheap-first pattern)
   if (errors.length === 0) {

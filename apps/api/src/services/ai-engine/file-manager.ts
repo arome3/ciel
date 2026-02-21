@@ -9,8 +9,28 @@ import { readFileSync } from "fs"
 import { join } from "path"
 import type { ParsedIntent } from "./types"
 import type { TemplateDefinition } from "./template-matcher"
+import { stemmer, buildStemmedSet } from "./nlp-utils"
 
 const TEMPLATES_DIR = join(__dirname, "../../../templates")
+
+export const STATE_KEYWORDS = new Set([
+  // Existing
+  "history", "previous", "yesterday", "portfolio", "holdings",
+  "track", "accumulate", "average", "counter", "trend",
+  // Temporal/persistence words
+  "remember", "store", "save", "persist",
+  "cumulative", "rolling", "moving", "aggregate",
+  "delta", "compare", "daily", "weekly", "prior",
+])
+
+const ONCHAIN_STATE_KEYWORDS = new Set([
+  "onchain", "trustless", "verifiable", "audit",
+  "immutable", "transparent", "tamperproof", "blockchain",
+])
+
+// Pre-computed stemmed sets for morphological matching (e.g. "tracking" → "track")
+const STATE_KEYWORDS_STEMMED = buildStemmedSet(Array.from(STATE_KEYWORDS))
+const ONCHAIN_STATE_KEYWORDS_STEMMED = buildStemmedSet(Array.from(ONCHAIN_STATE_KEYWORDS))
 
 /**
  * Loads a pre-built template TypeScript file.
@@ -34,6 +54,34 @@ export function loadTemplateConfig(templateId: number): string | null {
   } catch {
     return null
   }
+}
+
+/**
+ * Detects whether any keyword matches the STATE_KEYWORDS set via exact or stemmed matching.
+ * Returns the user's original keyword (for stateKey naming) or null.
+ */
+export function detectStateKeyword(keywords: string[]): string | null {
+  // Tier 1: exact match (preferred — preserves naming)
+  const exact = keywords.find((kw) => STATE_KEYWORDS.has(kw))
+  if (exact) return exact
+  // Tier 2: stemmed match
+  for (const kw of keywords) {
+    if (STATE_KEYWORDS_STEMMED.has(stemmer(kw))) return kw
+  }
+  return null
+}
+
+/**
+ * Detects whether any keyword matches the ONCHAIN_STATE_KEYWORDS set via exact or stemmed matching.
+ * Returns the user's original keyword or null.
+ */
+export function detectOnchainStateKeyword(keywords: string[]): string | null {
+  const exact = keywords.find((kw) => ONCHAIN_STATE_KEYWORDS.has(kw))
+  if (exact) return exact
+  for (const kw of keywords) {
+    if (ONCHAIN_STATE_KEYWORDS_STEMMED.has(stemmer(kw))) return kw
+  }
+  return null
 }
 
 /**
@@ -125,6 +173,20 @@ export function buildFallbackConfig(
   if (intent.actions.includes("rebalance")) {
     config.targetAllocations = '{"ETH":50,"BTC":30,"LINK":20}'
     config.driftThreshold = 5
+  }
+
+  // State management: add KV store config when stateful keywords detected
+  const stateKeyword = detectStateKeyword(intent.keywords)
+  if (stateKeyword) {
+    config.kvStoreUrl = "https://your-kv-store.upstash.io"
+    config.kvApiKey = "kv-api-key-placeholder"
+    config.stateKey = `ciel-${stateKeyword}-data`
+  }
+
+  // Onchain state: add workflow ID when onchain state keywords detected
+  const onchainKeyword = detectOnchainStateKeyword(intent.keywords)
+  if (onchainKeyword) {
+    config.onchainWorkflowId = "workflow-id-placeholder"
   }
 
   return JSON.stringify(config, null, 2)

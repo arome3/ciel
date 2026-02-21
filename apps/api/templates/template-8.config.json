@@ -6,5 +6,8 @@
   "operationData": "{}",
   "consumerContract": "0x0000000000000000000000000000000000000000",
   "chainName": "base-sepolia",
-  "cronSchedule": "0 */1 * * * *"
+  "cronSchedule": "0 */1 * * * *",
+  "kvStoreUrl": "",
+  "kvApiKey": "",
+  "stateKey": ""
 }

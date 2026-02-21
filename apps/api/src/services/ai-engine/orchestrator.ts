@@ -149,6 +149,26 @@ async function buildFallback(
     configJson = "{}"
   }
 
+  // Merge intent-driven fields into pre-built config.
+  // Pre-built configs have empty-string placeholders for kvStoreUrl/kvApiKey/stateKey;
+  // buildFallbackConfig fills them from intent keywords. Merge non-empty generated
+  // values into loaded config without overwriting existing non-empty fields.
+  if (configJson && templateDef) {
+    const intentConfig = buildFallbackConfig(intent, templateDef)
+    try {
+      const loaded = JSON.parse(configJson) as Record<string, unknown>
+      const generated = JSON.parse(intentConfig) as Record<string, unknown>
+      for (const [key, value] of Object.entries(generated)) {
+        if (value !== "" && value !== undefined && (!(key in loaded) || loaded[key] === "")) {
+          loaded[key] = value
+        }
+      }
+      configJson = JSON.stringify(loaded, null, 2)
+    } catch {
+      // JSON parse failed — keep config as-is
+    }
+  }
+
   // Apply quickFix to the fallback code
   if (code) {
     const fixed = quickFix(code)
@@ -207,9 +227,12 @@ async function runPipeline(
   const templateDef = getTemplateById(template.templateId)
 
   // ── Warm caches (these are module-level caches, subsequent calls are free) ──
+  // Return values intentionally discarded — these calls populate module-level caches
+  // (TEMPLATE_CACHE in context-builder, DOC_CACHE in doc-retriever) as side effects.
+  // generateCode() calls them again and uses the cached results.
   buildFewShotContext(template.templateId)
   if (templateDef) {
-    retrieveRelevantDocs(templateDef)
+    retrieveRelevantDocs(templateDef, intent)
   }
   await getContext7CREDocs()
 

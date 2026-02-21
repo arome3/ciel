@@ -4,5 +4,8 @@
   "minSources": 2,
   "consumerContract": "0x0000000000000000000000000000000000000000",
   "chainName": "base-sepolia",
-  "cronSchedule": "0 */5 * * * *"
+  "cronSchedule": "0 */5 * * * *",
+  "kvStoreUrl": "",
+  "kvApiKey": "",
+  "stateKey": ""
 }

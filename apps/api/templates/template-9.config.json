@@ -6,5 +6,8 @@
   "maxDeviation": 10,
   "consumerContract": "0x0000000000000000000000000000000000000000",
   "chainName": "base-sepolia",
-  "cronSchedule": "0 */10 * * * *"
+  "cronSchedule": "0 */10 * * * *",
+  "kvStoreUrl": "",
+  "kvApiKey": "",
+  "stateKey": ""
 }

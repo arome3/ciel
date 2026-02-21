@@ -5,5 +5,8 @@
   "anthropicApiKey": "sk-placeholder",
   "geminiApiKey": "placeholder",
   "consumerContract": "0x0000000000000000000000000000000000000000",
-  "chainName": "base-sepolia"
+  "chainName": "base-sepolia",
+  "kvStoreUrl": "",
+  "kvApiKey": "",
+  "stateKey": ""
 }

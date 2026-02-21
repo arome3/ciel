@@ -17,6 +17,7 @@ import { retrieveRelevantDocs } from "./doc-retriever"
 import { buildFewShotContext } from "./context-builder"
 import { buildSystemPrompt } from "./prompts/system"
 import { buildGenerationPrompt, type GenerationPromptInput } from "./prompts/generation"
+import { detectStateKeyword } from "./file-manager"
 
 // ─────────────────────────────────────────────
 // Response Schema (Structured Outputs)
@@ -145,15 +146,18 @@ export async function generateCode(input: GenerateCodeInput): Promise<GeneratedC
     )
   }
 
+  // ── Compute state detection for conditional prompt/docs ──
+  const needsState = detectStateKeyword(input.intent.keywords) !== null
+
   // ── Assemble context (parallel where possible) ──
   const [context7Docs, fewShotContext, relevantDocs] = await Promise.all([
     getContext7CREDocs(),
     Promise.resolve(buildFewShotContext(input.templateId)),
-    Promise.resolve(retrieveRelevantDocs(template)),
+    Promise.resolve(retrieveRelevantDocs(template, input.intent)),
   ])
 
   // ── Build system prompt ──
-  const systemPrompt = buildSystemPrompt(fewShotContext, relevantDocs, context7Docs)
+  const systemPrompt = buildSystemPrompt(fewShotContext, relevantDocs, context7Docs, needsState)
 
   // ── Retry loop ──
   const maxRetries = input.maxInternalRetries ?? MAX_RETRIES

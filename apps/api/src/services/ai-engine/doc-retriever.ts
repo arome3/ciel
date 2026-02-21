@@ -8,6 +8,11 @@
 import { readFileSync } from "fs"
 import { join } from "path"
 import type { TemplateDefinition } from "./template-matcher"
+import type { ParsedIntent } from "./types"
+import { detectStateKeyword } from "./file-manager"
+import { createLogger } from "../../lib/logger"
+
+const log = createLogger("DocRetriever")
 
 // ─────────────────────────────────────────────
 // Capability → Doc File Mapping
@@ -41,6 +46,7 @@ const ALL_DOC_FILES = [
   "consensus.md",
   "node-mode.md",
   "triggers.md",
+  "state-management.md",
 ]
 
 /** Pre-loaded doc contents: filename → content string */
@@ -51,7 +57,7 @@ for (const fileName of ALL_DOC_FILES) {
     const content = readFileSync(join(DOCS_DIR, fileName), "utf-8")
     DOC_CACHE.set(fileName, content)
   } catch {
-    // Missing file at startup — log-worthy but non-fatal
+    log.info(`Doc file not found at startup: ${fileName}`)
   }
 }
 
@@ -73,7 +79,10 @@ for (const fileName of ALL_DOC_FILES) {
  * @param template - The matched template definition
  * @returns Concatenated documentation string with section headers
  */
-export function retrieveRelevantDocs(template: TemplateDefinition): string {
+export function retrieveRelevantDocs(
+  template: TemplateDefinition,
+  intent?: ParsedIntent,
+): string {
   const docFiles = new Set<string>()
 
   // Always include config-schema — every workflow needs the Runner pattern
@@ -87,6 +96,11 @@ export function retrieveRelevantDocs(template: TemplateDefinition): string {
         docFiles.add(doc)
       }
     }
+  }
+
+  // Include state management docs when intent has state keywords
+  if (intent && detectStateKeyword(intent.keywords)) {
+    docFiles.add("state-management.md")
   }
 
   // Read from cache and concatenate with section headers

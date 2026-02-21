@@ -363,3 +363,89 @@ describe("async function handler variant", () => {
     expect(fixes.some((f) => f.includes("await"))).toBe(true)
   })
 })
+
+// ─────────────────────────────────────────────
+// Suite 12: Check (g) — State Patterns
+// ─────────────────────────────────────────────
+
+describe("Check (g): State Patterns", () => {
+  const KV_CONFIG = JSON.stringify({
+    apiUrl: "https://api.coingecko.com/api/v3/simple/price",
+    threshold: 3000,
+    cronSchedule: "0 */5 * * * *",
+    kvStoreUrl: "https://your-kv-store.upstash.io",
+    kvApiKey: "kv-api-key-placeholder",
+    stateKey: "ciel-history-data",
+  })
+
+  test("code with kvStoreUrl + ConfidentialHTTPClient passes", async () => {
+    const code = VALID_CODE.replace(
+      "const httpClient = new HTTPClient()",
+      "const httpClient = new HTTPClient()\n  const kvClient = new ConfidentialHTTPClient()",
+    )
+    const result = await validateWorkflow(code, KV_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[STATE]"))).toBe(false)
+  })
+
+  test("code with kvStoreUrl but only HTTPClient produces [STATE] error", async () => {
+    const result = await validateWorkflow(VALID_CODE, KV_CONFIG)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.startsWith("[STATE]"))).toBe(true)
+    expect(result.errors.some((e) => e.includes("ConfidentialHTTPClient"))).toBe(true)
+  })
+
+  test("code with empty kvStoreUrl does not trigger [STATE] error", async () => {
+    const emptyKvConfig = JSON.stringify({
+      apiUrl: "https://api.coingecko.com/api/v3/simple/price",
+      threshold: 3000,
+      cronSchedule: "0 */5 * * * *",
+      kvStoreUrl: "",
+      kvApiKey: "",
+      stateKey: "",
+    })
+    const result = await validateWorkflow(VALID_CODE, emptyKvConfig)
+    expect(result.errors.some((e) => e.startsWith("[STATE]"))).toBe(false)
+  })
+
+  test("code without kvStoreUrl in config produces no [STATE] error", async () => {
+    const result = await validateWorkflow(VALID_CODE, VALID_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[STATE]"))).toBe(false)
+  })
+
+  test("ConfidentialHTTPClient referenced in comment but not instantiated produces [STATE] error", async () => {
+    const code = VALID_CODE.replace(
+      "const httpClient = new HTTPClient()",
+      "const httpClient = new HTTPClient()\n  // TODO: use ConfidentialHTTPClient for KV access",
+    )
+    const result = await validateWorkflow(code, KV_CONFIG)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.startsWith("[STATE]"))).toBe(true)
+  })
+
+  test("ConfidentialHTTPClient imported but not instantiated produces [STATE] error", async () => {
+    const code = VALID_CODE.replace(
+      'import {\n  Runner,\n  Runtime,\n  CronCapability,\n  HTTPClient,\n  handler,\n  consensusMedianAggregation,\n} from "@chainlink/cre-sdk"',
+      'import {\n  Runner,\n  Runtime,\n  CronCapability,\n  HTTPClient,\n  ConfidentialHTTPClient,\n  handler,\n  consensusMedianAggregation,\n} from "@chainlink/cre-sdk"',
+    )
+    const result = await validateWorkflow(code, KV_CONFIG)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.startsWith("[STATE]"))).toBe(true)
+  })
+
+  test("new ConfidentialHTTPClient() instantiated passes [STATE] check", async () => {
+    const code = VALID_CODE.replace(
+      "const httpClient = new HTTPClient()",
+      "const httpClient = new HTTPClient()\n  const kvClient = new ConfidentialHTTPClient()",
+    )
+    const result = await validateWorkflow(code, KV_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[STATE]"))).toBe(false)
+  })
+
+  test("quickFix does NOT auto-fix state issues", () => {
+    // State issues are left for LLM retry, not deterministic quickFix
+    const { code: fixed, fixes } = quickFix(VALID_CODE)
+    expect(fixes.some((f) => f.includes("STATE"))).toBe(false)
+    expect(fixes.some((f) => f.includes("ConfidentialHTTPClient"))).toBe(false)
+    expect(fixed).toBe(VALID_CODE)
+  })
+})

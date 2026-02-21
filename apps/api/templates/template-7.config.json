@@ -8,5 +8,8 @@
   "beneficiaryAddress": "0x0000000000000000000000000000000000000000",
   "consumerContract": "0x0000000000000000000000000000000000000000",
   "chainName": "base-sepolia",
-  "cronSchedule": "0 0 */6 * * *"
+  "cronSchedule": "0 0 */6 * * *",
+  "kvStoreUrl": "",
+  "kvApiKey": "",
+  "stateKey": ""
 }

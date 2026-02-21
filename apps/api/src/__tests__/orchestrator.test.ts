@@ -427,3 +427,30 @@ describe("orchestrator — structured error feedback", () => {
     expect(result.fallback).toBe(false)
   })
 })
+
+// ─────────────────────────────────────────────
+// Suite 11: Fallback state config merge
+// ─────────────────────────────────────────────
+
+describe("orchestrator — fallback state config merge", () => {
+  test("fallback with state-keyword prompt merges KV config into pre-built config", async () => {
+    // Force all generation to fail → triggers fallback path
+    mockParse.mockImplementation(() => {
+      throw new Error("forced failure for fallback test")
+    })
+
+    // Prompt with state keyword "history" — triggers KV config generation
+    const statePrompt = "Monitor ETH price history and track daily average over time"
+    const result = await generateWorkflow(statePrompt, OWNER)
+
+    expect(result.fallback).toBe(true)
+
+    // The fallback config should have KV fields merged from intent
+    const config = JSON.parse(result.configJson)
+    expect(config.kvStoreUrl).toBe("https://your-kv-store.upstash.io")
+    expect(config.kvApiKey).toBe("kv-api-key-placeholder")
+    expect(typeof config.stateKey).toBe("string")
+    expect(config.stateKey).toContain("ciel-")
+    expect(config.stateKey).toContain("-data")
+  })
+})

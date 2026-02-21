@@ -106,6 +106,44 @@ describe("retrieveRelevantDocs", () => {
     expect(docs).toContain("Runner")
     expect(docs).toContain("configSchema")
   })
+
+  // ── State path coverage (Issue 6) ──
+
+  test("includes state-management.md when intent has exact state keyword", () => {
+    const template = getTemplateById(1)!
+    const intent: ParsedIntent = {
+      ...MOCK_INTENT,
+      keywords: ["price", "history", "monitor"],
+    }
+    const docs = retrieveRelevantDocs(template, intent)
+    expect(docs).toContain("state-management.md")
+  })
+
+  test("includes state-management.md when intent has stemmed keyword 'tracking'", () => {
+    const template = getTemplateById(1)!
+    const intent: ParsedIntent = {
+      ...MOCK_INTENT,
+      keywords: ["tracking", "balance"],
+    }
+    const docs = retrieveRelevantDocs(template, intent)
+    expect(docs).toContain("state-management.md")
+  })
+
+  test("excludes state-management.md when intent has no state keywords", () => {
+    const template = getTemplateById(1)!
+    const intent: ParsedIntent = {
+      ...MOCK_INTENT,
+      keywords: ["price", "monitor", "alert"],
+    }
+    const docs = retrieveRelevantDocs(template, intent)
+    expect(docs).not.toContain("state-management.md")
+  })
+
+  test("excludes state-management.md when no intent provided (backward compat)", () => {
+    const template = getTemplateById(1)!
+    const docs = retrieveRelevantDocs(template)
+    expect(docs).not.toContain("state-management.md")
+  })
 })
 
 // ─────────────────────────────────────────────
@@ -172,6 +210,59 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("self_review")
     expect(prompt).toContain("workflow_ts")
     expect(prompt).toContain("config_json")
+  })
+
+  // ── State management patterns ──
+
+  test("contains all 3 state management pattern names when needsState=true", () => {
+    const prompt = buildSystemPrompt("", "", "", true)
+    expect(prompt).toContain("State Management Patterns")
+    expect(prompt).toContain("External KV Store")
+    expect(prompt).toContain("Onchain State")
+    expect(prompt).toContain("Config-as-State")
+  })
+
+  test("contains decision tree for state pattern selection", () => {
+    const prompt = buildSystemPrompt("", "", "", true)
+    expect(prompt).toContain("Decision Tree")
+    expect(prompt).toContain("ALWAYS prefer Pattern 1")
+  })
+
+  test("references KV config fields in state patterns", () => {
+    const prompt = buildSystemPrompt("", "", "", true)
+    expect(prompt).toContain("kvStoreUrl")
+    expect(prompt).toContain("kvApiKey")
+    expect(prompt).toContain("stateKey")
+  })
+
+  test("state patterns section appears before output format", () => {
+    const prompt = buildSystemPrompt("", "", "", true)
+    const stateIdx = prompt.indexOf("State Management Patterns")
+    const outputIdx = prompt.indexOf("Output Instructions")
+    expect(stateIdx).toBeGreaterThan(-1)
+    expect(outputIdx).toBeGreaterThan(-1)
+    expect(stateIdx).toBeLessThan(outputIdx)
+  })
+
+  test("omits state patterns when needsState=false", () => {
+    const prompt = buildSystemPrompt("", "", "", false)
+    expect(prompt).not.toContain("State Management Patterns")
+    expect(prompt).not.toContain("External KV Store")
+    expect(prompt).not.toContain("kvStoreUrl")
+  })
+
+  test("includes state patterns when needsState is undefined (backward compat)", () => {
+    const prompt = buildSystemPrompt("", "", "")
+    expect(prompt).toContain("State Management Patterns")
+    expect(prompt).toContain("External KV Store")
+  })
+
+  test("Pattern 2 has inline code example with EVMClient", () => {
+    const prompt = buildSystemPrompt("", "", "", true)
+    expect(prompt).toContain("EVMClient")
+    expect(prompt).toContain("encodeFunctionData")
+    expect(prompt).toContain("decodeFunctionResult")
+    expect(prompt).toContain("callContract")
   })
 })
 
