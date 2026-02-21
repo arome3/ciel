@@ -80,7 +80,7 @@ export const TEMPLATES: TemplateDefinition[] = [
       "below", "crosses", "above", "track", "watch",
       "notification", "warning", "alarm", "feed",
     ],
-    requiredCapabilities: ["price-feed", "alert"],
+    requiredCapabilities: ["price-feed", "alert", "exchange-api"],
     triggerType: "cron",
     defaultPromptFill:
       "Generate a CRE workflow that monitors a price feed on a cron schedule. " +
@@ -114,7 +114,7 @@ export const TEMPLATES: TemplateDefinition[] = [
       "bet", "polymarket", "wager", "binary", "result",
       "prediction market", "settlement",
     ],
-    requiredCapabilities: ["evmWrite", "multi-ai"],
+    requiredCapabilities: ["evmWrite", "multi-ai", "sports-api", "social-api", "news-api"],
     triggerType: "evm_log",
     defaultPromptFill:
       "Generate a CRE workflow that listens for prediction market resolution events, " +
@@ -188,7 +188,7 @@ export const TEMPLATES: TemplateDefinition[] = [
       "delay", "crop", "rainfall", "temperature", "coverage",
       "premium", "claim", "trigger event",
     ],
-    requiredCapabilities: ["weather-api", "evmWrite"],
+    requiredCapabilities: ["weather-api", "evmWrite", "news-api"],
     triggerType: "cron",
     defaultPromptFill:
       "Generate a CRE workflow that periodically checks a weather/flight data source. " +
@@ -205,7 +205,7 @@ export const TEMPLATES: TemplateDefinition[] = [
       "gate", "screen", "check", "verify", "whitelist",
       "permitted", "restricted", "ofac",
     ],
-    requiredCapabilities: ["compliance-api", "evmWrite"],
+    requiredCapabilities: ["compliance-api", "evmWrite", "wallet-api"],
     triggerType: "http",
     defaultPromptFill:
       "Generate a CRE workflow triggered by an HTTP request (DeFi operation). " +
@@ -225,7 +225,7 @@ export const TEMPLATES: TemplateDefinition[] = [
       "multi-model", "oracle", "gpt", "claude", "gemini",
       "agree", "median", "byzantine", "fault tolerant",
     ],
-    requiredCapabilities: ["multi-ai", "evmWrite"],
+    requiredCapabilities: ["multi-ai", "evmWrite", "news-api", "social-api"],
     triggerType: "http",
     defaultPromptFill:
       "Generate a CRE workflow that queries 3 AI models (GPT-4o, Claude, Gemini) " +
@@ -243,7 +243,7 @@ export const TEMPLATES: TemplateDefinition[] = [
       "publish", "index", "composite", "weighted",
       "price feed", "data source", "api",
     ],
-    requiredCapabilities: ["price-feed", "evmWrite"],
+    requiredCapabilities: ["price-feed", "evmWrite", "github-api", "news-api", "sports-api", "social-api", "exchange-api", "wallet-api"],
     triggerType: "cron",
     defaultPromptFill:
       "Generate a CRE workflow that aggregates data from multiple custom sources " +

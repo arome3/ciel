@@ -25,4 +25,7 @@ export interface ParsedIntent {
 
   /** Whether negation was detected in the prompt (e.g., "don't", "never", "stop") */
   negated: boolean
+
+  /** Named entities detected (brand names, proper nouns) mapped to source IDs */
+  entities: Record<string, string[]>
 }

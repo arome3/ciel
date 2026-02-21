@@ -21,6 +21,7 @@ const MOCK_INTENT: ParsedIntent = {
   chains: ["base-sepolia"],
   keywords: ["monitor", "price", "alert", "drops", "below"],
   negated: false,
+  entities: {},
 }
 
 // ─────────────────────────────────────────────

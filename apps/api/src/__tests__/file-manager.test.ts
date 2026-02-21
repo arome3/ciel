@@ -18,6 +18,7 @@ function makeIntent(overrides: Partial<ParsedIntent> = {}): ParsedIntent {
     chains: ["base-sepolia"],
     keywords: ["price", "monitor", "alert"],
     negated: false,
+    entities: {},
     ...overrides,
   }
 }
@@ -250,8 +251,8 @@ describe("buildFallbackConfig — state keyword detection", () => {
   test("KV config has expected placeholder values with dynamic stateKey", () => {
     const intent = makeIntent({ keywords: ["price", "trend", "weekly"] })
     const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
-    expect(config.kvStoreUrl).toBe("https://your-kv-store.upstash.io")
-    expect(config.kvApiKey).toBe("kv-api-key-placeholder")
+    expect(config.kvStoreUrl).toBe("PLACEHOLDER_KV_STORE_URL")
+    expect(config.kvApiKey).toBe("PLACEHOLDER_KV_API_KEY")
     expect(config.stateKey).toBe("ciel-trend-data")
   })
 
@@ -304,13 +305,13 @@ describe("buildFallbackConfig — state keyword detection", () => {
   test("'onchain' keyword adds onchainWorkflowId", () => {
     const intent = makeIntent({ keywords: ["onchain", "balance", "monitor"] })
     const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
-    expect(config.onchainWorkflowId).toBe("workflow-id-placeholder")
+    expect(config.onchainWorkflowId).toBe("PLACEHOLDER_WORKFLOW_ID")
   })
 
   test("'trustless' keyword adds onchainWorkflowId", () => {
     const intent = makeIntent({ keywords: ["trustless", "audit", "trail"] })
     const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
-    expect(config.onchainWorkflowId).toBe("workflow-id-placeholder")
+    expect(config.onchainWorkflowId).toBe("PLACEHOLDER_WORKFLOW_ID")
   })
 
   test("no onchain keywords means no onchainWorkflowId", () => {
@@ -455,8 +456,8 @@ describe("buildFallbackConfig — stemmed state keywords", () => {
   test("inflected 'tracking' triggers KV config with dynamic stateKey", () => {
     const intent = makeIntent({ keywords: ["tracking", "token", "balance"] })
     const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
-    expect(config.kvStoreUrl).toBe("https://your-kv-store.upstash.io")
-    expect(config.kvApiKey).toBe("kv-api-key-placeholder")
+    expect(config.kvStoreUrl).toBe("PLACEHOLDER_KV_STORE_URL")
+    expect(config.kvApiKey).toBe("PLACEHOLDER_KV_API_KEY")
     expect(config.stateKey).toBe("ciel-tracking-data")
   })
 
@@ -470,5 +471,57 @@ describe("buildFallbackConfig — stemmed state keywords", () => {
     const intent = makeIntent({ keywords: ["stored", "value"] })
     const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
     expect(config.kvStoreUrl).toBeDefined()
+  })
+})
+
+// ─────────────────────────────────────────────
+// buildFallbackConfig — Doc 21 data sources
+// ─────────────────────────────────────────────
+
+describe("buildFallbackConfig — Doc 21 data sources", () => {
+  test("github-api includes PLACEHOLDER_GITHUB_TOKEN and API URL", () => {
+    const intent = makeIntent({ dataSources: ["github-api"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.githubApiUrl).toBe("https://api.github.com")
+    expect(config.githubToken).toBe("PLACEHOLDER_GITHUB_TOKEN")
+    expect(config.githubOwner).toBe("PLACEHOLDER_GITHUB_OWNER")
+    expect(config.githubRepo).toBe("PLACEHOLDER_GITHUB_REPO")
+  })
+
+  test("news-api includes PLACEHOLDER_NEWS_API_KEY and sentimentThreshold", () => {
+    const intent = makeIntent({ dataSources: ["news-api"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.newsApiUrl).toBe("https://newsapi.org/v2/everything")
+    expect(config.newsApiKey).toBe("PLACEHOLDER_NEWS_API_KEY")
+    expect(config.sentimentThreshold).toBe(0.3)
+  })
+
+  test("sports-api includes sportsApiUrl, sport and league", () => {
+    const intent = makeIntent({ dataSources: ["sports-api"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.sportsApiUrl).toBe("https://api.sportsdata.io/v3")
+    expect(config.sport).toBe("football")
+    expect(config.league).toBe("nfl")
+  })
+
+  test("social-api includes PLACEHOLDER_SOCIAL_BEARER_TOKEN", () => {
+    const intent = makeIntent({ dataSources: ["social-api"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.socialApiUrl).toBe("https://api.twitter.com/2")
+    expect(config.socialBearerToken).toBe("PLACEHOLDER_SOCIAL_BEARER_TOKEN")
+  })
+
+  test("exchange-api includes exchangeApiUrl and tradingPair", () => {
+    const intent = makeIntent({ dataSources: ["exchange-api"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.exchangeApiUrl).toBe("https://api.binance.com/api/v3")
+    expect(config.tradingPair).toBe("ETHUSDT")
+  })
+
+  test("wallet-api includes PLACEHOLDER_ETHERSCAN_API_KEY", () => {
+    const intent = makeIntent({ dataSources: ["wallet-api"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.walletApiUrl).toBe("https://api.etherscan.io/api")
+    expect(config.etherscanApiKey).toBe("PLACEHOLDER_ETHERSCAN_API_KEY")
   })
 })

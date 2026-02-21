@@ -76,6 +76,68 @@ import {
 - \`consensusMedianAggregation({ fields: [...], reportId: "..." })\` — Numeric median
 - \`consensusIdenticalAggregation({ fields: [...], reportId: "..." })\` — Must-match values`
 
+const EXTENDED_DATA_SOURCE_APIS = `## Extended Data Source APIs (Doc 21)
+
+These APIs are available via \`HTTPClient\` or \`ConfidentialHTTPClient\` (when auth tokens required).
+
+### GitHub API (github-api)
+- **Base URL**: \`https://api.github.com\`
+- **Auth**: \`Authorization: Bearer \${rt.config.githubToken}\`
+- **Endpoints**:
+  - \`GET /repos/{owner}/{repo}/pulls\` — List pull requests
+  - \`GET /repos/{owner}/{repo}/commits\` — List commits
+  - \`GET /repos/{owner}/{repo}/contributors\` — List contributors
+  - \`GET /repos/{owner}/{repo}/actions/runs\` — CI/CD pipeline runs
+- **Response shape**: JSON array of objects with \`id\`, \`state\`, \`created_at\`, \`merged_at\`
+- **Use ConfidentialHTTPClient** for token-authenticated requests
+
+### News API (news-api)
+- **Base URL**: \`https://newsapi.org/v2\`
+- **Auth**: \`X-Api-Key: \${rt.config.newsApiKey}\`
+- **Endpoints**:
+  - \`GET /everything?q={query}&sortBy=publishedAt\` — Search articles
+  - \`GET /top-headlines?country=us&category=business\` — Breaking headlines
+- **Response shape**: \`{ status, totalResults, articles: [{ title, description, url, publishedAt, source }] }\`
+- **Sentiment**: Parse article titles/descriptions and compute polarity score. Threshold via \`rt.config.sentimentThreshold\`
+
+### Sports API (sports-api)
+- **Base URL**: \`https://api.sportsdata.io/v3\`
+- **Auth**: \`Ocp-Apim-Subscription-Key: \${rt.config.sportsApiKey}\`
+- **Endpoints**:
+  - \`GET /{sport}/scores/json/GamesByDate/{date}\` — Scores by date
+  - \`GET /{sport}/scores/json/Standings/{season}\` — League standings
+- **Response shape**: \`[{ GameID, HomeTeam, AwayTeam, HomeScore, AwayScore, Status, DateTime }]\`
+- **Sport/league**: Configured via \`rt.config.sport\` and \`rt.config.league\`
+
+### Social API (social-api)
+- **Base URL**: \`https://api.twitter.com/2\` (Twitter/X) or Farcaster/Lens endpoints
+- **Auth**: \`Authorization: Bearer \${rt.config.socialBearerToken}\`
+- **Endpoints**:
+  - \`GET /tweets/search/recent?query={query}\` — Recent tweets
+  - \`GET /users/{id}/followers\` — Follower count
+- **Response shape**: \`{ data: [{ id, text, created_at, public_metrics }], meta: { result_count } }\`
+- **Filters**: \`rt.config.minFollowers\` for influence-gated triggers
+
+### Exchange API (exchange-api)
+- **Base URL**: \`https://api.binance.com/api/v3\` (or Coinbase/Kraken equivalents)
+- **Auth**: None for public endpoints; \`X-MBX-APIKEY\` for authenticated
+- **Endpoints**:
+  - \`GET /ticker/price?symbol={pair}\` — Spot price
+  - \`GET /depth?symbol={pair}&limit=10\` — Order book
+  - \`GET /ticker/24hr?symbol={pair}\` — 24h stats (volume, high, low)
+- **Response shape**: Spot: \`{ symbol, price }\`; Depth: \`{ bids: [[price, qty]], asks: [[price, qty]] }\`
+- **Trading pair**: \`rt.config.tradingPair\` (e.g. "ETHUSDT")
+
+### Wallet API (wallet-api)
+- **Base URL**: \`https://api.etherscan.io/api\`
+- **Auth**: \`apikey=\${rt.config.etherscanApiKey}\` (query param)
+- **Endpoints**:
+  - \`GET ?module=account&action=balance&address={addr}\` — ETH balance
+  - \`GET ?module=account&action=txlist&address={addr}&sort=desc\` — Transaction history
+  - \`GET ?module=account&action=tokentx&address={addr}\` — ERC-20 transfers
+- **Response shape**: \`{ status, message, result }\` where result varies by action
+- **Whale tracking**: Filter by \`rt.config.minTransferAmount\` (in wei)`
+
 const STATE_MANAGEMENT_PATTERNS = `## State Management Patterns
 
 CRE workflows are stateless — each run has zero memory of previous runs. Use these patterns when the user needs cross-run state (price history, portfolio tracking, counters, trends).
@@ -188,6 +250,7 @@ export function buildSystemPrompt(
     ROLE_DEFINITION,
     CRITICAL_CONSTRAINTS,
     API_REFERENCE,
+    EXTENDED_DATA_SOURCE_APIS,
   ]
 
   // Only include state patterns when intent involves state

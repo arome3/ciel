@@ -14,6 +14,7 @@ describe("parseIntent", () => {
     expect(result.conditions).toEqual([])
     expect(result.schedule).toBeUndefined()
     expect(result.negated).toBe(false)
+    expect(result.entities).toEqual({})
   })
 
   // ── Test 2: Cron + schedule ──
@@ -330,6 +331,11 @@ describe("parseIntent — full template coverage", () => {
     expect(result.actions).toContain("evmWrite")
   })
 
+  // Wallet-API: balance keyword
+  test("wallet-api detected from balance keyword", () => {
+    const result = parseIntent("Check wallet balance for whale addresses on Ethereum")
+    expect(result.dataSources).toContain("wallet-api")
+  })
   // DeFi-specific: liquidity pool monitoring
   test("DeFi: liquidity pool yield monitoring", () => {
     const result = parseIntent("Monitor liquidity pool APY every hour and rebalance if below 3%")
@@ -343,5 +349,182 @@ describe("parseIntent — full template coverage", () => {
     const result = parseIntent("Consolidate USDC from Ethereum and Arbitrum to Base when total drops below 10000")
     expect(result.actions).toContain("transfer")
     expect(result.chains).toContain("base-sepolia")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Expanded Data Source Tests (Doc 21)
+// ─────────────────────────────────────────────
+describe("parseIntent — expanded data sources", () => {
+  test("github-api from pull request keywords (multi-word)", () => {
+    const result = parseIntent("Every hour check for new pull request merges on the repository and alert")
+    expect(result.dataSources).toContain("github-api")
+    expect(result.triggerType).toBe("cron")
+  })
+
+  test("news-api from sentiment keywords", () => {
+    const result = parseIntent("Monitor Reuters headlines for inflation sentiment and alert when negative")
+    expect(result.dataSources).toContain("news-api")
+    expect(result.actions).toContain("alert")
+  })
+
+  test("sports-api from game keywords (multi-word)", () => {
+    const result = parseIntent("Track Super Bowl scores from ESPN and settle prediction market")
+    expect(result.dataSources).toContain("sports-api")
+  })
+
+  test("social-api from twitter keywords", () => {
+    const result = parseIntent("Watch for viral tweets about Ethereum and alert when trending")
+    expect(result.dataSources).toContain("social-api")
+  })
+
+  test("exchange-api from binance keywords", () => {
+    const result = parseIntent("Every 5 minutes check Binance order book depth for ETHUSDT")
+    expect(result.dataSources).toContain("exchange-api")
+    expect(result.triggerType).toBe("cron")
+  })
+
+  test("wallet-api from whale keywords", () => {
+    const result = parseIntent("Track whale wallet movements and alert on large transfers")
+    expect(result.dataSources).toContain("wallet-api")
+  })
+
+  test("compound: news-api + exchange-api detected simultaneously", () => {
+    const result = parseIntent("When Bloomberg reports inflation data, check Binance spot prices and rebalance")
+    expect(result.dataSources).toContain("news-api")
+    expect(result.dataSources).toContain("exchange-api")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Disambiguation Tests
+// ─────────────────────────────────────────────
+describe("parseIntent — disambiguation", () => {
+  test("'risk score' should NOT trigger sports-api", () => {
+    const result = parseIntent("Calculate my risk score daily")
+    expect(result.dataSources).not.toContain("sports-api")
+  })
+
+  test("'address this issue' should NOT trigger wallet-api", () => {
+    const result = parseIntent("Address this performance issue in the pipeline")
+    expect(result.dataSources).not.toContain("wallet-api")
+  })
+
+  test("'work-life balance' should NOT trigger wallet-api", () => {
+    const result = parseIntent("Improve work-life balance and productivity")
+    expect(result.dataSources).not.toContain("wallet-api")
+  })
+
+  test("'pattern match' should NOT trigger sports-api", () => {
+    const result = parseIntent("The match was a pattern match in the regex engine")
+    expect(result.dataSources).not.toContain("sports-api")
+  })
+
+  test("'score' + confirming 'espn' SHOULD trigger sports-api", () => {
+    const result = parseIntent("Check live score updates from ESPN every hour")
+    expect(result.dataSources).toContain("sports-api")
+  })
+
+  test("'balance' + confirming 'whale' SHOULD trigger wallet-api", () => {
+    const result = parseIntent("Track whale wallet balance every hour")
+    expect(result.dataSources).toContain("wallet-api")
+  })
+
+  test("'exchange' + confirming 'binance' SHOULD trigger exchange-api", () => {
+    const result = parseIntent("Monitor Binance exchange prices hourly")
+    expect(result.dataSources).toContain("exchange-api")
+  })
+
+  test("'Track NFL scores from ESPN every hour' → sports-api confirmed", () => {
+    const result = parseIntent("Track NFL scores from ESPN every hour")
+    expect(result.dataSources).toContain("sports-api")
+  })
+
+  test("'Check wallet balance on etherscan for whale' → wallet-api confirmed", () => {
+    const result = parseIntent("Check wallet balance on etherscan for whale addresses")
+    expect(result.dataSources).toContain("wallet-api")
+  })
+
+  test("'Pool resources for the media article' should NOT trigger defi-api or news-api", () => {
+    const result = parseIntent("Pool resources for the media article project")
+    expect(result.dataSources).not.toContain("defi-api")
+    expect(result.dataSources).not.toContain("news-api")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Entity Extraction Tests
+// ─────────────────────────────────────────────
+describe("parseIntent — entity extraction", () => {
+  test("'Check Binance order book' → entities has exchange-api: ['binance']", () => {
+    const result = parseIntent("Check Binance order book depth hourly")
+    expect(result.entities["exchange-api"]).toContain("binance")
+  })
+
+  test("'Monitor Reuters headlines' → entities has news-api: ['reuters']", () => {
+    const result = parseIntent("Monitor Reuters headlines for inflation sentiment")
+    expect(result.entities["news-api"]).toContain("reuters")
+  })
+
+  test("'Compare Binance and Coinbase' → entities has exchange-api with both", () => {
+    const result = parseIntent("Compare Binance and Coinbase prices every hour")
+    expect(result.entities["exchange-api"]).toContain("binance")
+    expect(result.entities["exchange-api"]).toContain("coinbase")
+  })
+
+  test("'Monitor ETH price hourly' → entities is empty", () => {
+    const result = parseIntent("Monitor ETH price hourly")
+    expect(Object.keys(result.entities).length).toBe(0)
+  })
+})
+
+// ─────────────────────────────────────────────
+// Multi-word Boundary Protection Tests
+// ─────────────────────────────────────────────
+describe("parseIntent — multi-word boundary protection", () => {
+  test("'reorder bookmarks daily' should NOT match 'order book'", () => {
+    const result = parseIntent("reorder bookmarks daily")
+    expect(result.dataSources).not.toContain("exchange-api")
+  })
+
+  test("'supermarket delivery tracking' should NOT match 'super bowl'", () => {
+    const result = parseIntent("supermarket delivery tracking")
+    expect(result.dataSources).not.toContain("sports-api")
+  })
+
+  test("'Track Super Bowl scores' SHOULD match sports-api", () => {
+    const result = parseIntent("Track Super Bowl scores every hour from ESPN")
+    expect(result.dataSources).toContain("sports-api")
+  })
+
+  test("'Check order book depth on Binance' SHOULD match exchange-api", () => {
+    const result = parseIntent("Check order book depth on Binance every 5 minutes")
+    expect(result.dataSources).toContain("exchange-api")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Fuzzy Matching for 4-char Data Source Keywords
+// ─────────────────────────────────────────────
+describe("parseIntent — fuzzy matching for 4-char keywords", () => {
+  test("'gane' fuzzy-corrects to 'game' → sports-api with confirming espn", () => {
+    const result = parseIntent("Check espn gane scores hourly")
+    expect(result.dataSources).toContain("sports-api")
+  })
+
+  test("'newz' fuzzy-corrects to 'news' → news-api with confirming reuters", () => {
+    const result = parseIntent("Reuters newz about inflation daily")
+    expect(result.dataSources).toContain("news-api")
+  })
+
+  test("'gane' alone without confirming keyword should be disambiguated away", () => {
+    // "gane" fuzzy-matches "game" but "game" is ambiguous — no confirming keyword
+    const result = parseIntent("Check the gane status every hour")
+    expect(result.dataSources).not.toContain("sports-api")
+  })
+
+  test("'crip' fuzzy-corrects to 'crop' → weather-api", () => {
+    const result = parseIntent("Monitor crip insurance payouts when rainfall drops below 50mm")
+    expect(result.dataSources).toContain("weather-api")
   })
 })

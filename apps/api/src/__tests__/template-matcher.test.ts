@@ -23,6 +23,7 @@ function makeIntent(overrides: Partial<ParsedIntent>): ParsedIntent {
     chains: ["base-sepolia"],
     keywords: [],
     negated: false,
+    entities: {},
     ...overrides,
   }
 }

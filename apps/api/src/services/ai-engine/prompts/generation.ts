@@ -56,6 +56,13 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
     intentLines.push(`- **Data Sources**: ${intent.dataSources.join(", ")}`)
   }
 
+  if (intent.entities && Object.keys(intent.entities).length > 0) {
+    const entityLines = Object.entries(intent.entities)
+      .map(([source, names]) => `${source}: ${names.join(", ")}`)
+      .join("; ")
+    intentLines.push(`- **Recognized Entities**: ${entityLines}`)
+  }
+
   if (intent.conditions.length > 0) {
     intentLines.push(`- **Conditions**: ${intent.conditions.join("; ")}`)
   }

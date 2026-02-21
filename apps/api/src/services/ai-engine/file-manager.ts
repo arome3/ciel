@@ -148,6 +148,45 @@ export function buildFallbackConfig(
     config.predictionMarketApiUrl = "https://api.example.com/predictions"
   }
 
+  if (intent.dataSources.includes("github-api")) {
+    config.githubApiUrl = "https://api.github.com"
+    config.githubToken = "PLACEHOLDER_GITHUB_TOKEN"
+    config.githubOwner = "PLACEHOLDER_GITHUB_OWNER"
+    config.githubRepo = "PLACEHOLDER_GITHUB_REPO"
+  }
+
+  if (intent.dataSources.includes("news-api")) {
+    config.newsApiUrl = "https://newsapi.org/v2/everything"
+    config.newsApiKey = "PLACEHOLDER_NEWS_API_KEY"
+    config.newsQuery = "crypto OR blockchain"
+    config.sentimentThreshold = 0.3
+  }
+
+  if (intent.dataSources.includes("sports-api")) {
+    config.sportsApiUrl = "https://api.sportsdata.io/v3"
+    config.sport = "football"
+    config.league = "nfl"
+  }
+
+  if (intent.dataSources.includes("social-api")) {
+    config.socialApiUrl = "https://api.twitter.com/2"
+    config.socialBearerToken = "PLACEHOLDER_SOCIAL_BEARER_TOKEN"
+    config.socialQuery = "ethereum OR bitcoin"
+    config.minFollowers = 10000
+  }
+
+  if (intent.dataSources.includes("exchange-api")) {
+    config.exchangeApiUrl = "https://api.binance.com/api/v3"
+    config.tradingPair = "ETHUSDT"
+  }
+
+  if (intent.dataSources.includes("wallet-api")) {
+    config.walletApiUrl = "https://api.etherscan.io/api"
+    config.etherscanApiKey = "PLACEHOLDER_ETHERSCAN_API_KEY"
+    config.watchAddress = "0x0000000000000000000000000000000000000000"
+    config.minTransferAmount = "100000000000000000000"
+  }
+
   if (intent.dataSources.includes("multi-ai")) {
     config.prompt = "What is the current value?"
     config.openaiModel = "gpt-4o"
@@ -159,7 +198,7 @@ export function buildFallbackConfig(
 
   // Alert webhook placeholder
   if (intent.actions.includes("alert")) {
-    config.alertWebhookUrl = "https://hooks.slack.com/services/placeholder"
+    config.alertWebhookUrl = "PLACEHOLDER_ALERT_WEBHOOK_URL"
   }
 
   // Action-specific config
@@ -180,15 +219,15 @@ export function buildFallbackConfig(
   // State management: add KV store config when stateful keywords detected
   const stateKeyword = detectStateKeyword(intent.keywords)
   if (stateKeyword) {
-    config.kvStoreUrl = "https://your-kv-store.upstash.io"
-    config.kvApiKey = "kv-api-key-placeholder"
+    config.kvStoreUrl = "PLACEHOLDER_KV_STORE_URL"
+    config.kvApiKey = "PLACEHOLDER_KV_API_KEY"
     config.stateKey = `ciel-${stateKeyword}-data`
   }
 
   // Onchain state: add workflow ID when onchain state keywords detected
   const onchainKeyword = detectOnchainStateKeyword(intent.keywords)
   if (onchainKeyword) {
-    config.onchainWorkflowId = "workflow-id-placeholder"
+    config.onchainWorkflowId = "PLACEHOLDER_WORKFLOW_ID"
   }
 
   return JSON.stringify(config, null, 2)

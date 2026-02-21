@@ -153,11 +153,136 @@ const DATA_SOURCE_MAP: Record<string, string> = {
   "hallucination": "multi-ai",
   "verify": "multi-ai",
   "multiple ai": "multi-ai",
+
+  // GitHub / CI-CD (Doc 21)
+  "github": "github-api",
+  "gitlab": "github-api",
+  "repository": "github-api",
+  "pull request": "github-api",
+  "merge": "github-api",
+  "commit": "github-api",
+  "contributor": "github-api",
+  "cicd": "github-api",
+  "pipeline": "github-api",
+
+  // News & Sentiment (Doc 21)
+  "news": "news-api",
+  "reuters": "news-api",
+  "bloomberg": "news-api",
+  "headline": "news-api",
+  "sentiment": "news-api",
+  "article": "news-api",
+  "press": "news-api",
+  "media": "news-api",
+  "inflation": "news-api",
+  "breaking": "news-api",
+
+  // Sports (Doc 21)
+  "score": "sports-api",
+  "game": "sports-api",
+  "match": "sports-api",
+  "tournament": "sports-api",
+  "winner": "sports-api",
+  "espn": "sports-api",
+  "nfl": "sports-api",
+  "nba": "sports-api",
+  "super bowl": "sports-api",
+  "world cup": "sports-api",
+  "championship": "sports-api",
+
+  // Social / Web3 Social (Doc 21)
+  "twitter": "social-api",
+  "tweet": "social-api",
+  "farcaster": "social-api",
+  "lens": "social-api",
+  "follower": "social-api",
+  "viral": "social-api",
+  "trending": "social-api",
+  "influencer": "social-api",
+  "mention": "social-api",
+  "hashtag": "social-api",
+
+  // Exchange / CEX (Doc 21)
+  "binance": "exchange-api",
+  "coinbase": "exchange-api",
+  "kraken": "exchange-api",
+  "exchange": "exchange-api",
+  "order book": "exchange-api",
+  "spot price": "exchange-api",
+  "trading pair": "exchange-api",
+  "limit order": "exchange-api",
+  "cex": "exchange-api",
+
+  // Wallet / On-chain Analytics (Doc 21)
+  "wallet": "wallet-api",
+  "whale": "wallet-api",
+  "address": "wallet-api",
+  "balance": "wallet-api",
+  "etherscan": "wallet-api",
+  "portfolio": "wallet-api",
+  "holdings": "wallet-api",
+  "nonce": "wallet-api",
+  "transaction history": "wallet-api",
+}
+
+// ── Disambiguation: keywords that are polysemous and need confirming context ──
+const AMBIGUOUS_KEYWORDS = new Set([
+  "score",        // sports-api — but "risk score", "credit score"
+  "game",         // sports-api — but "game theory", "gamification"
+  "balance",      // wallet-api — but "work-life balance", "rebalance"
+  "match",        // sports-api — but "pattern match", "regex match"
+  "address",      // wallet-api — but "address this issue"
+  "exchange",     // exchange-api — but "data exchange", "information exchange"
+  "pool",         // defi-api — but "thread pool", "connection pool"
+  "media",        // news-api — but "media type", "rich media"
+  "article",      // news-api — but "article of agreement"
+  "portfolio",    // wallet-api — but "portfolio rebalancer" (T2 context)
+  "holdings",     // wallet-api — but generic finance term
+  "outcome",      // prediction-market — but "project outcome"
+  "resolution",   // prediction-market — but "screen resolution"
+])
+
+// ── Entity map: brand names / proper nouns → data source (always non-ambiguous) ──
+const ENTITY_MAP: Record<string, string> = {
+  "binance": "exchange-api",
+  "coinbase": "exchange-api",
+  "kraken": "exchange-api",
+  "reuters": "news-api",
+  "bloomberg": "news-api",
+  "espn": "sports-api",
+  "twitter": "social-api",
+  "farcaster": "social-api",
+  "github": "github-api",
+  "gitlab": "github-api",
+  "etherscan": "wallet-api",
 }
 
 // Pre-compute stemmed lookup (includes both original keys and stemmed variants)
 const DATA_SOURCE_STEM = buildStemmedMap(DATA_SOURCE_MAP)
 const DATA_SOURCE_KEYS = Object.keys(DATA_SOURCE_MAP)
+// Single-word keys only (multi-word handled by Phase 3)
+const DATA_SOURCE_KEYS_SINGLE = DATA_SOURCE_KEYS.filter((k) => !k.includes(" "))
+// Fuzzy matching for single-word keys >3 chars (disambiguation handles false positives)
+const DATA_SOURCE_KEYS_FUZZY = DATA_SOURCE_KEYS_SINGLE.filter((k) => k.length > 3)
+// Pre-compiled word-boundary regex for multi-word keys (prevents substring matches)
+const DATA_SOURCE_MULTI_REGEX: Array<{ key: string; regex: RegExp; source: string }> =
+  DATA_SOURCE_KEYS
+    .filter((k) => k.includes(" "))
+    .sort((a, b) => b.length - a.length)
+    .map((k) => ({
+      key: k,
+      regex: new RegExp("\\b" + k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i"),
+      source: DATA_SOURCE_MAP[k],
+    }))
+
+// Pre-compute: for each source, which keywords are NON-ambiguous (can confirm)
+const CONFIRMING_BY_SOURCE: Record<string, Set<string>> = {}
+for (const [key, source] of Object.entries(DATA_SOURCE_MAP)) {
+  if (!AMBIGUOUS_KEYWORDS.has(key)) {
+    if (!CONFIRMING_BY_SOURCE[source]) CONFIRMING_BY_SOURCE[source] = new Set()
+    CONFIRMING_BY_SOURCE[source].add(key)
+  }
+}
 
 // ─────────────────────────────────────────────
 // Keyword → Action Mapping
@@ -225,7 +350,16 @@ const ACTION_MAP: Record<string, string> = {
 const ACTION_STEM = buildStemmedMap(ACTION_MAP)
 const ACTION_KEYS = Object.keys(ACTION_MAP)
 const ACTION_KEYS_SINGLE = ACTION_KEYS.filter((k) => !k.includes(" "))
-const ACTION_KEYS_MULTI = ACTION_KEYS.filter((k) => k.includes(" "))
+// Pre-compiled word-boundary regex for multi-word action keys
+const ACTION_MULTI_REGEX: Array<{ key: string; regex: RegExp; action: string }> =
+  ACTION_KEYS
+    .filter((k) => k.includes(" "))
+    .sort((a, b) => b.length - a.length)
+    .map((k) => ({
+      key: k,
+      regex: new RegExp("\\b" + k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i"),
+      action: ACTION_MAP[k],
+    }))
 
 // ─────────────────────────────────────────────
 // Schedule Extraction (with fuzzy unit matching)
@@ -413,15 +547,37 @@ function resolveChains(text: string, words: string[]): string[] {
 }
 
 // ─────────────────────────────────────────────
-// Data Source Detection (3-tier: exact → stemmed → fuzzy)
+// Data Source Detection (3-tier + disambiguation + entity extraction)
 // ─────────────────────────────────────────────
-function detectDataSources(keywords: string[], text: string): string[] {
+function detectDataSources(
+  keywords: string[],
+  text: string,
+): { sources: string[]; entities: Record<string, string[]> } {
   const sources: Set<string> = new Set()
+  const entities: Record<string, string[]> = {}
+  // Track which keywords triggered each source (for disambiguation)
+  const sourceTriggeredBy: Record<string, string[]> = {}
 
-  // Phase 1: 3-tier lookup on extracted keywords
+  const trackTrigger = (source: string, keyword: string) => {
+    if (!sourceTriggeredBy[source]) sourceTriggeredBy[source] = []
+    sourceTriggeredBy[source].push(keyword)
+  }
+
+  // Phase 1: 3-tier lookup on extracted keywords (single-word, >3 char fuzzy)
   for (const kw of keywords) {
-    const result = tieredLookup(kw, DATA_SOURCE_STEM, DATA_SOURCE_KEYS)
-    if (result) sources.add(result)
+    const result = tieredLookup(kw, DATA_SOURCE_STEM, DATA_SOURCE_KEYS_FUZZY)
+    if (result) {
+      sources.add(result)
+      trackTrigger(result, kw)
+    }
+    // Entity extraction: brand names are always non-ambiguous
+    if (ENTITY_MAP[kw]) {
+      const entitySource = ENTITY_MAP[kw]
+      sources.add(entitySource)
+      trackTrigger(entitySource, kw)
+      if (!entities[entitySource]) entities[entitySource] = []
+      if (!entities[entitySource].includes(kw)) entities[entitySource].push(kw)
+    }
   }
 
   // Phase 2: word-boundary scan for ≤3 char keys on raw text
@@ -429,11 +585,46 @@ function detectDataSources(keywords: string[], text: string): string[] {
     if (key.length <= 3) {
       if (new RegExp("\\b" + key + "\\b", "i").test(text)) {
         sources.add(DATA_SOURCE_MAP[key])
+        trackTrigger(DATA_SOURCE_MAP[key], key)
       }
     }
   }
 
-  return [...sources]
+  // Phase 3: multi-word keys with word-boundary protection
+  for (const { key, regex, source } of DATA_SOURCE_MULTI_REGEX) {
+    if (regex.test(text)) {
+      sources.add(source)
+      trackTrigger(source, key)
+    }
+  }
+
+  // Phase 4: Disambiguation — remove sources with no confirming trigger
+  // A trigger confirms a source if it's: a brand name (ENTITY_MAP), or a
+  // non-ambiguous canonical key (direct or stemmed match against CONFIRMING_BY_SOURCE)
+  for (const source of [...sources]) {
+    const triggers = sourceTriggeredBy[source] || []
+    if (triggers.length === 0) continue
+    const confirming = CONFIRMING_BY_SOURCE[source]
+    const hasConfirmation = triggers.some((kw) => {
+      // Brand names always confirm
+      if (ENTITY_MAP[kw] === source) return true
+      // Direct non-ambiguous key match
+      if (confirming && confirming.has(kw)) return true
+      // Stemmed match against confirming keys
+      if (confirming) {
+        const kwStem = stemmer(kw)
+        for (const ck of confirming) {
+          if (stemmer(ck) === kwStem) return true
+        }
+      }
+      return false
+    })
+    if (!hasConfirmation) {
+      sources.delete(source)
+    }
+  }
+
+  return { sources: [...sources], entities }
 }
 
 // ─────────────────────────────────────────────
@@ -448,11 +639,10 @@ function detectActions(keywords: string[], text: string): string[] {
     if (result) actions.add(result)
   }
 
-  // Phase 2: multi-word ACTION_MAP keys checked against raw text
-  const lower = text.toLowerCase()
-  for (const key of ACTION_KEYS_MULTI) {
-    if (lower.includes(key)) {
-      actions.add(ACTION_MAP[key])
+  // Phase 2: multi-word action keys with word-boundary protection
+  for (const { regex, action } of ACTION_MULTI_REGEX) {
+    if (regex.test(text)) {
+      actions.add(action)
     }
   }
 
@@ -501,6 +691,7 @@ export function parseIntent(prompt: string): ParsedIntent {
       chains: [DEFAULT_CHAIN],
       keywords: [],
       negated: false,
+      entities: {},
     }
   }
 
@@ -523,7 +714,7 @@ export function parseIntent(prompt: string): ParsedIntent {
   const schedule = extractSchedule(text)
   const chains = resolveChains(text, allWords)
   const conditions = extractConditions(text)
-  const dataSources = detectDataSources(keywords, text)
+  const { sources: dataSources, entities } = detectDataSources(keywords, text)
   const actions = detectActions(keywords, text)
 
   // Step 5: Adjust confidence for negation
@@ -539,5 +730,6 @@ export function parseIntent(prompt: string): ParsedIntent {
     chains,
     keywords,
     negated: isNegated,
+    entities,
   }
 }
