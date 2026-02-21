@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    --background: 240 20% 4%;
+    --background: 240 33% 4%;
     --foreground: 0 0% 91%;
     --card: 240 24% 7%;
     --card-foreground: 0 0% 91%;
@@ -15,47 +15,47 @@
     --secondary: 240 23% 14%;
     --secondary-foreground: 0 0% 91%;
     --muted: 240 14% 11%;
-    --muted-foreground: 240 5% 55%;
+    --muted-foreground: 240 3% 54%;
     --accent: 217 33% 17%;
     --accent-foreground: 0 0% 91%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 12% 17%;
-    --input: 240 10% 20%;
+    --border: 245 14% 16%;
+    --input: 245 14% 20%;
     --ring: 217 91% 60%;
     --radius: 0.75rem;
-    --chart-1: 217 91% 60%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    --chart-1: 142 71% 45%;
+    --chart-2: 217 91% 60%;
+    --chart-3: 271 91% 65%;
+    --chart-4: 43 96% 56%;
+    --chart-5: 0 84% 60%;
   }
 
   .light {
     --background: 0 0% 98%;
-    --foreground: 240 10% 10%;
+    --foreground: 240 10% 4%;
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 10%;
+    --card-foreground: 240 10% 4%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 10%;
-    --primary: 217 91% 50%;
+    --popover-foreground: 240 10% 4%;
+    --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 5% 94%;
-    --secondary-foreground: 240 10% 10%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 10% 4%;
     --muted: 240 5% 96%;
-    --muted-foreground: 240 5% 45%;
+    --muted-foreground: 240 4% 46%;
     --accent: 240 5% 94%;
-    --accent-foreground: 240 10% 10%;
+    --accent-foreground: 240 10% 4%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
     --border: 240 6% 90%;
     --input: 240 6% 90%;
-    --ring: 217 91% 50%;
-    --chart-1: 217 91% 50%;
-    --chart-2: 160 60% 40%;
-    --chart-3: 30 80% 50%;
-    --chart-4: 280 65% 55%;
-    --chart-5: 340 75% 50%;
+    --ring: 217 91% 60%;
+    --chart-1: 142 71% 45%;
+    --chart-2: 217 91% 60%;
+    --chart-3: 271 91% 65%;
+    --chart-4: 43 96% 56%;
+    --chart-5: 0 84% 60%;
   }
 }
 
@@ -98,9 +98,9 @@
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
+    animation-duration: 0ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0ms !important;
     scroll-behavior: auto !important;
   }
 }

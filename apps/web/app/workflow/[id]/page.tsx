@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useWorkflowStore } from "@/lib/store"
+import { getCategoryVariant, getCategoryLabel, CHAIN_COLORS } from "@/lib/design-tokens"
 import { api, type WorkflowDetail } from "@/lib/api"
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
@@ -40,28 +41,6 @@ const EDITOR_OPTIONS = {
     verticalScrollbarSize: 8,
     horizontalScrollbarSize: 8,
   },
-}
-
-const CATEGORY_STYLES: Record<string, string> = {
-  "core-defi": "bg-green-900/60 text-green-300",
-  institutional: "bg-blue-900/60 text-blue-300",
-  "risk-compliance": "bg-red-900/60 text-red-300",
-  "ai-powered": "bg-purple-900/60 text-purple-300",
-}
-
-const CATEGORY_LABELS: Record<string, string> = {
-  "core-defi": "Core DeFi",
-  institutional: "Institutional",
-  "risk-compliance": "Risk & Compliance",
-  "ai-powered": "AI-Powered",
-}
-
-const CHAIN_COLORS: Record<string, string> = {
-  "base-sepolia": "bg-blue-400",
-  base: "bg-blue-500",
-  ethereum: "bg-indigo-400",
-  arbitrum: "bg-sky-400",
-  optimism: "bg-red-400",
 }
 
 function truncateAddress(address: string): string {
@@ -220,11 +199,9 @@ export default function WorkflowDetailPage() {
             {workflow.name}
           </h1>
           <span
-            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-              CATEGORY_STYLES[workflow.category] ?? "bg-muted text-muted-foreground"
-            }`}
+            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${getCategoryVariant(workflow.category)}`}
           >
-            {CATEGORY_LABELS[workflow.category] ?? workflow.category}
+            {getCategoryLabel(workflow.category)}
           </span>
         </div>
 

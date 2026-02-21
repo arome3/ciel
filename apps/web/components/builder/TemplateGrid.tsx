@@ -1,17 +1,7 @@
 "use client"
 
 import { useWorkflowStore } from "@/lib/store"
-
-const CATEGORY_VARIANTS: Record<string, string> = {
-  DeFi: "bg-green-900/60 text-green-300",
-  Finance: "bg-blue-900/60 text-blue-300",
-  Security: "bg-red-900/60 text-red-300",
-  Analytics: "bg-purple-900/60 text-purple-300",
-  Governance: "bg-yellow-900/60 text-yellow-300",
-  Infrastructure: "bg-gray-800/60 text-gray-300",
-  NFT: "bg-pink-900/60 text-pink-300",
-  Utility: "bg-orange-900/60 text-orange-300",
-}
+import { getCategoryVariant } from "@/lib/design-tokens"
 
 interface Template {
   id: number
@@ -122,9 +112,7 @@ export function TemplateGrid() {
           </span>
 
           <span
-            className={`inline-block rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
-              CATEGORY_VARIANTS[template.category] ?? "bg-gray-800/60 text-gray-300"
-            }`}
+            className={`inline-block rounded-md px-1.5 py-0.5 text-[10px] font-medium ${getCategoryVariant(template.category)}`}
           >
             {template.category}
           </span>

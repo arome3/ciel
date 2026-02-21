@@ -11,21 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useWorkflowStore } from "@/lib/store"
-
-const CATEGORIES = [
-  { value: "core-defi", label: "Core DeFi" },
-  { value: "institutional", label: "Institutional" },
-  { value: "risk-compliance", label: "Risk & Compliance" },
-  { value: "ai-powered", label: "AI-Powered" },
-]
-
-const CHAINS = [
-  { value: "base-sepolia", label: "Base Sepolia" },
-  { value: "base", label: "Base" },
-  { value: "ethereum", label: "Ethereum" },
-  { value: "arbitrum", label: "Arbitrum" },
-  { value: "optimism", label: "Optimism" },
-]
+import { CATEGORIES, CHAINS } from "@/lib/design-tokens"
 
 const SORT_OPTIONS = [
   { value: "newest", label: "Newest" },

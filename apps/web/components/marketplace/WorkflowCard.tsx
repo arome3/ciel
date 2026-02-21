@@ -3,29 +3,8 @@
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { useWorkflowStore } from "@/lib/store"
+import { getCategoryVariant, getCategoryLabel, CHAIN_COLORS } from "@/lib/design-tokens"
 import type { WorkflowListItem } from "@/lib/api"
-
-const CATEGORY_STYLES: Record<string, string> = {
-  "core-defi": "bg-green-900/60 text-green-300",
-  institutional: "bg-blue-900/60 text-blue-300",
-  "risk-compliance": "bg-red-900/60 text-red-300",
-  "ai-powered": "bg-purple-900/60 text-purple-300",
-}
-
-const CATEGORY_LABELS: Record<string, string> = {
-  "core-defi": "Core DeFi",
-  institutional: "Institutional",
-  "risk-compliance": "Risk & Compliance",
-  "ai-powered": "AI-Powered",
-}
-
-const CHAIN_COLORS: Record<string, string> = {
-  "base-sepolia": "bg-blue-400",
-  base: "bg-blue-500",
-  ethereum: "bg-indigo-400",
-  arbitrum: "bg-sky-400",
-  optimism: "bg-red-400",
-}
 
 const MAX_TAGS = 4
 
@@ -54,11 +33,9 @@ export function WorkflowCard({ workflow }: { workflow: WorkflowListItem }) {
       {/* Header: category + chain dots */}
       <div className="flex items-center justify-between gap-2">
         <span
-          className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-            CATEGORY_STYLES[workflow.category] ?? "bg-muted text-muted-foreground"
-          }`}
+          className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${getCategoryVariant(workflow.category)}`}
         >
-          {CATEGORY_LABELS[workflow.category] ?? workflow.category}
+          {getCategoryLabel(workflow.category)}
         </span>
         <div className="flex items-center gap-1">
           {workflow.chains.map((chain) => (

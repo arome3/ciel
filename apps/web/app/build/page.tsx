@@ -2,6 +2,7 @@ import { PromptInput } from "@/components/builder/PromptInput"
 import { TemplateGrid } from "@/components/builder/TemplateGrid"
 import { CodePreview } from "@/components/builder/CodePreview"
 import { SimulationPanel } from "@/components/builder/SimulationPanel"
+import { BuilderActions } from "@/components/builder/BuilderActions"
 
 export const metadata = {
   title: "Build — Ciel",
@@ -41,6 +42,8 @@ export default function BuildPage() {
           <CodePreview />
           <SimulationPanel />
         </section>
+
+        <BuilderActions />
       </div>
     </div>
   )
