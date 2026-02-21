@@ -149,10 +149,12 @@ export function buildFallbackConfig(
   }
 
   if (intent.dataSources.includes("multi-ai")) {
-    config.openaiApiKey = "sk-placeholder"
-    config.anthropicApiKey = "sk-placeholder"
-    config.geminiApiKey = "placeholder"
-    config.queryPrompt = "What is the current value?"
+    config.prompt = "What is the current value?"
+    config.openaiModel = "gpt-4o"
+    config.claudeModel = "claude-sonnet-4-20250514"
+    config.geminiModel = "gemini-1.5-pro"
+    config.openaiApiEndpoint = "https://api.openai.com/v1/chat/completions"
+    config.evms = [{ chainSelectorName: "base-sepolia", contractAddress: config.consumerContract || "0x0000000000000000000000000000000000000000" }]
   }
 
   // Alert webhook placeholder

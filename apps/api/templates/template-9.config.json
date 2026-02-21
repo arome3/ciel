@@ -1,13 +1,13 @@
 {
-  "queryPrompt": "What is the current value?",
-  "openaiApiKey": "sk-placeholder",
-  "anthropicApiKey": "sk-placeholder",
-  "geminiApiKey": "placeholder",
-  "maxDeviation": 10,
-  "consumerContract": "0x0000000000000000000000000000000000000000",
-  "chainName": "base-sepolia",
-  "cronSchedule": "0 */10 * * * *",
-  "kvStoreUrl": "",
-  "kvApiKey": "",
-  "stateKey": ""
+  "prompt": "Has there been a material credit event affecting any major US bank in the last 24 hours?",
+  "openaiModel": "gpt-4o",
+  "claudeModel": "claude-sonnet-4-20250514",
+  "geminiModel": "gemini-1.5-pro",
+  "openaiApiEndpoint": "https://api.openai.com/v1/chat/completions",
+  "evms": [
+    {
+      "chainSelectorName": "base-sepolia",
+      "contractAddress": "0x0000000000000000000000000000000000000000"
+    }
+  ]
 }

@@ -311,7 +311,7 @@ function checkConfigJson(code: string, configJson: string): string[] {
   const configValues = Object.values(obj).map(String)
 
   // EVM operations need chain config
-  if (/EVMClient\.(?:callContract|writeReport)|evmWrite/.test(code)) {
+  if (/[eE][vV][mM]Client\.(?:callContract|writeReport)|evmWrite/.test(code)) {
     const hasChainConfig = configKeys.some((k) =>
       /chain|evm|consumer/i.test(k),
     )
@@ -413,6 +413,7 @@ declare module "@chainlink/cre-sdk" {
     consumerAddress?: string;
     contractAddress?: string;
     chainSelector?: string;
+    chainSelectorName?: string;
   }
 
   interface FetchOpts {
@@ -437,15 +438,25 @@ declare module "@chainlink/cre-sdk" {
 
   /** The Runner bootstraps workflow registration */
   export class Runner {
-    static newRunner<T>(opts: { configSchema: import("zod").ZodType }): Runner;
-    run(fn: (runtime: Runtime<any>) => void): void;
+    static newRunner<T>(opts: { configSchema: import("zod").ZodType }): Runner & PromiseLike<Runner>;
+    run(fn: (runtime: Runtime<any>) => void): void | PromiseLike<void>;
+    run(fn: (config: any) => any[]): void | PromiseLike<void>;
   }
 
   /** Runtime is the typed config accessor passed to handler callbacks */
   export class Runtime<T> {
     readonly config: T;
+    getConfig(): T;
+    getSecret(key: string): string;
     runInNodeMode<R>(callback: (nodeRuntime: Runtime<T>) => R): R;
+    runInNodeMode<R>(callback: (nodeRuntime: NodeRuntime<T>) => R, consensus: any): () => CREResponse<R>;
     report(data: string): string;
+  }
+
+  /** NodeRuntime — individual node context inside runInNodeMode */
+  export interface NodeRuntime<T> {
+    getConfig(): T;
+    getSecret(key: string): string;
   }
 
   /** Capability classes — these are the CRE SDK building blocks */
@@ -482,6 +493,19 @@ declare module "@chainlink/cre-sdk" {
     writeReport(opts: EVMWriteReportOpts): CREResponse<EVMResponse>;
   }
 
+  /** cre namespace — alternative API for capabilities and handler wiring */
+  export namespace cre {
+    namespace capabilities {
+      class HTTPClient {
+        sendRequest(runtime: NodeRuntime<any> | Runtime<any>, opts: { url: string; method?: string; headers?: Record<string, string>; body?: string }): CREResponse<HTTPResponse>;
+      }
+      class EVMClient {
+        writeReport(runtime: Runtime<any>, opts: { chainSelectorName?: string; contractAddress?: string; data?: string; report?: string; reportData?: string; chainSelector?: string; consumerAddress?: string }): CREResponse<EVMResponse>;
+      }
+    }
+    function handler(trigger: CronTrigger | HTTPTrigger | EVMLogTrigger, callback: (runtime: Runtime<any>) => any): any;
+  }
+
   // Trigger types (returned by capability.trigger())
   interface CronTrigger { readonly __brand: "CronTrigger" }
   interface HTTPTrigger { readonly __brand: "HTTPTrigger" }
@@ -497,15 +521,23 @@ declare module "@chainlink/cre-sdk" {
 
   /** Consensus functions */
   export function consensusMedianAggregation(opts: ConsensusOpts): void;
+  export function consensusMedianAggregation(): any;
   export function consensusModeAggregation(opts: ConsensusOpts): void;
   export function consensusIdenticalAggregation(opts: ConsensusOpts): void;
+  export function consensusIdenticalAggregation(): any;
   export function consensusMajorityVote(opts: ConsensusOpts): void;
+
+  /** ConsensusAggregationByFields — per-field aggregation for complex objects */
+  export function ConsensusAggregationByFields<T>(fields: { [K in keyof T]?: any }): any;
 
   export const StreamsLookup: {
     new(): { lookup(feedId: string): CREResponse<{ price: number; timestamp: number }> };
   };
 
   export type InferOutput<T> = T extends (...args: any[]) => infer R ? R : never;
+
+  export function encodeAbiParameters(types: unknown, values: unknown[]): string;
+  export function parseAbiParameters(params: string): unknown;
 }
 
 declare module "@chainlink/cre-sdk/triggers" {
@@ -516,6 +548,9 @@ declare module "@chainlink/cre-sdk/triggers" {
   export const cronTrigger: CronCapability;
   export const httpTrigger: HTTPCapability;
   export const evmLogTrigger: EVMLogCapability;
+  export const http: {
+    trigger(): any;
+  };
 }
 
 declare module "zod" {

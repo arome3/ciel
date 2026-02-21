@@ -160,13 +160,16 @@ describe("buildFallbackConfig", () => {
     expect(config.predictionMarketApiUrl).toBeDefined()
   })
 
-  test("includes AI API keys and queryPrompt for multi-ai data source", () => {
+  test("includes prompt, model names, and evms for multi-ai data source", () => {
     const intent = makeIntent({ dataSources: ["multi-ai"] })
     const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
-    expect(config.openaiApiKey).toBeDefined()
-    expect(config.anthropicApiKey).toBeDefined()
-    expect(config.geminiApiKey).toBeDefined()
-    expect(config.queryPrompt).toBeDefined()
+    expect(config.prompt).toBeDefined()
+    expect(config.openaiModel).toBe("gpt-4o")
+    expect(config.claudeModel).toBe("claude-sonnet-4-20250514")
+    expect(config.geminiModel).toBe("gemini-1.5-pro")
+    expect(config.openaiApiEndpoint).toBeDefined()
+    expect(config.evms).toBeInstanceOf(Array)
+    expect(config.evms.length).toBe(1)
   })
 
   // ── Action coverage ──
@@ -344,8 +347,14 @@ describe("loadTemplateConfig — templates 2-10", () => {
       expect(content).not.toBeNull()
       const parsed = JSON.parse(content!)
       expect(typeof parsed).toBe("object")
-      expect(parsed).toHaveProperty("consumerContract")
-      expect(parsed).toHaveProperty("chainName")
+      if (id === 9) {
+        // Template 9 uses flat schema with evms array (no consumerContract/chainName)
+        expect(parsed).toHaveProperty("evms")
+        expect(parsed).toHaveProperty("prompt")
+      } else {
+        expect(parsed).toHaveProperty("consumerContract")
+        expect(parsed).toHaveProperty("chainName")
+      }
     })
   }
 })
