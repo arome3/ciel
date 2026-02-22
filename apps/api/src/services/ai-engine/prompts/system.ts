@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────
 // System Prompt Builder — CRE Workflow Code Generator
 // ─────────────────────────────────────────────
-// Assembles the system prompt for GPT-5.2 code generation.
+// Assembles the system prompt for LLM code generation.
 // Structure: static role + constraints + API ref + dynamic context.
 
 // ─────────────────────────────────────────────
@@ -138,6 +138,32 @@ These APIs are available via \`HTTPClient\` or \`ConfidentialHTTPClient\` (when 
 - **Response shape**: \`{ status, message, result }\` where result varies by action
 - **Whale tracking**: Filter by \`rt.config.minTransferAmount\` (in wei)`
 
+const DEX_SWAP_PATTERN = `## DEX Swap Pattern (Uniswap V3)
+
+CRE workflows can execute DEX swaps using \`EVMClient.sendTransaction()\`. The pattern:
+
+1. Fetch price from API (HTTPClient)
+2. Check threshold condition
+3. Encode Uniswap V3 \`exactInputSingle\` call using viem's \`encodeAbiParameters\`
+4. Execute via \`evmClient.sendTransaction({ contractAddress: routerAddr, chainSelector, data: calldata })\`
+
+Key Uniswap V3 SwapRouter02 function selectors:
+- \`exactInputSingle(ExactInputSingleParams)\`: \`0x414bf389\`
+- \`exactOutputSingle(ExactOutputSingleParams)\`: \`0x5023b4df\`
+
+ExactInputSingleParams struct (ABI-encoded as tuple):
+- \`address tokenIn\` — input token
+- \`address tokenOut\` — output token
+- \`uint24 fee\` — pool fee tier (500 = 0.05%, 3000 = 0.3%, 10000 = 1%)
+- \`address recipient\` — who receives output tokens
+- \`uint256 amountIn\` — input amount in wei
+- \`uint256 amountOutMinimum\` — min output (slippage protection)
+- \`uint160 sqrtPriceLimitX96\` — price limit (0 = no limit)
+
+IMPORTANT: All amounts must be BigInt. Token addresses are chain-specific.
+The \`value\` field in sendTransaction must be set to the swap amount ONLY
+when swapping native ETH (tokenIn = address(0) or WETH).`
+
 const STATE_MANAGEMENT_PATTERNS = `## State Management Patterns
 
 CRE workflows are stateless — each run has zero memory of previous runs. Use these patterns when the user needs cross-run state (price history, portfolio tracking, counters, trends).
@@ -232,7 +258,7 @@ Use the structured output fields as follows:
 // ─────────────────────────────────────────────
 
 /**
- * Builds the complete system prompt for GPT-5.2 code generation.
+ * Builds the complete system prompt for LLM code generation.
  *
  * @param fewShotContext - Working template examples from context-builder
  * @param relevantDocs - CRE SDK documentation from doc-retriever
@@ -251,6 +277,7 @@ export function buildSystemPrompt(
     CRITICAL_CONSTRAINTS,
     API_REFERENCE,
     EXTENDED_DATA_SOURCE_APIS,
+    DEX_SWAP_PATTERN,
   ]
 
   // Only include state patterns when intent involves state

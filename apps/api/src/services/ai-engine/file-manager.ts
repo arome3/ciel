@@ -206,9 +206,29 @@ export function buildFallbackConfig(
     intent.actions.includes("evmWrite") ||
     intent.actions.includes("transfer") ||
     intent.actions.includes("mint") ||
-    intent.actions.includes("payout")
+    intent.actions.includes("payout") ||
+    intent.actions.includes("dexSwap")
   ) {
     config.consumerContract = config.consumerContract || "0x0000000000000000000000000000000000000000"
+  }
+
+  if (intent.actions.includes("dexSwap")) {
+    config.swapRouterAddress = "0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4"
+    config.tokenIn = "0x4200000000000000000000000000000000000006"
+    config.tokenOut = "0x0000000000000000000000000000000000000000"
+    config.poolFee = 3000
+    config.slippageBps = 50
+    config.swapAmountWei = "100000000000000000"
+    config.recipientAddress = "0x0000000000000000000000000000000000000000"
+    config.tokenOutDecimals = 18
+    config.tokenInDecimals = 18
+    config.useNativeETH = true
+    // Price-feed defaults — ensure dexSwap is self-contained even if
+    // price-feed data source wasn't separately detected
+    config.priceApiUrl = config.priceApiUrl || "https://api.coingecko.com/api/v3/simple/price"
+    config.assetId = config.assetId || "ethereum"
+    config.threshold = config.threshold || 2000
+    config.direction = config.direction || "below"
   }
 
   if (intent.actions.includes("rebalance")) {

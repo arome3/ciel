@@ -309,7 +309,6 @@ const ACTION_MAP: Record<string, string> = {
   "alarm": "alert",
 
   // Transfers (Template 2)
-  "swap": "transfer",
   "transfer": "transfer",
   "bridge": "transfer",
   "send": "transfer",
@@ -336,6 +335,17 @@ const ACTION_MAP: Record<string, string> = {
   "allocate": "rebalance",
   "adjust": "rebalance",
 
+  // DEX swaps (Template 11)
+  "swap": "dexSwap",
+  "buy": "dexSwap",
+  "sell": "dexSwap",
+  "trade": "dexSwap",
+  "uniswap": "dexSwap",
+  "sushiswap": "dexSwap",
+  "dex": "dexSwap",
+  "amm": "dexSwap",
+  "slippage": "dexSwap",
+
   // Messaging platforms
   "telegram": "alert",
   "discord": "alert",
@@ -360,6 +370,16 @@ const ACTION_MULTI_REGEX: Array<{ key: string; regex: RegExp; action: string }> 
       regex: new RegExp("\\b" + k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i"),
       action: ACTION_MAP[k],
     }))
+
+// ── dexSwap disambiguation: generic keywords that trigger dexSwap but are polysemous ──
+const GENERIC_DEX_KEYWORDS = new Set(["buy", "sell", "trade", "exchange", "pool"])
+// Confirming keywords: if at least one of these is present, dexSwap is intentional
+const DEX_CONFIRMING_KEYWORDS = new Set([
+  "swap", "uniswap", "sushiswap", "dex", "amm", "slippage",
+  "liquidity", "router", "token",
+])
+// Pre-compiled word-boundary regex for short confirming keywords (≤4 chars)
+const DEX_CONFIRMING_REGEX = /\b(?:dex|amm)\b/i
 
 // ─────────────────────────────────────────────
 // Schedule Extraction (with fuzzy unit matching)
@@ -643,6 +663,25 @@ function detectActions(keywords: string[], text: string): string[] {
   for (const { regex, action } of ACTION_MULTI_REGEX) {
     if (regex.test(text)) {
       actions.add(action)
+    }
+  }
+
+  // Phase 3: word-boundary scan for ≤3 char action keys on raw text
+  for (const key of ACTION_KEYS) {
+    if (key.length <= 3 && !key.includes(" ")) {
+      if (new RegExp("\\b" + key + "\\b", "i").test(text)) {
+        actions.add(ACTION_MAP[key])
+      }
+    }
+  }
+
+  // Phase 4: Action disambiguation — remove dexSwap if triggered only by generic keywords
+  // Mirrors the data source disambiguation pattern (detectDataSources Phase 4)
+  if (actions.has("dexSwap")) {
+    const hasConfirming = keywords.some((kw) => DEX_CONFIRMING_KEYWORDS.has(kw))
+      || DEX_CONFIRMING_REGEX.test(text)
+    if (!hasConfirming) {
+      actions.delete("dexSwap")
     }
   }
 

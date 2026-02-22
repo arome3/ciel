@@ -528,3 +528,53 @@ describe("parseIntent — fuzzy matching for 4-char keywords", () => {
     expect(result.dataSources).toContain("weather-api")
   })
 })
+
+// ─────────────────────────────────────────────
+// DEX Swap Detection Tests (Doc 19)
+// ─────────────────────────────────────────────
+describe("parseIntent — DEX swap detection (Doc 19)", () => {
+  test("Template 11: DEX swap detection with price threshold", () => {
+    const result = parseIntent("Buy $500 worth of ETH on Uniswap when price drops below $2000")
+    expect(result.actions).toContain("dexSwap")
+    expect(result.dataSources).toContain("price-feed")
+    expect(result.conditions.length).toBeGreaterThan(0)
+  })
+
+  test("DEX keywords map to dexSwap action", () => {
+    const result = parseIntent("Sell ETH on Uniswap every day")
+    expect(result.actions).toContain("dexSwap")
+  })
+
+  test("'swap' keyword maps to dexSwap, not transfer", () => {
+    const result = parseIntent("Swap WETH for USDC when price goes above $3000")
+    expect(result.actions).toContain("dexSwap")
+    expect(result.actions).not.toContain("transfer")
+  })
+
+  test("short keywords 'buy', 'dex', 'amm' detected via word-boundary scan", () => {
+    const result = parseIntent("Buy tokens on a dex with low amm slippage")
+    expect(result.actions).toContain("dexSwap")
+  })
+
+  // ── False positive prevention (disambiguation) ──
+
+  test("'Buy insurance' does NOT trigger dexSwap", () => {
+    const result = parseIntent("Buy insurance against flight delay")
+    expect(result.actions).not.toContain("dexSwap")
+  })
+
+  test("'Sell data feed results' does NOT trigger dexSwap", () => {
+    const result = parseIntent("Sell data feed results to consumers onchain")
+    expect(result.actions).not.toContain("dexSwap")
+  })
+
+  test("'Trade alerts' does NOT trigger dexSwap", () => {
+    const result = parseIntent("Trade alerts when price moves more than 5%")
+    expect(result.actions).not.toContain("dexSwap")
+  })
+
+  test("'dex' alone triggers dexSwap via regex fallback", () => {
+    const result = parseIntent("Use a dex to convert my tokens every hour")
+    expect(result.actions).toContain("dexSwap")
+  })
+})

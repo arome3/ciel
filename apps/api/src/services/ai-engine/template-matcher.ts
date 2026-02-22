@@ -8,7 +8,7 @@ export type { ParsedIntent } from "./types"
 // ─────────────────────────────────────────────
 
 export interface TemplateDefinition {
-  /** Unique template ID (1-10) */
+  /** Unique template ID (1-11) */
   id: number
 
   /** Human-readable template name */
@@ -64,7 +64,7 @@ const TRIGGER_MISMATCH_PENALTY = 0.15
 const AMBIGUITY_THRESHOLD = 0.05
 
 // ─────────────────────────────────────────────
-// Template Definitions (10 Templates)
+// Template Definitions (11 Templates)
 // ─────────────────────────────────────────────
 
 export const TEMPLATES: TemplateDefinition[] = [
@@ -250,6 +250,27 @@ export const TEMPLATES: TemplateDefinition[] = [
       "on a cron schedule. Apply weighting or averaging logic, validate the result, " +
       "and publish the aggregated data point onchain as a custom oracle via evmWrite.",
   },
+
+  // ─────────────────────────────────────────────
+  // DEX (Template 11)
+  // ─────────────────────────────────────────────
+  {
+    id: 11,
+    name: "Conditional DEX Swap",
+    category: "core-defi",
+    keywords: [
+      "swap", "buy", "sell", "trade", "exchange", "uniswap", "dex",
+      "amm", "slippage", "pool", "token", "price", "limit order",
+      "conditional", "threshold", "below", "above", "drops",
+    ],
+    requiredCapabilities: ["price-feed", "dexSwap", "evmWrite"],
+    triggerType: "cron",
+    defaultPromptFill:
+      "Generate a CRE workflow that monitors token prices on a cron schedule. " +
+      "When the price crosses a configurable threshold, encode a Uniswap V3 " +
+      "exactInputSingle call and execute via ethSendTransaction. " +
+      "Report the execution result onchain via writeReport.",
+  },
 ]
 
 // ─────────────────────────────────────────────
@@ -260,7 +281,7 @@ export const TEMPLATES: TemplateDefinition[] = [
 // where N = total templates, df = number of templates containing this keyword.
 // Unique keywords (df=1) get ~2.3x weight; common keywords (df=4+) get ~0.9x.
 
-const N = TEMPLATES.length // 10
+const N = TEMPLATES.length // 11
 
 const IDF_WEIGHTS: Record<string, number> = {}
 

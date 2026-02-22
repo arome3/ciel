@@ -24,6 +24,7 @@ const TEMPLATE_RELATIONS: Record<number, [number, number]> = {
   8: [1, 4],
   9: [4, 1],
   10: [6, 3],
+  11: [1, 10],
 }
 
 // ─────────────────────────────────────────────
@@ -35,7 +36,7 @@ const TEMPLATES_DIR = join(__dirname, "../../../data/templates")
 /** Pre-loaded template contents: templateId → file content */
 const TEMPLATE_CACHE = new Map<number, string>()
 
-for (let id = 1; id <= 10; id++) {
+for (let id = 1; id <= 11; id++) {
   try {
     const content = readFileSync(join(TEMPLATES_DIR, `template-${id}.ts`), "utf-8")
     TEMPLATE_CACHE.set(id, content)
@@ -53,7 +54,7 @@ for (let id = 1; id <= 10; id++) {
  *
  * Reads from module-level cache — zero file I/O per request.
  *
- * @param templateId - Target template ID (1-10)
+ * @param templateId - Target template ID (1-11)
  * @returns Labeled code fences with 2 related template examples
  */
 export function buildFewShotContext(templateId: number): string {

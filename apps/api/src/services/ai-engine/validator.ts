@@ -311,7 +311,7 @@ function checkConfigJson(code: string, configJson: string): string[] {
   const configValues = Object.values(obj).map(String)
 
   // EVM operations need chain config
-  if (/[eE][vV][mM]Client\.(?:callContract|writeReport)|evmWrite/.test(code)) {
+  if (/[eE][vV][mM]Client\.(?:callContract|writeReport|sendTransaction)|evmWrite/.test(code)) {
     const hasChainConfig = configKeys.some((k) =>
       /chain|evm|consumer/i.test(k),
     )
@@ -489,8 +489,10 @@ declare module "@chainlink/cre-sdk" {
   export class EVMClient {
     static callContract(opts: EVMCallContractOpts): CREResponse<EVMResponse>;
     static writeReport(opts: EVMWriteReportOpts): CREResponse<EVMResponse>;
+    static sendTransaction(opts: EVMCallContractOpts): CREResponse<EVMResponse>;
     callContract(opts: EVMCallContractOpts): CREResponse<EVMResponse>;
     writeReport(opts: EVMWriteReportOpts): CREResponse<EVMResponse>;
+    sendTransaction(opts: { contractAddress?: string; chainSelector?: string; data?: string; value?: string; to?: string }): CREResponse<EVMResponse>;
   }
 
   /** cre namespace — alternative API for capabilities and handler wiring */
@@ -501,6 +503,7 @@ declare module "@chainlink/cre-sdk" {
       }
       class EVMClient {
         writeReport(runtime: Runtime<any>, opts: { chainSelectorName?: string; contractAddress?: string; data?: string; report?: string; reportData?: string; chainSelector?: string; consumerAddress?: string }): CREResponse<EVMResponse>;
+        sendTransaction(runtime: Runtime<any>, opts: { contractAddress?: string; chainSelector?: string; data?: string; value?: string; to?: string }): CREResponse<EVMResponse>;
       }
     }
     function handler(trigger: CronTrigger | HTTPTrigger | EVMLogTrigger, callback: (runtime: Runtime<any>) => any): any;
@@ -563,19 +566,21 @@ declare module "zod" {
     describe(desc: string): ZodType<T>;
   }
 
-  namespace z {
-    function object<T extends Record<string, ZodType>>(shape: T): ZodType<{ [K in keyof T]: T[K] extends ZodType<infer U> ? U : any }>;
-    function string(): ZodType<string>;
-    function number(): ZodType<number>;
-    function boolean(): ZodType<boolean>;
-    function literal<T extends string | number | boolean>(value: T): ZodType<T>;
-    function array<T>(schema: ZodType<T>): ZodType<T[]>;
-    function record<V>(value: ZodType<V>): ZodType<Record<string, V>>;
-    function union<T extends [ZodType, ...ZodType[]]>(schemas: T): ZodType;
-    type infer<T extends ZodType> = T extends ZodType<infer U> ? U : never;
-  }
-  interface z {
+  // var provides value-level methods (including reserved-word 'enum')
+  var z: {
+    object<T extends Record<string, ZodType>>(shape: T): ZodType<{ [K in keyof T]: T[K] extends ZodType<infer U> ? U : any }>;
+    string(): ZodType<string>;
+    number(): ZodType<number>;
+    boolean(): ZodType<boolean>;
+    literal<T extends string | number | boolean>(value: T): ZodType<T>;
+    array<T>(schema: ZodType<T>): ZodType<T[]>;
+    record<V>(value: ZodType<V>): ZodType<Record<string, V>>;
+    union<T extends [ZodType, ...ZodType[]]>(schemas: T): ZodType;
     enum<T extends readonly [string, ...string[]]>(values: T): ZodType<T[number]>;
+  };
+  // namespace provides type-level infer (z.infer<typeof schema>)
+  namespace z {
+    type infer<T extends ZodType> = T extends ZodType<infer U> ? U : never;
   }
   export { z };
   export type { ZodType };

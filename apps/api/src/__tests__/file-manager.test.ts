@@ -205,6 +205,41 @@ describe("buildFallbackConfig", () => {
     expect(config.targetAllocations).toBeDefined()
     expect(config.driftThreshold).toBe(5)
   })
+
+  test("dexSwap action adds swap router config fields", () => {
+    const intent = makeIntent({ actions: ["dexSwap"] })
+    const template = makeTemplate()
+    const config = JSON.parse(buildFallbackConfig(intent, template))
+    expect(config.swapRouterAddress).toBe("0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4")
+    expect(config.tokenIn).toBe("0x4200000000000000000000000000000000000006")
+    expect(config.poolFee).toBe(3000)
+    expect(config.slippageBps).toBe(50)
+    expect(config.swapAmountWei).toBe("100000000000000000")
+    expect(config.recipientAddress).toBeDefined()
+    expect(config.tokenOutDecimals).toBe(18)
+    expect(config.tokenInDecimals).toBe(18)
+    expect(config.useNativeETH).toBe(true)
+    expect(config.consumerContract).toBeDefined()
+  })
+
+  test("dexSwap config includes price-feed defaults even without price-feed data source", () => {
+    const intent = makeIntent({ actions: ["dexSwap"], dataSources: [] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.priceApiUrl).toBe("https://api.coingecko.com/api/v3/simple/price")
+    expect(config.assetId).toBe("ethereum")
+    expect(config.threshold).toBe(2000)
+    expect(config.direction).toBe("below")
+    expect(config.tokenInDecimals).toBe(18)
+    expect(config.useNativeETH).toBe(true)
+  })
+
+  test("dexSwap does not overwrite price-feed values set by data source detection", () => {
+    const intent = makeIntent({ actions: ["dexSwap"], dataSources: ["price-feed"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    // price-feed block sets threshold=3000, dexSwap block uses ||= so keeps 3000
+    expect(config.threshold).toBe(3000)
+    expect(config.priceApiUrl).toBe("https://api.coingecko.com/api/v3/simple/price")
+  })
 })
 
 // ─────────────────────────────────────────────
@@ -325,8 +360,8 @@ describe("buildFallbackConfig — state keyword detection", () => {
 // loadTemplateFile — templates 2-10
 // ─────────────────────────────────────────────
 
-describe("loadTemplateFile — templates 2-10", () => {
-  for (const id of [2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+describe("loadTemplateFile — templates 2-11", () => {
+  for (const id of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
     test(`loads template-${id}.ts successfully`, () => {
       const content = loadTemplateFile(id)
       expect(content).not.toBeNull()
@@ -341,8 +376,8 @@ describe("loadTemplateFile — templates 2-10", () => {
 // loadTemplateConfig — templates 2-10
 // ─────────────────────────────────────────────
 
-describe("loadTemplateConfig — templates 2-10", () => {
-  for (const id of [2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+describe("loadTemplateConfig — templates 2-11", () => {
+  for (const id of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
     test(`loads template-${id}.config.json as valid JSON`, () => {
       const content = loadTemplateConfig(id)
       expect(content).not.toBeNull()

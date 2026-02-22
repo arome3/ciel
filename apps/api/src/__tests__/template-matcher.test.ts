@@ -134,6 +134,17 @@ describe("Template Reachability", () => {
     expect(match!.templateId).toBe(10)
     expect(match!.confidence).toBeGreaterThan(0.3)
   })
+
+  test("T11: Conditional DEX Swap", () => {
+    const intent = parseIntent(
+      "Swap ETH on Uniswap every hour when price drops below $2000 with slippage protection",
+    )
+    const match = matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(11)
+    expect(match!.templateName).toBe("Conditional DEX Swap")
+    expect(match!.confidence).toBeGreaterThan(0.3)
+  })
 })
 
 // ─────────────────────────────────────────────
@@ -365,8 +376,11 @@ describe("getTemplateById", () => {
     expect(getTemplateById(0)).toBeUndefined()
   })
 
-  test("ID 11 returns undefined", () => {
-    expect(getTemplateById(11)).toBeUndefined()
+  test("ID 11 returns Conditional DEX Swap", () => {
+    const template = getTemplateById(11)
+    expect(template).not.toBeUndefined()
+    expect(template!.name).toBe("Conditional DEX Swap")
+    expect(template!.category).toBe("core-defi")
   })
 })
 
@@ -375,15 +389,15 @@ describe("getTemplateById", () => {
 // ─────────────────────────────────────────────
 
 describe("getAllTemplates", () => {
-  test("returns exactly 10 templates", () => {
+  test("returns exactly 11 templates", () => {
     const all = getAllTemplates()
-    expect(all.length).toBe(10)
+    expect(all.length).toBe(11)
   })
 
-  test("IDs are 1 through 10", () => {
+  test("IDs are 1 through 11", () => {
     const all = getAllTemplates()
     const ids = all.map((t) => t.id).sort((a, b) => a - b)
-    expect(ids).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    expect(ids).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
   })
 
   test("all categories are valid enum values", () => {
@@ -397,5 +411,46 @@ describe("getAllTemplates", () => {
     for (const template of all) {
       expect(validCategories.has(template.category)).toBe(true)
     }
+  })
+})
+
+// ─────────────────────────────────────────────
+// Suite 6: T11 Disambiguation (2 tests)
+// ─────────────────────────────────────────────
+
+describe("T11 Scoring — requiredCapabilities fix", () => {
+  test("T11 scores above threshold with price-feed + dexSwap capabilities", () => {
+    const intent = parseIntent("Swap ETH to USDC on Uniswap when price drops below 2000 every 5 minutes")
+    const match = matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(11)
+    expect(match!.confidence).toBeGreaterThan(0.4)
+  })
+
+  test("T11 requiredCapabilities no longer includes exchange-api", () => {
+    const t11 = TEMPLATES.find((t) => t.id === 11)!
+    expect(t11.requiredCapabilities).not.toContain("exchange-api")
+    expect(t11.requiredCapabilities).toContain("price-feed")
+  })
+
+  test("T11 keywords do not include stop word 'when'", () => {
+    const t11 = TEMPLATES.find((t) => t.id === 11)!
+    expect(t11.keywords).not.toContain("when")
+  })
+})
+
+describe("T11 Disambiguation", () => {
+  test("T1 vs T11: pure price alert without swap intent stays T1", () => {
+    const intent = parseIntent("Monitor ETH price and alert when it drops below $2000")
+    const match = matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(1)
+  })
+
+  test("T2 vs T11: 'liquidity pool yield' matches T2 not T11", () => {
+    const intent = parseIntent("Monitor liquidity pool yield and rebalance portfolio allocations")
+    const match = matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(2)
   })
 })

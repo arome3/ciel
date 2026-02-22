@@ -1,4 +1,6 @@
 import { describe, test, expect } from "bun:test"
+import { readFileSync } from "fs"
+import { join } from "path"
 import { validateWorkflow, quickFix } from "../services/ai-engine/validator"
 
 // ─────────────────────────────────────────────
@@ -448,4 +450,18 @@ describe("Check (g): State Patterns", () => {
     expect(fixes.some((f) => f.includes("ConfidentialHTTPClient"))).toBe(false)
     expect(fixed).toBe(VALID_CODE)
   })
+})
+
+// ─────────────────────────────────────────────
+// Suite 13: Template 11 Integration Validation
+// ─────────────────────────────────────────────
+
+describe("Template 11 integration validation", () => {
+  test("template-11.ts passes 6-point validation", async () => {
+    const code = readFileSync(join(__dirname, "../../templates/template-11.ts"), "utf-8")
+    const config = readFileSync(join(__dirname, "../../templates/template-11.config.json"), "utf-8")
+    const result = await validateWorkflow(code, config)
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  }, 30_000)
 })
