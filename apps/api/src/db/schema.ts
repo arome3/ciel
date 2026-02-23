@@ -84,6 +84,38 @@ export const events = sqliteTable("events", {
 })
 
 // ─────────────────────────────────────────────
+// Pipelines Table
+// ─────────────────────────────────────────────
+export const pipelines = sqliteTable("pipelines", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  ownerAddress: text("owner_address").notNull(),
+  steps: text("steps").notNull(),                                    // JSON: PipelineStep[]
+  totalPrice: text("total_price").notNull().default("0"),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  executionCount: integer("execution_count").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+})
+
+// ─────────────────────────────────────────────
+// Pipeline Executions Table
+// ─────────────────────────────────────────────
+export const pipelineExecutions = sqliteTable("pipeline_executions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  pipelineId: text("pipeline_id").notNull().references(() => pipelines.id),
+  agentAddress: text("agent_address"),
+  totalPaid: text("total_paid"),
+  status: text("status").notNull().default("pending"),               // "pending" | "running" | "completed" | "failed" | "partial"
+  stepResults: text("step_results"),                                 // JSON
+  triggerInput: text("trigger_input"),                               // JSON
+  finalOutput: text("final_output"),                                 // JSON
+  duration: integer("duration"),                                     // ms
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+})
+
+// ─────────────────────────────────────────────
 // Type exports for use across the app
 // ─────────────────────────────────────────────
 export type Workflow = typeof workflows.$inferSelect
@@ -92,3 +124,7 @@ export type Execution = typeof executions.$inferSelect
 export type NewExecution = typeof executions.$inferInsert
 export type Event = typeof events.$inferSelect
 export type NewEvent = typeof events.$inferInsert
+export type Pipeline = typeof pipelines.$inferSelect
+export type NewPipeline = typeof pipelines.$inferInsert
+export type PipelineExecution = typeof pipelineExecutions.$inferSelect
+export type NewPipelineExecution = typeof pipelineExecutions.$inferInsert

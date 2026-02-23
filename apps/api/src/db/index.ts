@@ -26,6 +26,10 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_workflow_published ON workflows(published);
   CREATE INDEX IF NOT EXISTS idx_execution_workflow ON executions(workflow_id);
   CREATE INDEX IF NOT EXISTS idx_execution_created ON executions(created_at);
+  CREATE INDEX IF NOT EXISTS idx_pipeline_owner ON pipelines(owner_address);
+  CREATE INDEX IF NOT EXISTS idx_pipeline_active ON pipelines(is_active);
+  CREATE INDEX IF NOT EXISTS idx_pipeline_exec_pipeline ON pipeline_executions(pipeline_id);
+  CREATE INDEX IF NOT EXISTS idx_pipeline_exec_created ON pipeline_executions(created_at);
 `)
 
 // Export the Drizzle ORM instance with full schema for relational queries

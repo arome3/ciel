@@ -14,10 +14,13 @@ import executeRouter from "./routes/execute"
 import redeployRouter from "./routes/redeploy"
 import eventsRouter from "./routes/events"
 import discoverRouter from "./routes/discover"
+import pipelinesRouter from "./routes/pipelines"
+import { requestId } from "./middleware/request-id"
 import { createLogger } from "./lib/logger"
 import { checkCRECli } from "./services/cre/compiler"
 import { warmDependencyCache } from "./services/cre/dep-cache"
 import { sweepStalePendingDeploys } from "./services/cre/deploy-sweep"
+import { sweepStaleExecutions } from "./services/pipeline/execution-sweep"
 
 const log = createLogger("Server")
 
@@ -36,21 +39,26 @@ app.use(
       if (allowed.includes(origin)) return callback(null, true)
       callback(new Error(`CORS: origin ${origin} not allowed`))
     },
-    methods: ["GET", "POST", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
       "Authorization",
       "X-Owner-Address",
       "X-Owner-Signature",
+      "X-Owner-Timestamp",
       "X-Payment",
       "X-Payment-Response",
+      "X-Request-Id",
     ],
-    exposedHeaders: ["X-Payment-Required", "X-Payment-Address"],
+    exposedHeaders: ["X-Payment-Required", "X-Payment-Address", "X-Request-Id"],
   }),
 )
 
 // ── Body parsing ──
 app.use(express.json({ limit: "1mb" }))
+
+// ── Request ID (before all routes for correlation) ──
+app.use(requestId)
 
 // ── SSE route (before global limiter — has its own eventsSseLimiter) ──
 app.use("/api", eventsRouter)
@@ -67,6 +75,7 @@ app.use("/api", publishRouter)
 app.use("/api", executeRouter)
 app.use("/api", redeployRouter)
 app.use("/api", discoverRouter)
+app.use("/api", pipelinesRouter)
 
 // ── Error handler (must be last) ──
 app.use(errorHandler)
@@ -80,6 +89,8 @@ app.listen(config.API_PORT, () => {
   warmDependencyCache().catch(() => {})
   // Sweep stale pending deploys from previous crashed processes
   sweepStalePendingDeploys().catch(() => {})
+  // Sweep stale running pipeline executions from previous crashed processes
+  sweepStaleExecutions().catch(() => {})
 })
 
 export default app

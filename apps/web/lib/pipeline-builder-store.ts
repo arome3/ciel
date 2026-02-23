@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { api } from "./api"
 
 // ─────────────────────────────────────────────
 // Types
@@ -51,16 +52,24 @@ interface PipelineBuilderState {
   name: string
   description: string
 
+  // Loading states
+  isLoadingPalette: boolean
+  isSaving: boolean
+  isExecuting: boolean
+
   // Actions
+  fetchPalette: () => Promise<void>
   addStep: (workflowId: string, x: number, y: number) => void
   removeStep: (stepId: string) => void
   moveStep: (stepId: string, x: number, y: number) => void
   selectStep: (stepId: string | null) => void
-  connectSteps: (sourceId: string, targetId: string) => void
+  connectSteps: (sourceId: string, targetId: string) => Promise<void>
   disconnectSteps: (connectionId: string) => void
   updateFieldMapping: (connectionId: string, mappings: FieldMapping[]) => void
   setName: (name: string) => void
   setDescription: (description: string) => void
+  savePipeline: (ownerAddress: string) => Promise<string | null>
+  executePipeline: (pipelineId: string, triggerInput?: Record<string, unknown>) => Promise<unknown>
   reset: () => void
 
   // Computed
@@ -68,12 +77,12 @@ interface PipelineBuilderState {
 }
 
 // ─────────────────────────────────────────────
-// Mock palette workflows
+// Mock palette fallback
 // ─────────────────────────────────────────────
 
 const MOCK_PALETTE: PaletteWorkflow[] = [
   {
-    id: "wf-price-feed",
+    id: "00000000-0000-4000-8000-000000000001",
     name: "Price Feed Oracle",
     category: "DeFi",
     description: "Fetches real-time asset prices from Chainlink feeds",
@@ -96,7 +105,7 @@ const MOCK_PALETTE: PaletteWorkflow[] = [
     },
   },
   {
-    id: "wf-threshold",
+    id: "00000000-0000-4000-8000-000000000002",
     name: "Threshold Gate",
     category: "Utility",
     description: "Passes data through only when a condition is met",
@@ -119,7 +128,7 @@ const MOCK_PALETTE: PaletteWorkflow[] = [
     },
   },
   {
-    id: "wf-alert",
+    id: "00000000-0000-4000-8000-000000000003",
     name: "Alert Sender",
     category: "Utility",
     description: "Sends notifications via webhook or on-chain event",
@@ -142,7 +151,7 @@ const MOCK_PALETTE: PaletteWorkflow[] = [
     },
   },
   {
-    id: "wf-evm-write",
+    id: "00000000-0000-4000-8000-000000000004",
     name: "EVM Transaction",
     category: "DeFi",
     description: "Executes a write transaction on an EVM chain",
@@ -167,7 +176,7 @@ const MOCK_PALETTE: PaletteWorkflow[] = [
     },
   },
   {
-    id: "wf-compliance",
+    id: "00000000-0000-4000-8000-000000000005",
     name: "Compliance Check",
     category: "Security",
     description: "Runs KYC/AML screening on an address",
@@ -190,7 +199,7 @@ const MOCK_PALETTE: PaletteWorkflow[] = [
     },
   },
   {
-    id: "wf-aggregator",
+    id: "00000000-0000-4000-8000-000000000006",
     name: "Data Aggregator",
     category: "Analytics",
     description: "Combines multiple data sources into a single output",
@@ -294,9 +303,38 @@ export const usePipelineBuilderStore = create<PipelineBuilderState>(
     palette: MOCK_PALETTE,
     name: "",
     description: "",
+    isLoadingPalette: false,
+    isSaving: false,
+    isExecuting: false,
+
+    fetchPalette: async () => {
+      set({ isLoadingPalette: true })
+      try {
+        const res = await api.listWorkflows({ limit: 100 })
+        const withSchemas = (res.workflows as any[])
+          .filter((wf) => wf.inputSchema && wf.outputSchema)
+          .map((wf) => ({
+            id: wf.id,
+            name: wf.name,
+            category: wf.category,
+            description: wf.description,
+            priceUsdc: wf.priceUsdc,
+            inputSchema: wf.inputSchema as JSONSchema,
+            outputSchema: wf.outputSchema as JSONSchema,
+          }))
+
+        // Use real data if available, fallback to mock
+        set({ palette: withSchemas.length > 0 ? withSchemas : MOCK_PALETTE })
+      } catch {
+        // Keep mock data on error
+      } finally {
+        set({ isLoadingPalette: false })
+      }
+    },
 
     addStep: (workflowId, x, y) => {
-      const wf = MOCK_PALETTE.find((w) => w.id === workflowId)
+      const { palette } = get()
+      const wf = palette.find((w) => w.id === workflowId)
       if (!wf) return
       const step: PipelineStep = {
         id: generateStepId(),
@@ -329,7 +367,7 @@ export const usePipelineBuilderStore = create<PipelineBuilderState>(
 
     selectStep: (stepId) => set({ selectedStepId: stepId }),
 
-    connectSteps: (sourceId, targetId) => {
+    connectSteps: async (sourceId, targetId) => {
       const { steps, connections, palette } = get()
       // Prevent duplicate connections
       if (
@@ -348,8 +386,26 @@ export const usePipelineBuilderStore = create<PipelineBuilderState>(
       const targetWf = palette.find((w) => w.id === targetStep.workflowId)
       if (!sourceWf || !targetWf) return
 
-      const compatibility = computeCompatibility(sourceWf, targetWf)
-      const fieldMappings = suggestMappings(sourceWf, targetWf)
+      // Try API compatibility check first, fallback to local
+      let compatibility: number
+      let fieldMappings: FieldMapping[]
+
+      try {
+        const result = await api.checkCompatibility(
+          sourceStep.workflowId,
+          targetStep.workflowId,
+        )
+        compatibility = result.score
+        fieldMappings = (result.suggestions as any[]).map((s) => ({
+          sourceField: s.sourceField,
+          targetField: s.targetField,
+          confidence: s.confidence,
+        }))
+      } catch {
+        // Fallback to local computation
+        compatibility = computeCompatibility(sourceWf, targetWf)
+        fieldMappings = suggestMappings(sourceWf, targetWf)
+      }
 
       const connection: Connection = {
         id: generateConnectionId(),
@@ -378,6 +434,61 @@ export const usePipelineBuilderStore = create<PipelineBuilderState>(
 
     setName: (name) => set({ name }),
     setDescription: (description) => set({ description }),
+
+    savePipeline: async (ownerAddress) => {
+      const { steps, connections, name, description } = get()
+      if (steps.length === 0) return null
+
+      set({ isSaving: true })
+      try {
+        // Build step configs with position derived from y-coordinate ordering
+        const sortedSteps = [...steps].sort((a, b) => a.y - b.y)
+        const pipelineSteps = sortedSteps.map((step, idx) => {
+          // Find input mappings from connections where this step is the target
+          const incomingConns = connections.filter((c) => c.targetStepId === step.id)
+          const inputMapping: Record<string, { source: string; field: string }> = {}
+
+          for (const conn of incomingConns) {
+            for (const fm of conn.fieldMappings) {
+              inputMapping[fm.targetField] = {
+                source: conn.sourceStepId,
+                field: fm.sourceField,
+              }
+            }
+          }
+
+          return {
+            id: step.id,
+            workflowId: step.workflowId,
+            position: idx,
+            ...(Object.keys(inputMapping).length > 0 ? { inputMapping } : {}),
+          }
+        })
+
+        const result = await api.createPipeline({
+          name: name || "Untitled Pipeline",
+          description: description || "A composable workflow pipeline",
+          ownerAddress,
+          steps: pipelineSteps,
+        })
+
+        return result.id
+      } catch {
+        return null
+      } finally {
+        set({ isSaving: false })
+      }
+    },
+
+    executePipeline: async (pipelineId, triggerInput) => {
+      set({ isExecuting: true })
+      try {
+        const result = await api.executePipeline(pipelineId, triggerInput)
+        return result
+      } finally {
+        set({ isExecuting: false })
+      }
+    },
 
     reset: () => {
       stepCounter = 0

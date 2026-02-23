@@ -63,3 +63,11 @@ export const eventsSseLimiter = rateLimit({
   legacyHeaders: false,
   message: rateLimitMessage,
 })
+
+export const pipelineLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: rateLimitMessage,
+})

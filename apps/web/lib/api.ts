@@ -257,6 +257,81 @@ export const api = {
     return request<WorkflowDetail>(`/api/workflows/${id}`)
   },
 
+  // ─────────────────────────────────────────────
+  // Pipeline API methods
+  // ─────────────────────────────────────────────
+
+  async createPipeline(data: {
+    name: string
+    description: string
+    ownerAddress: string
+    steps: Array<{
+      id: string
+      workflowId: string
+      position: number
+      inputMapping?: Record<string, { source: string; field: string }>
+    }>
+  }): Promise<{ id: string; name: string; totalPrice: string }> {
+    return request("/api/pipelines", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  },
+
+  async listPipelines(params?: {
+    page?: number
+    limit?: number
+    owner?: string
+    active?: boolean
+  }): Promise<{ pipelines: unknown[]; total: number; page: number; limit: number }> {
+    const query = new URLSearchParams()
+    if (params?.page) query.set("page", String(params.page))
+    if (params?.limit) query.set("limit", String(params.limit))
+    if (params?.owner) query.set("owner", params.owner)
+    if (params?.active !== undefined) query.set("active", String(params.active))
+    const qs = query.toString()
+    return request(`/api/pipelines${qs ? `?${qs}` : ""}`)
+  },
+
+  async getPipeline(id: string): Promise<unknown> {
+    return request(`/api/pipelines/${id}`)
+  },
+
+  async executePipeline(
+    id: string,
+    triggerInput?: Record<string, unknown>,
+    ownerAuth?: { address: string; signature: string; timestamp?: string },
+  ): Promise<{ executionId: string; status: string; stepResults: unknown[]; finalOutput: unknown }> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (ownerAuth) {
+      headers["X-Owner-Address"] = ownerAuth.address
+      headers["X-Owner-Signature"] = ownerAuth.signature
+      if (ownerAuth.timestamp) {
+        headers["X-Owner-Timestamp"] = ownerAuth.timestamp
+      }
+    }
+
+    return request(`/api/pipelines/${id}/execute`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ triggerInput: triggerInput ?? {} }),
+    })
+  },
+
+  async checkCompatibility(
+    sourceWorkflowId: string,
+    targetWorkflowId: string,
+  ): Promise<{ compatible: boolean; score: number; suggestions: unknown[] }> {
+    return request("/api/pipelines/check-compatibility", {
+      method: "POST",
+      body: JSON.stringify({ sourceWorkflowId, targetWorkflowId }),
+    })
+  },
+
+  async suggestPipelines(): Promise<{ suggestions: unknown[] }> {
+    return request("/api/pipelines/suggest")
+  },
+
   async executeWorkflow(
     id: string,
     ownerAuth?: { address: string; signature: string },

@@ -4,6 +4,10 @@ export interface SSEHandlers {
   onExecution?: (data: unknown) => void
   onPublish?: (data: unknown) => void
   onDiscovery?: (data: unknown) => void
+  onPipelineStarted?: (data: unknown) => void
+  onPipelineStepCompleted?: (data: unknown) => void
+  onPipelineStepFailed?: (data: unknown) => void
+  onPipelineCompleted?: (data: unknown) => void
   onOpen?: () => void
 }
 
@@ -52,6 +56,42 @@ export function createSSEConnection(
       try {
         const data = JSON.parse((e as MessageEvent).data)
         handlers.onDiscovery?.(data)
+      } catch {
+        // malformed event data — ignore
+      }
+    })
+
+    es.addEventListener("pipeline_started", (e) => {
+      try {
+        const data = JSON.parse((e as MessageEvent).data)
+        handlers.onPipelineStarted?.(data)
+      } catch {
+        // malformed event data — ignore
+      }
+    })
+
+    es.addEventListener("pipeline_step_completed", (e) => {
+      try {
+        const data = JSON.parse((e as MessageEvent).data)
+        handlers.onPipelineStepCompleted?.(data)
+      } catch {
+        // malformed event data — ignore
+      }
+    })
+
+    es.addEventListener("pipeline_step_failed", (e) => {
+      try {
+        const data = JSON.parse((e as MessageEvent).data)
+        handlers.onPipelineStepFailed?.(data)
+      } catch {
+        // malformed event data — ignore
+      }
+    })
+
+    es.addEventListener("pipeline_completed", (e) => {
+      try {
+        const data = JSON.parse((e as MessageEvent).data)
+        handlers.onPipelineCompleted?.(data)
       } catch {
         // malformed event data — ignore
       }
