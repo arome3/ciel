@@ -432,6 +432,38 @@ describe("orchestrator — structured error feedback", () => {
 // Suite 11: Fallback state config merge
 // ─────────────────────────────────────────────
 
+// ─────────────────────────────────────────────
+// Suite 12: T12 Wallet Activity Monitor
+// ─────────────────────────────────────────────
+
+describe("orchestrator — T12 Wallet Activity Monitor", () => {
+  test("forceTemplateId: 12 returns correct template match", async () => {
+    const result = await generateWorkflow(
+      "Watch wallet for large token transfers and alert",
+      OWNER,
+      12,
+    )
+    expect(result.template.templateId).toBe(12)
+    expect(result.template.confidence).toBe(1.0)
+    expect(result.fallback).toBe(false)
+  })
+
+  test("T12 fallback loads EVMLogCapability template when OpenAI fails", async () => {
+    mockParse.mockImplementation(() => { throw new Error("OpenAI timeout") })
+    const result = await generateWorkflow(
+      "Watch whale wallet for large ERC20 transfers and alert me",
+      OWNER,
+    )
+    expect(result.fallback).toBe(true)
+    expect(result.code).toContain("EVMLogCapability")
+    expect(result.code).toContain("handler(")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Suite 13: Fallback state config merge
+// ─────────────────────────────────────────────
+
 describe("orchestrator — fallback state config merge", () => {
   test("fallback with state-keyword prompt merges KV config into pre-built config", async () => {
     // Force all generation to fail → triggers fallback path

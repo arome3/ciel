@@ -1,0 +1,20 @@
+{
+  "chainName": "base-sepolia",
+  "tokenContractAddress": "0x0000000000000000000000000000000000000000",
+  "transferEventSignature": "Transfer(address,address,uint256)",
+  "watchAddresses": "0x0000000000000000000000000000000000000000",
+  "minTransferAmountWei": "100000000000000000000",
+  "filterDirection": "both",
+  "knownExchangeAddresses": "",
+  "responseAction": "alert",
+  "alertWebhookUrl": "https://hooks.slack.com/services/placeholder",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "enrichmentApiUrl": "",
+  "enrichmentApiKey": "",
+  "swapRouterAddress": "",
+  "tokenIn": "",
+  "tokenOut": "",
+  "poolFee": 3000,
+  "slippageBps": 50,
+  "swapAmountWei": "100000000000000000"
+}

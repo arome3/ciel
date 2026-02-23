@@ -360,8 +360,8 @@ describe("buildFallbackConfig — state keyword detection", () => {
 // loadTemplateFile — templates 2-10
 // ─────────────────────────────────────────────
 
-describe("loadTemplateFile — templates 2-11", () => {
-  for (const id of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
+describe("loadTemplateFile — templates 2-12", () => {
+  for (const id of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
     test(`loads template-${id}.ts successfully`, () => {
       const content = loadTemplateFile(id)
       expect(content).not.toBeNull()
@@ -376,8 +376,8 @@ describe("loadTemplateFile — templates 2-11", () => {
 // loadTemplateConfig — templates 2-10
 // ─────────────────────────────────────────────
 
-describe("loadTemplateConfig — templates 2-11", () => {
-  for (const id of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
+describe("loadTemplateConfig — templates 2-12", () => {
+  for (const id of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
     test(`loads template-${id}.config.json as valid JSON`, () => {
       const content = loadTemplateConfig(id)
       expect(content).not.toBeNull()
@@ -387,6 +387,11 @@ describe("loadTemplateConfig — templates 2-11", () => {
         // Template 9 uses flat schema with evms array (no consumerContract/chainName)
         expect(parsed).toHaveProperty("evms")
         expect(parsed).toHaveProperty("prompt")
+      } else if (id === 12) {
+        // Template 12 uses evm_log-specific fields
+        expect(parsed).toHaveProperty("tokenContractAddress")
+        expect(parsed).toHaveProperty("transferEventSignature")
+        expect(parsed).toHaveProperty("watchAddresses")
       } else {
         expect(parsed).toHaveProperty("consumerContract")
         expect(parsed).toHaveProperty("chainName")
@@ -558,5 +563,50 @@ describe("buildFallbackConfig — Doc 21 data sources", () => {
     const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
     expect(config.walletApiUrl).toBe("https://api.etherscan.io/api")
     expect(config.etherscanApiKey).toBe("PLACEHOLDER_ETHERSCAN_API_KEY")
+  })
+})
+
+// ─────────────────────────────────────────────
+// buildFallbackConfig — wallet-api trigger-type branching
+// ─────────────────────────────────────────────
+
+describe("buildFallbackConfig — wallet-api trigger-type branching", () => {
+  test("wallet-api with evm_log trigger emits event-driven config", () => {
+    const intent = makeIntent({
+      dataSources: ["wallet-api"],
+      triggerType: "evm_log",
+    })
+    const template = makeTemplate({ triggerType: "evm_log" })
+    const config = JSON.parse(buildFallbackConfig(intent, template))
+    expect(config.tokenContractAddress).toBeDefined()
+    expect(config.transferEventSignature).toBe("Transfer(address,address,uint256)")
+    expect(config.watchAddresses).toBeDefined()
+    expect(config.minTransferAmountWei).toBeDefined()
+    expect(config.filterDirection).toBe("both")
+    // Should NOT have polling fields
+    expect(config.walletApiUrl).toBeUndefined()
+    expect(config.etherscanApiKey).toBeUndefined()
+  })
+
+  test("wallet-api with cron trigger emits polling config", () => {
+    const intent = makeIntent({ dataSources: ["wallet-api"] })
+    const template = makeTemplate({ triggerType: "cron" })
+    const config = JSON.parse(buildFallbackConfig(intent, template))
+    expect(config.walletApiUrl).toBe("https://api.etherscan.io/api")
+    expect(config.etherscanApiKey).toBe("PLACEHOLDER_ETHERSCAN_API_KEY")
+    // Should NOT have evm_log fields
+    expect(config.tokenContractAddress).toBeUndefined()
+    expect(config.watchAddresses).toBeUndefined()
+  })
+
+  test("wallet-api + dexSwap sets responseAction to swap", () => {
+    const intent = makeIntent({
+      dataSources: ["wallet-api"],
+      actions: ["dexSwap"],
+      triggerType: "evm_log",
+    })
+    const template = makeTemplate({ triggerType: "evm_log" })
+    const config = JSON.parse(buildFallbackConfig(intent, template))
+    expect(config.responseAction).toBe("swap")
   })
 })

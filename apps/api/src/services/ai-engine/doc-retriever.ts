@@ -31,6 +31,7 @@ const CAPABILITY_TO_DOCS: Record<string, string[]> = {
   evmWrite: ["capabilities.md", "chain-selectors.md"],
   "multi-chain": ["chain-selectors.md", "capabilities.md"],
   alert: ["capabilities.md"],
+  "wallet-api": ["capabilities.md", "triggers.md"],
 }
 
 // ─────────────────────────────────────────────

@@ -181,10 +181,30 @@ export function buildFallbackConfig(
   }
 
   if (intent.dataSources.includes("wallet-api")) {
-    config.walletApiUrl = "https://api.etherscan.io/api"
-    config.etherscanApiKey = "PLACEHOLDER_ETHERSCAN_API_KEY"
-    config.watchAddress = "0x0000000000000000000000000000000000000000"
-    config.minTransferAmount = "100000000000000000000"
+    if (template.triggerType === "evm_log") {
+      // Event-driven: T12 Wallet Activity Monitor
+      config.tokenContractAddress = "0x0000000000000000000000000000000000000000"
+      config.transferEventSignature = "Transfer(address,address,uint256)"
+      config.watchAddresses = "0x0000000000000000000000000000000000000000"
+      config.minTransferAmountWei = "100000000000000000000"
+      config.filterDirection = "both"
+      config.knownExchangeAddresses = ""
+      config.responseAction = "alert"
+      config.alertWebhookUrl = "PLACEHOLDER_ALERT_WEBHOOK_URL"
+      config.enrichmentApiUrl = ""
+      config.enrichmentApiKey = ""
+    } else {
+      // Polling-based: fallback for cron-triggered wallet monitoring
+      config.walletApiUrl = "https://api.etherscan.io/api"
+      config.etherscanApiKey = "PLACEHOLDER_ETHERSCAN_API_KEY"
+      config.watchAddress = "0x0000000000000000000000000000000000000000"
+      config.minTransferAmount = "100000000000000000000"
+      config.transferEventSignature = "Transfer(address,address,uint256)"
+    }
+  }
+
+  if (intent.actions.includes("dexSwap") && intent.dataSources.includes("wallet-api")) {
+    config.responseAction = "swap"
   }
 
   if (intent.dataSources.includes("multi-ai")) {

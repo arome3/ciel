@@ -145,6 +145,17 @@ describe("Template Reachability", () => {
     expect(match!.templateName).toBe("Conditional DEX Swap")
     expect(match!.confidence).toBeGreaterThan(0.3)
   })
+
+  test("T12: Wallet Activity Monitor", () => {
+    const intent = parseIntent(
+      "Watch wallet for large ETH transfers and alert when whale moves tokens",
+    )
+    const match = matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(12)
+    expect(match!.templateName).toBe("Wallet Activity Monitor")
+    expect(match!.confidence).toBeGreaterThan(0.3)
+  })
 })
 
 // ─────────────────────────────────────────────
@@ -165,6 +176,15 @@ describe("Edge Cases", () => {
     expect(match!.templateId).toBe(5)
     expect(match!.confidence).toBe(1.0)
     expect(match!.templateName).toBe("Proof of Reserve Monitor")
+  })
+
+  test("force override with ID 12 returns Wallet Activity Monitor", () => {
+    const intent = parseIntent("Anything at all here does not matter")
+    const match = matchTemplate(intent, 12)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(12)
+    expect(match!.confidence).toBe(1.0)
+    expect(match!.templateName).toBe("Wallet Activity Monitor")
   })
 
   test("force override with invalid ID returns null", () => {
@@ -382,6 +402,13 @@ describe("getTemplateById", () => {
     expect(template!.name).toBe("Conditional DEX Swap")
     expect(template!.category).toBe("core-defi")
   })
+
+  test("ID 12 returns Wallet Activity Monitor", () => {
+    const template = getTemplateById(12)
+    expect(template).not.toBeUndefined()
+    expect(template!.name).toBe("Wallet Activity Monitor")
+    expect(template!.category).toBe("core-defi")
+  })
 })
 
 // ─────────────────────────────────────────────
@@ -389,15 +416,15 @@ describe("getTemplateById", () => {
 // ─────────────────────────────────────────────
 
 describe("getAllTemplates", () => {
-  test("returns exactly 11 templates", () => {
+  test("returns exactly 12 templates", () => {
     const all = getAllTemplates()
-    expect(all.length).toBe(11)
+    expect(all.length).toBe(12)
   })
 
-  test("IDs are 1 through 11", () => {
+  test("IDs are 1 through 12", () => {
     const all = getAllTemplates()
     const ids = all.map((t) => t.id).sort((a, b) => a - b)
-    expect(ids).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+    expect(ids).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
   })
 
   test("all categories are valid enum values", () => {
@@ -452,5 +479,36 @@ describe("T11 Disambiguation", () => {
     const match = matchTemplate(intent)
     expect(match).not.toBeNull()
     expect(match!.templateId).toBe(2)
+  })
+})
+
+// ─────────────────────────────────────────────
+// Suite 7: T12 Disambiguation (3 tests)
+// ─────────────────────────────────────────────
+
+describe("T12 Disambiguation", () => {
+  test("T12 vs T1: wallet+watch+transfer → T12 not T1", () => {
+    const intent = parseIntent(
+      "Watch wallet address for large token transfers and alert on whale movements",
+    )
+    const match = matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(12)
+  })
+
+  test("T12 vs T3: wallet+transfer → T12 not T3", () => {
+    const intent = parseIntent(
+      "Monitor wallet for ERC20 transfer events and alert when holdings change",
+    )
+    const match = matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(12)
+  })
+
+  test("T1 stays T1: price monitoring without wallet context", () => {
+    const intent = parseIntent("Monitor ETH price every hour and alert when it drops below $2000")
+    const match = matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(1)
   })
 })

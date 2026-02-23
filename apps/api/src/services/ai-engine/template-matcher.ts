@@ -8,7 +8,7 @@ export type { ParsedIntent } from "./types"
 // ─────────────────────────────────────────────
 
 export interface TemplateDefinition {
-  /** Unique template ID (1-11) */
+  /** Unique template ID (1-12) */
   id: number
 
   /** Human-readable template name */
@@ -64,7 +64,7 @@ const TRIGGER_MISMATCH_PENALTY = 0.15
 const AMBIGUITY_THRESHOLD = 0.05
 
 // ─────────────────────────────────────────────
-// Template Definitions (11 Templates)
+// Template Definitions (12 Templates)
 // ─────────────────────────────────────────────
 
 export const TEMPLATES: TemplateDefinition[] = [
@@ -271,6 +271,28 @@ export const TEMPLATES: TemplateDefinition[] = [
       "exactInputSingle call and execute via ethSendTransaction. " +
       "Report the execution result onchain via writeReport.",
   },
+
+  // ─────────────────────────────────────────────
+  // Wallet Monitoring (Template 12)
+  // ─────────────────────────────────────────────
+  {
+    id: 12,
+    name: "Wallet Activity Monitor",
+    category: "core-defi",
+    keywords: [
+      "wallet", "watch", "monitor", "track", "whale", "transfer",
+      "movement", "balance", "address", "holdings", "sends",
+      "receives", "moves", "large", "threshold", "alert",
+      "portfolio", "activity", "token", "erc20",
+    ],
+    requiredCapabilities: ["wallet-api", "alert", "evmWrite"],
+    triggerType: "evm_log",
+    defaultPromptFill:
+      "Generate a CRE workflow that listens for ERC-20 Transfer events using EVMLogCapability. " +
+      "Decode the from/to addresses and transfer value from the event log. " +
+      "Filter by watched addresses and minimum amount threshold. " +
+      "Execute a response action: alert via webhook, write report onchain, or trigger a reactive DEX swap.",
+  },
 ]
 
 // ─────────────────────────────────────────────
@@ -281,7 +303,7 @@ export const TEMPLATES: TemplateDefinition[] = [
 // where N = total templates, df = number of templates containing this keyword.
 // Unique keywords (df=1) get ~2.3x weight; common keywords (df=4+) get ~0.9x.
 
-const N = TEMPLATES.length // 11
+const N = TEMPLATES.length // 12
 
 const IDF_WEIGHTS: Record<string, number> = {}
 

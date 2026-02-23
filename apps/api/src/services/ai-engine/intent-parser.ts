@@ -34,6 +34,8 @@ const EVM_LOG_SIGNALS: string[] = [
   "event", "emit", "log", "listen", "watch",
   "contract event", "on-chain event", "emitted",
   "transfer event", "approval event",
+  "transfer", "erc20 transfer", "token transfer",
+  "wallet activity", "wallet sends", "wallet receives",
 ]
 
 // Pre-compute stemmed signal sets at module load
@@ -223,6 +225,15 @@ const DATA_SOURCE_MAP: Record<string, string> = {
   "holdings": "wallet-api",
   "nonce": "wallet-api",
   "transaction history": "wallet-api",
+  "watch wallet": "wallet-api",
+  "track wallet": "wallet-api",
+  "monitor wallet": "wallet-api",
+  "whale alert": "wallet-api",
+  "whale watch": "wallet-api",
+  "large transfer": "wallet-api",
+  "token movement": "wallet-api",
+  "wallet movement": "wallet-api",
+  "wallet activity": "wallet-api",
 }
 
 // ── Disambiguation: keywords that are polysemous and need confirming context ──

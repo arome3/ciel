@@ -400,6 +400,15 @@ declare module "@chainlink/cre-sdk" {
     success: boolean;
   }
 
+  /** EVMLog — log data passed as second param to handler callback for EVMLogTrigger */
+  interface EVMLog {
+    topics: string[];
+    data: string;
+    address: string;
+    blockNumber: number;
+    transactionHash: string;
+  }
+
   interface EVMCallContractOpts {
     contractAddress: string;
     calldata?: string;
@@ -506,7 +515,7 @@ declare module "@chainlink/cre-sdk" {
         sendTransaction(runtime: Runtime<any>, opts: { contractAddress?: string; chainSelector?: string; data?: string; value?: string; to?: string }): CREResponse<EVMResponse>;
       }
     }
-    function handler(trigger: CronTrigger | HTTPTrigger | EVMLogTrigger, callback: (runtime: Runtime<any>) => any): any;
+    function handler(trigger: CronTrigger | HTTPTrigger | EVMLogTrigger, callback: (runtime: Runtime<any>, triggerOutput?: EVMLog | Record<string, unknown>) => any): any;
   }
 
   // Trigger types (returned by capability.trigger())
@@ -519,8 +528,10 @@ declare module "@chainlink/cre-sdk" {
    *  The real SDK handles this via internal type wiring. */
   export function handler(
     trigger: CronTrigger | HTTPTrigger | EVMLogTrigger,
-    callback: (runtime: Runtime<any>) => Record<string, unknown>,
+    callback: (runtime: Runtime<any>, triggerOutput?: EVMLog | Record<string, unknown>) => Record<string, unknown>,
   ): void;
+
+  export type { EVMLog };
 
   /** Consensus functions */
   export function consensusMedianAggregation(opts: ConsensusOpts): void;

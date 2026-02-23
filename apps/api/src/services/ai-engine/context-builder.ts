@@ -25,6 +25,7 @@ const TEMPLATE_RELATIONS: Record<number, [number, number]> = {
   9: [4, 1],
   10: [6, 3],
   11: [1, 10],
+  12: [11, 1],
 }
 
 // ─────────────────────────────────────────────
@@ -36,7 +37,7 @@ const TEMPLATES_DIR = join(__dirname, "../../../data/templates")
 /** Pre-loaded template contents: templateId → file content */
 const TEMPLATE_CACHE = new Map<number, string>()
 
-for (let id = 1; id <= 11; id++) {
+for (let id = 1; id <= 12; id++) {
   try {
     const content = readFileSync(join(TEMPLATES_DIR, `template-${id}.ts`), "utf-8")
     TEMPLATE_CACHE.set(id, content)

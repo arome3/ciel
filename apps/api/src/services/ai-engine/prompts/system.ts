@@ -164,6 +164,53 @@ IMPORTANT: All amounts must be BigInt. Token addresses are chain-specific.
 The \`value\` field in sendTransaction must be set to the swap amount ONLY
 when swapping native ETH (tokenIn = address(0) or WETH).`
 
+const WALLET_MONITOR_PATTERN = `## Wallet Activity Monitor Pattern (ERC-20 Transfer Events)
+
+CRE workflows can monitor wallet activity by listening for ERC-20 Transfer events using \`EVMLogCapability\`.
+
+### Transfer Event Structure
+- **Topic[0]**: Event signature hash = \`0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\` (keccak256 of "Transfer(address,address,uint256)")
+- **Topic[1]**: \`from\` address (indexed, 32-byte padded — take last 20 bytes)
+- **Topic[2]**: \`to\` address (indexed, 32-byte padded — take last 20 bytes)
+- **Data**: \`value\` uint256 (NOT indexed — must decode in handler, cannot filter at trigger level)
+
+### Trigger Setup (Codebase Pattern)
+\`\`\`typescript
+const logTrigger = new EVMLogCapability().trigger({
+  contractAddress: runtime.config.tokenContractAddress,
+  eventSignature: runtime.config.transferEventSignature,
+  chainSelector: getNetwork(runtime.config.chainName),
+})
+\`\`\`
+
+> **Real CRE SDK Note**: Deployed workflows use \`evmClient.logTrigger()\` with \`hexToBase64()\` for topic conversion and a two-param handler \`(runtime, log: EVMLog)\` where \`log.topics\` are \`Uint8Array[]\`. Use \`bytesToHex(topics[1].slice(12))\` for address decoding in production.
+
+### Address Decoding (Hex String Pattern)
+\`\`\`typescript
+// Topics are 32-byte hex strings; addresses occupy last 20 bytes (40 hex chars)
+const fromAddress = ("0x" + topics[1].slice(26)).toLowerCase()
+const toAddress = ("0x" + topics[2].slice(26)).toLowerCase()
+const transferValue = BigInt(data)
+\`\`\`
+
+Alternative: Use viem's \`decodeEventLog()\` for structured decoding of all fields.
+
+> **Limitation**: ERC-20 Transfer events do NOT cover native ETH transfers. Native ETH sends are internal transactions without log events. To monitor native ETH, use WETH (which IS an ERC-20) or a separate tracing-based approach.
+
+### Exchange Detection Pattern
+Use a configurable address list (NOT hardcoded). Production services like Arkham/Nansen use ML for labeling, but a simple set-based approach is appropriate for CRE templates:
+\`\`\`typescript
+const exchangeSet = new Set(
+  rt.config.knownExchangeAddresses.split(",").map(a => a.trim().toLowerCase()).filter(Boolean)
+)
+const isExchange = exchangeSet.has(counterpartyAddress)
+\`\`\`
+
+### Response Patterns
+1. **Alert**: POST to webhook (Slack, Telegram, Discord) with transfer details
+2. **Counter-trade**: If a watched whale sells, trigger a reactive DEX swap via \`EVMClient.sendTransaction()\`
+3. **Onchain report**: Write transfer data to consumer contract via \`EVMClient.writeReport()\``
+
 const STATE_MANAGEMENT_PATTERNS = `## State Management Patterns
 
 CRE workflows are stateless — each run has zero memory of previous runs. Use these patterns when the user needs cross-run state (price history, portfolio tracking, counters, trends).
@@ -278,6 +325,7 @@ export function buildSystemPrompt(
     API_REFERENCE,
     EXTENDED_DATA_SOURCE_APIS,
     DEX_SWAP_PATTERN,
+    WALLET_MONITOR_PATTERN,
   ]
 
   // Only include state patterns when intent involves state

@@ -544,6 +544,36 @@ describe("parseIntent — DEX swap detection (Doc 19)", () => {
     const result = parseIntent("Sell ETH on Uniswap every day")
     expect(result.actions).toContain("dexSwap")
   })
+})
+
+// ─────────────────────────────────────────────
+// Template 12: Wallet Activity Monitor
+// ─────────────────────────────────────────────
+describe("parseIntent — wallet activity monitor (Template 12)", () => {
+  test("'Watch this wallet for large ETH transfers' → evm_log + wallet-api", () => {
+    const result = parseIntent("Watch this wallet for large ETH transfers")
+    expect(result.triggerType).toBe("evm_log")
+    expect(result.dataSources).toContain("wallet-api")
+  })
+
+  test("'Alert me when a whale wallet moves more than 100 ETH' → wallet-api + alert", () => {
+    const result = parseIntent("Alert me when a whale wallet moves more than 100 ETH")
+    expect(result.dataSources).toContain("wallet-api")
+    expect(result.actions).toContain("alert")
+  })
+
+  test("'Watch wallet; if it sends ETH to Coinbase, alert me' → wallet-api + alert + entity", () => {
+    const result = parseIntent("Watch wallet; if it sends ETH to Coinbase, alert me")
+    expect(result.dataSources).toContain("wallet-api")
+    expect(result.actions).toContain("alert")
+    expect(result.entities["exchange-api"]).toContain("coinbase")
+  })
+
+  test("'Monitor whale wallets and sell my ETH if they dump' → wallet-api + dexSwap", () => {
+    const result = parseIntent("Monitor whale wallets and sell my ETH on Uniswap if they dump")
+    expect(result.dataSources).toContain("wallet-api")
+    expect(result.actions).toContain("dexSwap")
+  })
 
   test("'swap' keyword maps to dexSwap, not transfer", () => {
     const result = parseIntent("Swap WETH for USDC when price goes above $3000")

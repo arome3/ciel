@@ -46,8 +46,8 @@ describe("buildFewShotContext", () => {
     expect(context).toContain("Template 1")
   })
 
-  test("returns non-empty context for all 10 templates", () => {
-    for (let id = 1; id <= 10; id++) {
+  test("returns non-empty context for all 12 templates", () => {
+    for (let id = 1; id <= 12; id++) {
       const context = buildFewShotContext(id)
       expect(context.length).toBeGreaterThan(0)
       expect(context).toContain("Working CRE Workflow Examples")
@@ -71,7 +71,7 @@ describe("buildFewShotContext", () => {
 // ─────────────────────────────────────────────
 
 describe("retrieveRelevantDocs", () => {
-  test("returns non-empty docs for all 10 templates", () => {
+  test("returns non-empty docs for all 12 templates", () => {
     for (const template of TEMPLATES) {
       const docs = retrieveRelevantDocs(template)
       expect(docs.length).toBeGreaterThan(0)
@@ -144,6 +144,13 @@ describe("retrieveRelevantDocs", () => {
     const template = getTemplateById(1)!
     const docs = retrieveRelevantDocs(template)
     expect(docs).not.toContain("state-management.md")
+  })
+
+  test("includes triggers.md for wallet-api template (T12)", () => {
+    const template = getTemplateById(12)!
+    const docs = retrieveRelevantDocs(template)
+    expect(docs).toContain("capabilities.md")
+    expect(docs).toContain("triggers.md")
   })
 })
 

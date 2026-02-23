@@ -465,3 +465,17 @@ describe("Template 11 integration validation", () => {
     expect(result.errors).toHaveLength(0)
   }, 30_000)
 })
+
+// ─────────────────────────────────────────────
+// Suite 14: Template 12 Integration Validation
+// ─────────────────────────────────────────────
+
+describe("Template 12 integration validation", () => {
+  test("template-12.ts passes 6-point validation", async () => {
+    const code = readFileSync(join(__dirname, "../../templates/template-12.ts"), "utf-8")
+    const config = readFileSync(join(__dirname, "../../templates/template-12.config.json"), "utf-8")
+    const result = await validateWorkflow(code, config)
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  }, 30_000)
+})
