@@ -12,7 +12,10 @@
     "lint": "turbo run lint",
     "deploy:contracts": "cd contracts && forge script script/Deploy.s.sol --broadcast --rpc-url base-sepolia --verify",
     "db:push": "cd apps/api && bunx drizzle-kit push",
-    "db:seed": "cd apps/api && bun src/db/seed.ts"
+    "db:seed": "cd apps/api && bun src/db/seed.ts",
+    "test:api": "cd apps/api && bun test",
+    "test:contracts": "cd contracts && forge test",
+    "pre-demo": "bash scripts/pre-demo-check.sh"
   },
   "devDependencies": {
     "turbo": "^2.0.0",

@@ -4,7 +4,8 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
-    "test": "bun test"
+    "test": "bun test",
+    "start": "bun dist/index.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",
