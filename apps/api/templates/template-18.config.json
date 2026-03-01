@@ -1,0 +1,10 @@
+{
+  "schedule": "0 0 */4 * * *",
+  "chainSelectorName": "base-sepolia",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "paymentApiUrl": "https://api.example.com/payments",
+  "maxPaymentAmount": "50000000000",
+  "s3Bucket": "PLACEHOLDER_S3_BUCKET",
+  "s3Region": "us-east-1",
+  "s3Key": "payment-idempotency.json"
+}

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core"
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core"
 import { sql } from "drizzle-orm"
 
 // ─────────────────────────────────────────────
@@ -116,6 +116,21 @@ export const pipelineExecutions = sqliteTable("pipeline_executions", {
 })
 
 // ─────────────────────────────────────────────
+// Intent Logs Table (training data for future fine-tuning)
+// ─────────────────────────────────────────────
+export const intentLogs = sqliteTable("intentLogs", {
+  id: text("id").primaryKey(),
+  prompt: text("prompt").notNull(),
+  matchedTemplateId: integer("matched_template_id"),
+  matchedConfidence: real("matched_confidence"),
+  keywordScore: real("keyword_score"),
+  embeddingScore: real("embedding_score"),
+  userAccepted: integer("user_accepted"),               // 1 = accepted, 0 = overridden
+  overrideTemplateId: integer("override_template_id"),
+  createdAt: text("created_at").default(sql`(datetime('now'))`),
+})
+
+// ─────────────────────────────────────────────
 // Type exports for use across the app
 // ─────────────────────────────────────────────
 export type Workflow = typeof workflows.$inferSelect
@@ -128,3 +143,5 @@ export type Pipeline = typeof pipelines.$inferSelect
 export type NewPipeline = typeof pipelines.$inferInsert
 export type PipelineExecution = typeof pipelineExecutions.$inferSelect
 export type NewPipelineExecution = typeof pipelineExecutions.$inferInsert
+export type IntentLog = typeof intentLogs.$inferSelect
+export type NewIntentLog = typeof intentLogs.$inferInsert

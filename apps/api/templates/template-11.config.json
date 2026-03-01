@@ -1,5 +1,5 @@
 {
-  "cronSchedule": "0 */5 * * * *",
+  "schedule": "0 */5 * * * *",
   "priceApiUrl": "https://api.coingecko.com/api/v3/simple/price",
   "assetId": "ethereum",
   "direction": "below",
@@ -11,7 +11,7 @@
   "poolFee": 3000,
   "slippageBps": 50,
   "recipientAddress": "0x0000000000000000000000000000000000000000",
-  "chainName": "base-sepolia",
+  "chainSelectorName": "base-sepolia",
   "consumerContract": "0x0000000000000000000000000000000000000000",
   "tokenOutDecimals": 18,
   "tokenInDecimals": 18,

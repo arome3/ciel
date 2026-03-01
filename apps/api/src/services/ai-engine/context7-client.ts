@@ -6,7 +6,7 @@
 // Graceful fallback: returns empty string on any failure.
 
 const CONTEXT7_BASE_URL = "https://context7.com/api"
-const CONTEXT7_LIBRARY_ID = "/chainlink/cre-sdk"
+const CONTEXT7_LIBRARY_ID = "/websites/chain_link_cre"
 const CONTEXT7_TIMEOUT_MS = 5_000
 
 /** Module-level cache — populated on first call, never refetched */

@@ -174,6 +174,104 @@ export function buildStemmedSet(signals: string[]): Set<string> {
   return set
 }
 
+// ─────────────────────────────────────────────
+// Synonym Expansion
+// ─────────────────────────────────────────────
+
+/**
+ * Maps casual/natural-language phrases to canonical keywords
+ * the existing pipeline already matches on.
+ * Sorted longest-first at compile time to prevent partial matches.
+ */
+const SYNONYM_MAP: Array<{ regex: RegExp; replacement: string }> = [
+  // Price / crypto phrasing
+  { regex: /\bcrypto(?:currency)?\b/gi, replacement: "token price" },
+  // Only match "coin(s)" adjacent to crypto-context words, not "flip a coin"
+  { regex: /\b(?:my|the|this|a)\s+coin(?:s)?\b/gi, replacement: "token price" },
+
+  // Movement up
+  { regex: /\bwent up\b/gi, replacement: "rises above" },
+  { regex: /\bgoes up\b/gi, replacement: "rises above" },
+  { regex: /\bincreased\b/gi, replacement: "rises above" },
+  { regex: /\bspiked\b/gi, replacement: "rises above" },
+
+  // Movement down
+  { regex: /\bwent down\b/gi, replacement: "drops below" },
+  { regex: /\bdropped\b/gi, replacement: "drops below" },
+  { regex: /\bcrashed\b/gi, replacement: "drops below" },
+  { regex: /\btanked\b/gi, replacement: "drops below" },
+
+  // Notifications
+  { regex: /\btext me\b/gi, replacement: "alert notify" },
+  { regex: /\blet me know\b/gi, replacement: "alert notify" },
+  { regex: /\btell me\b/gi, replacement: "alert notify" },
+  { regex: /\bnotify me\b/gi, replacement: "alert notify" },
+
+  // Monitoring
+  { regex: /\bkeep an eye\b/gi, replacement: "monitor watch" },
+  { regex: /\bkeep track\b/gi, replacement: "monitor watch" },
+  { regex: /\beye on\b/gi, replacement: "monitor watch" },
+
+  // Payouts
+  { regex: /\bpay people\b/gi, replacement: "payout distribute" },
+  { regex: /\bpay out\b/gi, replacement: "payout distribute" },
+  // "payments" NOT expanded here — stemmer("payments") → "payment" → payment-api via DATA_SOURCE_MAP
+
+  // Scheduling
+  { regex: /\bscheduled task\b/gi, replacement: "schedule cron" },
+  { regex: /\bcron job\b/gi, replacement: "schedule cron" },
+  { regex: /\bon a schedule\b/gi, replacement: "schedule cron" },
+  { regex: /\btimer\b/gi, replacement: "schedule cron" },
+
+  // Blockchain events
+  { regex: /\bon-chain event\b/gi, replacement: "event emit log" },
+  { regex: /\bblockchain event\b/gi, replacement: "event emit log" },
+  { regex: /\bchain event\b/gi, replacement: "event emit log" },
+
+  // Reactive
+  { regex: /\breact to\b/gi, replacement: "listen event" },
+  { regex: /\brespond to\b/gi, replacement: "listen event" },
+  { regex: /\blisten for\b/gi, replacement: "listen event" },
+
+  // Whale / large transaction phrasing
+  { regex: /\b(?:big|large|huge|major)\s+(?:transfer|transaction)s?\b/gi, replacement: "large threshold whale transfer" },
+
+  // Money
+  { regex: /\bmoney\b/gi, replacement: "token transfer" },
+  { regex: /\bfunds\b/gi, replacement: "token transfer" },
+  { regex: /\bcash\b/gi, replacement: "token transfer" },
+
+  // Prediction market outcomes
+  { regex: /\bwho won\b/gi, replacement: "outcome resolution settle" },
+  { regex: /\bgame ends\b/gi, replacement: "outcome resolution settle" },
+  { regex: /\bwinners\b/gi, replacement: "outcome resolution settle" },
+  { regex: /\blosers\b/gi, replacement: "outcome resolution settle" },
+
+  // Institutional finance — settlement & payment
+  { regex: /\bdvp\b/gi, replacement: "delivery versus payment settlement" },
+  // "swift" alone handled by DATA_SOURCE_MAP → payment-api (no synonym to avoid false positives)
+  { regex: /\bswift\s+(?:payment|transfer|message)\b/gi, replacement: "payment initiation wire transfer" },
+  { regex: /\bt\+1\b/gi, replacement: "settlement cycle" },
+  { regex: /\bt\+0\b/gi, replacement: "settlement cycle" },
+
+  // Institutional finance — registry & distribution
+  { regex: /\bcap table\b/gi, replacement: "shareholder registry" },
+  { regex: /\bpro rata\b/gi, replacement: "proportional distribute dividend" },
+  { regex: /\bwire\s+transfer\b/gi, replacement: "payment initiation bank transfer" },
+]
+
+/**
+ * Expands natural-language synonyms into canonical keywords.
+ * Runs after abbreviation expansion, before keyword extraction.
+ */
+export function expandSynonyms(text: string): string {
+  let result = text
+  for (const { regex, replacement } of SYNONYM_MAP) {
+    result = result.replace(regex, replacement)
+  }
+  return result
+}
+
 /**
  * Compute adaptive max edit distance based on word length.
  * Short words get tighter tolerance to prevent false positives

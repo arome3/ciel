@@ -79,35 +79,37 @@ describe("loadTemplateConfig", () => {
 // ─────────────────────────────────────────────
 
 describe("buildFallbackConfig", () => {
-  test("uses intent chain as chainName", () => {
+  test("uses intent chain as chainName and chainSelectorName", () => {
     const intent = makeIntent({ chains: ["ethereum-sepolia"] })
     const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
     expect(config.chainName).toBe("ethereum-sepolia")
+    expect(config.chainSelectorName).toBe("ethereum-sepolia")
   })
 
   test("defaults to base-sepolia when no chains", () => {
     const intent = makeIntent({ chains: [] })
     const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
     expect(config.chainName).toBe("base-sepolia")
+    expect(config.chainSelectorName).toBe("base-sepolia")
   })
 
-  test("includes cronSchedule from intent for cron templates", () => {
+  test("includes schedule from intent for cron templates", () => {
     const intent = makeIntent({ schedule: "0 0 * * *" })
     const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
-    expect(config.cronSchedule).toBe("0 0 * * *")
+    expect(config.schedule).toBe("0 0 * * *")
   })
 
-  test("defaults cronSchedule when intent has no schedule", () => {
+  test("defaults schedule when intent has no schedule", () => {
     const intent = makeIntent({ schedule: undefined })
     const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
-    expect(config.cronSchedule).toBe("0 */5 * * * *")
+    expect(config.schedule).toBe("0 */5 * * * *")
   })
 
-  test("omits cronSchedule for http-triggered templates", () => {
+  test("omits schedule for http-triggered templates", () => {
     const intent = makeIntent()
     const template = makeTemplate({ triggerType: "http" })
     const config = JSON.parse(buildFallbackConfig(intent, template))
-    expect(config.cronSchedule).toBeUndefined()
+    expect(config.schedule).toBeUndefined()
   })
 
   test("includes price-feed fields when dataSource matches", () => {
@@ -394,7 +396,9 @@ describe("loadTemplateConfig — templates 2-12", () => {
         expect(parsed).toHaveProperty("watchAddresses")
       } else {
         expect(parsed).toHaveProperty("consumerContract")
-        expect(parsed).toHaveProperty("chainName")
+        // Templates use chainSelectorName (official SDK) or chainName (legacy)
+        const hasChainField = parsed.hasOwnProperty("chainSelectorName") || parsed.hasOwnProperty("chainName")
+        expect(hasChainField).toBe(true)
       }
     })
   }
@@ -608,5 +612,166 @@ describe("buildFallbackConfig — wallet-api trigger-type branching", () => {
     const template = makeTemplate({ triggerType: "evm_log" })
     const config = JSON.parse(buildFallbackConfig(intent, template))
     expect(config.responseAction).toBe("swap")
+  })
+})
+
+// ─────────────────────────────────────────────
+// buildFallbackConfig — new data sources (T13-T16)
+// ─────────────────────────────────────────────
+
+describe("buildFallbackConfig — new data sources (T13-T16)", () => {
+  test("chainlink-feeds includes feedAddress and chainSelectorName", () => {
+    const intent = makeIntent({ dataSources: ["chainlink-feeds"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.feedAddress).toBe("0x0000000000000000000000000000000000000000")
+  })
+
+  test("kv-store includes s3Bucket, s3Region, s3Key", () => {
+    const intent = makeIntent({ dataSources: ["kv-store"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.s3Bucket).toBe("PLACEHOLDER_S3_BUCKET")
+    expect(config.s3Region).toBe("us-east-1")
+    expect(config.s3Key).toBe("workflow-state.json")
+  })
+
+  test("ccip includes source/dest chain selectors and router", () => {
+    const intent = makeIntent({ dataSources: ["ccip"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.sourceChainSelector).toBe("ethereum-testnet-sepolia")
+    expect(config.destChainSelector).toBe("base-testnet-sepolia")
+    expect(config.ccipRouterAddress).toBeDefined()
+    expect(config.tokenAddress).toBeDefined()
+    expect(config.transferAmount).toBe("1000000000000000000")
+  })
+})
+
+// ─────────────────────────────────────────────
+// loadTemplateFile — templates 13-16
+// ─────────────────────────────────────────────
+
+describe("loadTemplateFile — templates 13-16", () => {
+  for (const id of [13, 14, 15, 16]) {
+    test(`loads template-${id}.ts successfully`, () => {
+      const content = loadTemplateFile(id)
+      expect(content).not.toBeNull()
+      expect(content).toContain("export async function main()")
+      expect(content).toContain("configSchema")
+      expect(content).toContain("cre.handler(")
+    })
+  }
+})
+
+// ─────────────────────────────────────────────
+// loadTemplateConfig — templates 13-16
+// ─────────────────────────────────────────────
+
+describe("loadTemplateConfig — templates 13-16", () => {
+  for (const id of [13, 14, 15, 16]) {
+    test(`loads template-${id}.config.json as valid JSON`, () => {
+      const content = loadTemplateConfig(id)
+      expect(content).not.toBeNull()
+      const parsed = JSON.parse(content!)
+      expect(typeof parsed).toBe("object")
+    })
+  }
+})
+
+// ─────────────────────────────────────────────
+// loadTemplateFile — templates 17-22
+// ─────────────────────────────────────────────
+
+describe("loadTemplateFile — templates 17-22", () => {
+  for (const id of [17, 18, 19, 20, 21, 22]) {
+    test(`loads template-${id}.ts successfully`, () => {
+      const content = loadTemplateFile(id)
+      expect(content).not.toBeNull()
+      expect(content).toContain("export async function main()")
+      expect(content).toContain("configSchema")
+      expect(content).toContain("cre.handler(")
+    })
+  }
+})
+
+// ─────────────────────────────────────────────
+// loadTemplateConfig — templates 17-22
+// ─────────────────────────────────────────────
+
+describe("loadTemplateConfig — templates 17-22", () => {
+  for (const id of [17, 18, 19, 20, 21, 22]) {
+    test(`loads template-${id}.config.json as valid JSON`, () => {
+      const content = loadTemplateConfig(id)
+      expect(content).not.toBeNull()
+      const parsed = JSON.parse(content!)
+      expect(typeof parsed).toBe("object")
+    })
+  }
+})
+
+// ─────────────────────────────────────────────
+// buildFallbackConfig — institutional data sources (T17-T22)
+// ─────────────────────────────────────────────
+
+describe("buildFallbackConfig — institutional data sources (T17-T22)", () => {
+  test("payment-api includes paymentApiUrl and maxPaymentAmount", () => {
+    const intent = makeIntent({ dataSources: ["payment-api"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.paymentApiUrl).toBe("https://api.example.com/payments")
+    expect(config.maxPaymentAmount).toBe("50000000000")
+  })
+
+  test("settlement-api includes settlementApiUrl", () => {
+    const intent = makeIntent({ dataSources: ["settlement-api"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.settlementApiUrl).toBe("https://api.example.com/settlement")
+  })
+
+  test("registry-api includes registryApiUrl", () => {
+    const intent = makeIntent({ dataSources: ["registry-api"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.registryApiUrl).toBe("https://api.example.com/registry")
+  })
+})
+
+// ─────────────────────────────────────────────
+// buildFallbackConfig — institutional actions (T17-T22)
+// ─────────────────────────────────────────────
+
+describe("buildFallbackConfig — institutional actions (T17-T22)", () => {
+  test("burn action includes tokenAddress and minBurnAmount", () => {
+    const intent = makeIntent({ actions: ["burn"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.tokenAddress).toBeDefined()
+    expect(config.minBurnAmount).toBe("1000000000000000000")
+    expect(config.consumerContract).toBeDefined()
+  })
+
+  test("escrowLock action includes escrowContractAddress", () => {
+    const intent = makeIntent({ actions: ["escrowLock"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.escrowContractAddress).toBe("0x0000000000000000000000000000000000000000")
+    expect(config.consumerContract).toBeDefined()
+  })
+
+  test("escrowRelease action includes escrowContractAddress", () => {
+    const intent = makeIntent({ actions: ["escrowRelease"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.escrowContractAddress).toBe("0x0000000000000000000000000000000000000000")
+  })
+
+  test("initiatePayment action includes paymentApiUrl", () => {
+    const intent = makeIntent({ actions: ["initiatePayment"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.paymentApiUrl).toBeDefined()
+    expect(config.maxPaymentAmount).toBeDefined()
+    expect(config.consumerContract).toBeDefined()
+  })
+
+  test("distribute action includes registryApiUrl, distributionTokenAddress, and totalDistributionAmount", () => {
+    const intent = makeIntent({ actions: ["distribute"] })
+    const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
+    expect(config.registryApiUrl).toBeDefined()
+    expect(config.distributionTokenAddress).toBeDefined()
+    expect(config.totalDistributionAmount).toBe("1000000000000000000000")
+    expect(config.consumerContract).toBeDefined()
   })
 })

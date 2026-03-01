@@ -2,7 +2,7 @@
 // Code Generator — Stage 3 of the AI Engine Pipeline
 // ─────────────────────────────────────────────
 // Receives a matched template + parsed intent from stages 1-2,
-// calls GPT-5.2 with Structured Outputs, and returns complete
+// calls GPT-5.3-Codex with Structured Outputs, and returns complete
 // CRE TypeScript workflow code.
 
 import OpenAI from "openai"
@@ -24,7 +24,7 @@ import { detectStateKeyword } from "./file-manager"
 // ─────────────────────────────────────────────
 
 const CREWorkflowResponseSchema = z.object({
-  // Chain-of-thought: forces GPT-5.2 to reason before coding
+  // Chain-of-thought: forces GPT-5.3-Codex to reason before coding
   thinking: z.string().describe(
     "Step-by-step reasoning: which CRE SDK patterns apply, which trigger to use, " +
     "what capabilities are needed, how config maps to the user request",
@@ -82,7 +82,7 @@ function getOpenAIClient(): OpenAI {
   if (!openaiClient) {
     openaiClient = new OpenAI({
       apiKey: config.OPENAI_API_KEY,
-      timeout: 30_000,   // 30s per-request timeout — prevents hanging on GPT-5.2 stalls
+      timeout: 30_000,   // 30s per-request timeout — prevents hanging on GPT-5.3-Codex stalls
       maxRetries: 2,     // OpenAI SDK auto-retries on 429/500/503
     })
   }
@@ -98,7 +98,7 @@ export function _resetOpenAIClient(): void {
 // Constants
 // ─────────────────────────────────────────────
 
-const MODEL = "gpt-5.2"
+const MODEL = "gpt-5.3-codex"
 const MAX_COMPLETION_TOKENS = 16_384
 const MAX_RETRIES = 3  // 1 initial + 2 retries (self-review or error-driven)
 
@@ -120,14 +120,14 @@ const SELF_REVIEW_RED_FLAG_PATTERNS: Array<{ keyword: RegExp; sentiment: RegExp 
 // ─────────────────────────────────────────────
 
 /**
- * Generates CRE workflow code using GPT-5.2 with Structured Outputs.
+ * Generates CRE workflow code using GPT-5.3-Codex with Structured Outputs.
  *
  * Pipeline:
  * 1. Load template definition
  * 2. Assemble context: few-shot examples + SDK docs + Context7
  * 3. Build system prompt (static constraints + dynamic context)
  * 4. Build user prompt (intent + template + retry context)
- * 5. Call GPT-5.2 with zodResponseFormat + CoT + self-review
+ * 5. Call GPT-5.3-Codex with zodResponseFormat + CoT + self-review
  * 6. Validate response, auto-retry on self-review red flags
  * 7. Parse config JSON, return GeneratedCode
  *
@@ -157,7 +157,7 @@ export async function generateCode(input: GenerateCodeInput): Promise<GeneratedC
   ])
 
   // ── Build system prompt ──
-  const systemPrompt = buildSystemPrompt(fewShotContext, relevantDocs, context7Docs, needsState)
+  const systemPrompt = buildSystemPrompt(fewShotContext, relevantDocs, context7Docs, needsState, template.requiredCapabilities)
 
   // ── Retry loop ──
   const maxRetries = input.maxInternalRetries ?? MAX_RETRIES
@@ -222,7 +222,7 @@ export async function generateCode(input: GenerateCodeInput): Promise<GeneratedC
 }
 
 // ─────────────────────────────────────────────
-// GPT-5.2 API Call
+// GPT-5.3-Codex API Call
 // ─────────────────────────────────────────────
 
 async function callGPT52(
@@ -245,7 +245,7 @@ async function callGPT52(
   }
   const userPrompt = buildGenerationPrompt(promptInput)
 
-  // GPT-5.2: reasoning_effort replaces temperature
+  // GPT-5.3-Codex: reasoning_effort replaces temperature
   // "medium" for first attempt (balanced), "high" for retries (deeper reasoning)
   const reasoningEffort = attempt === 1 ? "medium" : "high"
 

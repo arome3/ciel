@@ -3,12 +3,10 @@
 
 import { z } from "zod"
 import {
+  cre,
   Runner,
-  Runtime,
-  CronCapability,
-  HTTPClient,
-  EVMClient,
-  handler,
+  type Runtime,
+  type CronPayload,
   getNetwork,
   consensusIdenticalAggregation,
 } from "@chainlink/cre-sdk"
@@ -21,66 +19,74 @@ const configSchema = z.object({
   mintAmount: z.number().describe("Amount of stablecoins to mint"),
   minReserveRatio: z.number().default(1.0).describe("Minimum reserve backing ratio"),
   consumerContract: z.string().describe("Stablecoin minting contract"),
-  chainName: z.string().default("base-sepolia").describe("Target chain"),
-  cronSchedule: z.string().default("0 */1 * * * *").describe("Check frequency"),
+  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  schedule: z.string().default("0 */1 * * * *").describe("Check frequency"),
 })
 
 type Config = z.infer<typeof configSchema>
 
-const runner = Runner.newRunner<Config>({ configSchema })
+const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
+  runtime.log("Starting stablecoin issuance check...")
+  const httpClient = new cre.capabilities.HTTPClient()
+  const network = getNetwork({ chainFamily: "evm", chainSelectorName: runtime.config.chainSelectorName, isTestnet: true })
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
 
-function initWorkflow(runtime: Runtime<Config>) {
-  const cronTrigger = new CronCapability().trigger({
-    cronSchedule: runtime.config.cronSchedule,
-  })
+  // Step 1: Verify compliance status
+  const complianceResp = httpClient.sendRequest(runtime, {
+    url: `${runtime.config.complianceApiUrl}?address=${runtime.config.depositorAddress}`,
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).result()
 
-  const httpClient = new HTTPClient()
-  const evmClient = new EVMClient()
+  const compliance = JSON.parse(complianceResp.body)
+  if (!compliance.approved) {
+    runtime.log("Compliance check failed")
+    return JSON.stringify({ status: "rejected", reason: "compliance_failed" })
+  }
 
-  handler(cronTrigger, (rt) => {
-    // Step 1: Verify compliance status
-    const complianceResp = httpClient.fetch(
-      `${rt.config.complianceApiUrl}?address=${rt.config.depositorAddress}`,
-      { method: "GET", headers: { "Content-Type": "application/json" } }
-    ).result()
+  // Step 2: Check reserve backing ratio
+  const reserveResp = httpClient.sendRequest(runtime, {
+    url: runtime.config.reserveApiUrl,
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).result()
 
-    const compliance = JSON.parse(complianceResp.body)
-    if (!compliance.approved) {
-      return { status: "rejected", reason: "compliance_failed" }
-    }
+  const reserve = JSON.parse(reserveResp.body)
+  if (reserve.ratio < runtime.config.minReserveRatio) {
+    runtime.log("Insufficient reserves")
+    return JSON.stringify({ status: "rejected", reason: "insufficient_reserves" })
+  }
 
-    // Step 2: Check reserve backing ratio
-    const reserveResp = httpClient.fetch(rt.config.reserveApiUrl, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-    }).result()
+  // Step 3: Mint stablecoins via evmWrite
+  const reportData = encodeAbiParameters(
+    parseAbiParameters("address depositor, uint256 amount, uint256 timestamp"),
+    [runtime.config.depositorAddress as `0x${string}`, BigInt(runtime.config.mintAmount), BigInt(Math.floor(runtime.now().getTime() / 1000))]
+  )
 
-    const reserve = JSON.parse(reserveResp.body)
-    if (reserve.ratio < rt.config.minReserveRatio) {
-      return { status: "rejected", reason: "insufficient_reserves" }
-    }
+  const report = runtime.report({
+    encodedPayload: reportData,
+    encoderName: "evm",
+    signingAlgo: "evm",
+    hashingAlgo: "keccak256",
+  }).result()
 
-    // Step 3: Mint stablecoins via evmWrite
-    const reportData = encodeAbiParameters(
-      parseAbiParameters("address depositor, uint256 amount, uint256 timestamp"),
-      [rt.config.depositorAddress as `0x${string}`, BigInt(rt.config.mintAmount), BigInt(Math.floor(Date.now() / 1000))]
-    )
+  evmClient.writeReport(runtime, {
+    receiver: runtime.config.consumerContract,
+    report,
+    gasConfig: { gasLimit: 500000 },
+  }).result()
 
-    evmClient.writeReport({
-      contractAddress: rt.config.consumerContract,
-      chainSelector: getNetwork(rt.config.chainName),
-      report: rt.report(reportData),
-    })
+  runtime.log("Stablecoins minted successfully")
+  return JSON.stringify({ status: "minted", amount: runtime.config.mintAmount })
+}
 
-    return { status: "minted", amount: rt.config.mintAmount }
-  })
-
-  consensusIdenticalAggregation({
-    fields: ["status"],
-    reportId: "stablecoin_issuance",
-  })
+const initWorkflow = (config: Config) => {
+  const cronCapability = new cre.capabilities.CronCapability()
+  return [cre.handler(cronCapability.trigger({ schedule: config.schedule }), onCronTrigger)]
 }
 
 export async function main() {
-  runner.run(initWorkflow)
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
 }
+main()

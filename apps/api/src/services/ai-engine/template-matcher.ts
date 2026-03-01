@@ -1,4 +1,5 @@
 import type { ParsedIntent } from "./types"
+import { isEmbeddingReady, embeddingScores } from "./embedding-matcher"
 
 // Re-export for downstream consumers
 export type { ParsedIntent } from "./types"
@@ -8,7 +9,7 @@ export type { ParsedIntent } from "./types"
 // ─────────────────────────────────────────────
 
 export interface TemplateDefinition {
-  /** Unique template ID (1-12) */
+  /** Unique template ID (1-22) */
   id: number
 
   /** Human-readable template name */
@@ -63,8 +64,15 @@ const TRIGGER_MISMATCH_PENALTY = 0.15
 /** Minimum gap between top-2 scores to consider the match unambiguous */
 const AMBIGUITY_THRESHOLD = 0.05
 
+/** Weight for embedding signal in score fusion. 0 = keyword-only, 1.0 = embedding-only. */
+const _rawEmbWeight = parseFloat(process.env.EMBEDDING_WEIGHT ?? "0.6")
+const EMBEDDING_WEIGHT = Number.isFinite(_rawEmbWeight) ? Math.max(0, Math.min(1, _rawEmbWeight)) : 0.6
+
+/** Weight for keyword signal in score fusion (complement of embedding weight) */
+const KEYWORD_WEIGHT = 1 - EMBEDDING_WEIGHT
+
 // ─────────────────────────────────────────────
-// Template Definitions (12 Templates)
+// Template Definitions (22 Templates)
 // ─────────────────────────────────────────────
 
 export const TEMPLATES: TemplateDefinition[] = [
@@ -113,6 +121,8 @@ export const TEMPLATES: TemplateDefinition[] = [
       "prediction", "market", "settle", "outcome", "resolution",
       "bet", "polymarket", "wager", "binary", "result",
       "prediction market", "settlement",
+      "winners", "losers", "decided", "election",
+      "game ends", "payout winners", "who won",
     ],
     requiredCapabilities: ["evmWrite", "multi-ai", "sports-api", "social-api", "news-api"],
     triggerType: "evm_log",
@@ -293,6 +303,217 @@ export const TEMPLATES: TemplateDefinition[] = [
       "Filter by watched addresses and minimum amount threshold. " +
       "Execute a response action: alert via webhook, write report onchain, or trigger a reactive DEX swap.",
   },
+
+  // ─────────────────────────────────────────────
+  // Chainlink Data Feed Reader (Template 13)
+  // ─────────────────────────────────────────────
+  {
+    id: 13,
+    name: "Chainlink Data Feed Reader",
+    category: "core-defi",
+    keywords: [
+      "data feed", "chainlink", "latestAnswer", "price proxy",
+      "aggregator", "decimals", "feed", "onchain price",
+      "contract read", "callContract", "price oracle",
+      "read contract", "onchain data", "chainlink price feed",
+      "read onchain",
+    ],
+    requiredCapabilities: ["chainlink-feeds", "evmRead", "evmWrite"],
+    triggerType: "cron",
+    defaultPromptFill:
+      "Generate a CRE workflow that reads Chainlink Data Feed prices on a cron schedule. " +
+      "Use callContract with encodeCallMsg and LAST_FINALIZED_BLOCK_NUMBER to read decimals() " +
+      "and latestAnswer() from the feed proxy contract. Decode results with bytesToHex and " +
+      "decodeFunctionResult, then write the price report onchain.",
+  },
+
+  // ─────────────────────────────────────────────
+  // KV Store / Stateful Workflow (Template 14)
+  // ─────────────────────────────────────────────
+  {
+    id: 14,
+    name: "Stateful KV Store Workflow",
+    category: "ai-powered",
+    keywords: [
+      "stateful", "persist", "remember", "counter", "accumulate",
+      "s3", "storage", "history", "rolling", "trend",
+      "state", "kv store", "key value", "previous",
+    ],
+    requiredCapabilities: ["kv-store", "evmWrite"],
+    triggerType: "cron",
+    defaultPromptFill:
+      "Generate a CRE workflow that reads and writes state to an AWS S3 KV store. " +
+      "Use ConfidentialHTTPClient with SigV4 signing and @noble/hashes for HMAC. " +
+      "Track cross-run state (counters, history arrays, moving averages) " +
+      "and write the latest state onchain.",
+  },
+
+  // ─────────────────────────────────────────────
+  // Cross-Chain CCIP Transfer (Template 15)
+  // ─────────────────────────────────────────────
+  {
+    id: 15,
+    name: "Cross-Chain CCIP Transfer",
+    category: "institutional",
+    keywords: [
+      "ccip", "cross-chain", "bridge", "multi-chain", "interoperability",
+      "chain transfer", "token bridge", "cross chain send",
+      "multi-chain token", "lane",
+    ],
+    requiredCapabilities: ["ccip", "evmWrite", "ccipTransfer"],
+    triggerType: "cron",
+    defaultPromptFill:
+      "Generate a CRE workflow that monitors token balances across chains and " +
+      "executes cross-chain CCIP token transfers when conditions are met. " +
+      "Use getNetwork for multi-chain resolution and EVMClient for contract interactions.",
+  },
+
+  // ─────────────────────────────────────────────
+  // Dual-Trigger Workflow (Template 16)
+  // ─────────────────────────────────────────────
+  {
+    id: 16,
+    name: "Dual-Trigger Workflow",
+    category: "core-defi",
+    keywords: [
+      "dual trigger", "both schedule and event", "cron and event",
+      "multiple triggers", "schedule and log", "hybrid trigger",
+      "two triggers", "combined trigger",
+      "timer and event", "scheduled and reactive",
+      "periodic and event", "schedule and listen",
+      "both cron", "both schedule", "two handlers",
+      "cron and log",
+    ],
+    requiredCapabilities: ["price-feed", "evmWrite"],
+    triggerType: "cron",
+    defaultPromptFill:
+      "Generate a CRE workflow that responds to both scheduled execution (cron) and " +
+      "on-chain events (evm_log). Return multiple cre.handler() entries from initWorkflow. " +
+      "Each trigger has its own named handler function.",
+  },
+  // ═══════════════════════════════════════════════
+  // Institutional Gap Templates (17-22)
+  // ═══════════════════════════════════════════════
+
+  // ─────────────────────────────────────────────
+  // Stablecoin Redemption/Burn (Template 17)
+  // ─────────────────────────────────────────────
+  {
+    id: 17,
+    name: "Stablecoin Redemption/Burn",
+    category: "institutional",
+    keywords: [
+      "stablecoin", "burn", "redeem", "redemption", "destroy",
+      "compliance", "usdc", "usdt", "token burn", "supply reduction",
+      "burn redeem", "stablecoin redeem",
+    ],
+    requiredCapabilities: ["compliance-api", "burn", "evmWrite"],
+    triggerType: "http",
+    defaultPromptFill:
+      "Generate a CRE workflow triggered by an HTTP request (redemption request). " +
+      "Verify compliance status, check token balance via callContract, and burn tokens " +
+      "via evmWrite. Report the burn onchain with a two-step report.",
+  },
+
+  // ─────────────────────────────────────────────
+  // Payment Initiation & Confirmation (Template 18)
+  // ─────────────────────────────────────────────
+  {
+    id: 18,
+    name: "Payment Initiation & Confirmation",
+    category: "institutional",
+    keywords: [
+      "payment", "swift", "wire", "initiate", "bank",
+      "remittance", "confirmation", "transfer", "payment initiation",
+      "wire transfer", "bank transfer", "payment status",
+    ],
+    requiredCapabilities: ["payment-api", "initiatePayment", "evmWrite", "kv-store"],
+    triggerType: "cron",
+    defaultPromptFill:
+      "Generate a CRE workflow that periodically fetches pending payments from a payment API, " +
+      "validates amounts, initiates payments via ConfidentialHTTPClient, tracks idempotency " +
+      "via KV store, and records results onchain via evmWrite.",
+  },
+
+  // ─────────────────────────────────────────────
+  // Escrow Lock/Release (Template 19)
+  // ─────────────────────────────────────────────
+  {
+    id: 19,
+    name: "Escrow Lock/Release",
+    category: "institutional",
+    keywords: [
+      "escrow", "lock", "release", "collateral", "hold",
+      "dvp", "delivery", "escrow lock",
+      "escrow release", "lock funds", "unlock", "conditional",
+    ],
+    requiredCapabilities: ["settlement-api", "escrowLock", "escrowRelease", "evmWrite"],
+    triggerType: "http",
+    defaultPromptFill:
+      "Generate a CRE workflow triggered by an HTTP request. Check escrow conditions " +
+      "via settlement API. If conditions are met, release escrowed funds via evmWrite. " +
+      "Otherwise, lock funds in the escrow contract. Report the action onchain.",
+  },
+
+  // ─────────────────────────────────────────────
+  // Settlement Reconciliation (Template 20)
+  // ─────────────────────────────────────────────
+  {
+    id: 20,
+    name: "Settlement Reconciliation",
+    category: "institutional",
+    keywords: [
+      "settlement", "reconciliation", "clearing", "netting", "dvp",
+      "t+1", "matching", "attestation", "mismatch", "reconcile",
+      "settlement cycle", "delivery versus payment",
+    ],
+    requiredCapabilities: ["settlement-api", "evmWrite", "alert"],
+    triggerType: "cron",
+    defaultPromptFill:
+      "Generate a CRE workflow that periodically fetches settlement records from a settlement API, " +
+      "reads on-chain settlement state via callContract, compares for mismatches, " +
+      "alerts on discrepancies, and writes a reconciliation attestation onchain.",
+  },
+
+  // ─────────────────────────────────────────────
+  // Shareholder Registry (Template 21)
+  // ─────────────────────────────────────────────
+  {
+    id: 21,
+    name: "Shareholder Registry",
+    category: "institutional",
+    keywords: [
+      "shareholder", "registry", "cap table", "transfer agent",
+      "equity", "share register", "beneficial owner", "holder",
+      "equity holder", "share transfer",
+    ],
+    requiredCapabilities: ["registry-api", "compliance-api", "evmWrite"],
+    triggerType: "http",
+    defaultPromptFill:
+      "Generate a CRE workflow triggered by an HTTP request (share transfer). " +
+      "Validate the transfer parties against the registry API, check compliance, " +
+      "and update the on-chain shareholder registry via evmWrite.",
+  },
+
+  // ─────────────────────────────────────────────
+  // Dividend Distribution (Template 22)
+  // ─────────────────────────────────────────────
+  {
+    id: 22,
+    name: "Dividend Distribution",
+    category: "institutional",
+    keywords: [
+      "dividend", "distribution", "shareholder payout",
+      "pro rata", "dividend payout", "distribute dividend",
+      "proportional", "holder payout", "monthly", "quarterly",
+    ],
+    requiredCapabilities: ["registry-api", "distribute", "evmWrite"],
+    triggerType: "cron",
+    defaultPromptFill:
+      "Generate a CRE workflow that periodically fetches the holder list from a registry API, " +
+      "calculates pro-rata dividend amounts, executes batch token transfers via evmWrite, " +
+      "and reports the distribution summary onchain.",
+  },
 ]
 
 // ─────────────────────────────────────────────
@@ -303,7 +524,7 @@ export const TEMPLATES: TemplateDefinition[] = [
 // where N = total templates, df = number of templates containing this keyword.
 // Unique keywords (df=1) get ~2.3x weight; common keywords (df=4+) get ~0.9x.
 
-const N = TEMPLATES.length // 12
+const N = TEMPLATES.length
 
 const IDF_WEIGHTS: Record<string, number> = {}
 
@@ -411,6 +632,14 @@ function scoreTemplate(
   }
   score += Math.min(actionBonus, 0.1)
 
+  // ── Dual-trigger heuristic (T16) ──
+  // If both cron and evmLog signals are present, T16 gets a significant boost
+  if (template.id === 16 && intent.triggerScores) {
+    if (intent.triggerScores.cron > 0 && intent.triggerScores.evmLog > 0) {
+      score += 0.25
+    }
+  }
+
   // ── Negation dampening ──
   // If the intent parser detected negation ("don't monitor", "never alert"),
   // dampen the score by 60% (multiply by 0.4). This mirrors the intent parser's
@@ -426,20 +655,98 @@ function scoreTemplate(
 }
 
 // ─────────────────────────────────────────────
+// Capability-Based Fallback
+// ─────────────────────────────────────────────
+
+/**
+ * Last-resort routing when keyword scoring fails (below threshold or ambiguous).
+ * Checks unambiguous data source + action combinations to route to the right template.
+ * Returns a low-confidence match with a "capability-fallback" flag.
+ */
+function fallbackByCapabilities(intent: ParsedIntent): TemplateMatch | null {
+  // Never offer a fallback for negated intents
+  if (intent.negated) return null
+
+  const ds = new Set(intent.dataSources)
+  const acts = new Set(intent.actions)
+
+  // Order matters: check more specific combinations first
+  if (ds.has("wallet-api") && (intent.triggerType === "evm_log" || acts.has("alert"))) {
+    const t = TEMPLATES.find((t) => t.id === 12)!
+    return { templateId: 12, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+  if (acts.has("dexSwap") && ds.has("price-feed")) {
+    const t = TEMPLATES.find((t) => t.id === 11)!
+    return { templateId: 11, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+  if (ds.has("weather-api") && acts.has("payout")) {
+    const t = TEMPLATES.find((t) => t.id === 7)!
+    return { templateId: 7, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+  if (acts.has("alert") && ds.has("price-feed")) {
+    const t = TEMPLATES.find((t) => t.id === 1)!
+    return { templateId: 1, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+  if (ds.has("ccip")) {
+    const t = TEMPLATES.find((t) => t.id === 15)!
+    return { templateId: 15, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+  if (ds.has("kv-store")) {
+    const t = TEMPLATES.find((t) => t.id === 14)!
+    return { templateId: 14, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+  if (ds.has("multi-ai")) {
+    const t = TEMPLATES.find((t) => t.id === 9)!
+    return { templateId: 9, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+  if (acts.has("burn") && ds.has("compliance-api")) {
+    const t = TEMPLATES.find((t) => t.id === 17)!
+    return { templateId: 17, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+  if (ds.has("payment-api") && (acts.has("initiatePayment") || acts.has("transfer"))) {
+    const t = TEMPLATES.find((t) => t.id === 18)!
+    return { templateId: 18, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+  if (acts.has("escrowLock") || acts.has("escrowRelease")) {
+    const t = TEMPLATES.find((t) => t.id === 19)!
+    return { templateId: 19, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+  if (ds.has("settlement-api")) {
+    const t = TEMPLATES.find((t) => t.id === 20)!
+    return { templateId: 20, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+  if (ds.has("registry-api") && acts.has("distribute")) {
+    const t = TEMPLATES.find((t) => t.id === 22)!
+    return { templateId: 22, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+  if (ds.has("registry-api")) {
+    const t = TEMPLATES.find((t) => t.id === 21)!
+    return { templateId: 21, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+
+  return null
+}
+
+// ─────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────
 
 /**
  * Matches a ParsedIntent to the best CRE workflow template.
  *
+ * When embedding model is loaded, fuses keyword scores with semantic embedding
+ * scores: finalScore = KEYWORD_WEIGHT * keywordScore + EMBEDDING_WEIGHT * embeddingScore
+ *
  * @param intent - The structured intent from parseIntent()
  * @param forceTemplateId - Optional: force a specific template (returns confidence 1.0)
+ * @param prompt - Optional: raw prompt text for embedding scoring
  * @returns The best TemplateMatch above threshold, or null if no match
  */
-export function matchTemplate(
+export async function matchTemplate(
   intent: ParsedIntent,
   forceTemplateId?: number,
-): TemplateMatch | null {
+  prompt?: string,
+): Promise<TemplateMatch | null> {
   // ── Force override path ──
   if (forceTemplateId !== undefined) {
     const forced = TEMPLATES.find((t) => t.id === forceTemplateId)
@@ -455,18 +762,38 @@ export function matchTemplate(
     }
   }
 
+  // ── Get embedding scores if available ──
+  const embScores = (prompt && isEmbeddingReady() && EMBEDDING_WEIGHT > 0)
+    ? await embeddingScores(prompt)
+    : []
+  const embScoreMap = new Map(embScores.map((e) => [e.templateId, e.score]))
+
   // ── Score each template ──
   const scored: Array<{ match: TemplateMatch; score: number }> = []
 
   for (const template of TEMPLATES) {
-    const { score, matchedKeywords } = scoreTemplate(template, intent)
+    const { score: keywordScore, matchedKeywords } = scoreTemplate(template, intent)
+
+    // Fuse signals if embedding scores available
+    let finalScore: number
+    if (embScoreMap.size > 0) {
+      const embScore = embScoreMap.get(template.id) ?? 0
+      finalScore = KEYWORD_WEIGHT * keywordScore + EMBEDDING_WEIGHT * embScore
+    } else {
+      finalScore = keywordScore
+    }
+
+    // Clamp after fusion: keyword scoring can exceed 1.0 (trigger bonus + data source
+    // affinity + dual-trigger boost), and fusion must stay in [0, 1]
+    finalScore = Math.max(0, Math.min(1, finalScore))
+
     scored.push({
-      score,
+      score: finalScore,
       match: {
         templateId: template.id,
         templateName: template.name,
         category: template.category,
-        confidence: score,
+        confidence: finalScore,
         matchedKeywords,
       },
     })
@@ -480,13 +807,13 @@ export function matchTemplate(
 
   // ── Threshold check ──
   if (!best || best.score < CONFIDENCE_THRESHOLD) {
-    return null
+    return fallbackByCapabilities(intent)
   }
 
   // ── Ambiguity check ──
   // If the gap between #1 and #2 is < 0.05, the match is ambiguous
   if (runnerUp && best.score - runnerUp.score < AMBIGUITY_THRESHOLD) {
-    return null
+    return fallbackByCapabilities(intent)
   }
 
   return best.match

@@ -3,12 +3,10 @@
 
 import { z } from "zod"
 import {
+  cre,
   Runner,
-  Runtime,
-  CronCapability,
-  HTTPClient,
-  EVMClient,
-  handler,
+  type Runtime,
+  type CronPayload,
   getNetwork,
   consensusMedianAggregation,
 } from "@chainlink/cre-sdk"
@@ -21,74 +19,81 @@ const configSchema = z.object({
   operation: z.enum(["subscribe", "redeem"]).describe("Fund operation type"),
   amount: z.number().describe("Amount in fund units"),
   consumerContract: z.string().describe("Fund token contract"),
-  chainName: z.string().default("base-sepolia").describe("Target chain"),
-  cronSchedule: z.string().default("0 0 0 * * *").describe("Daily NAV update"),
+  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  schedule: z.string().default("0 0 0 * * *").describe("Daily NAV update"),
 })
 
 type Config = z.infer<typeof configSchema>
 
-const runner = Runner.newRunner<Config>({ configSchema })
+const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
+  runtime.log("Processing fund lifecycle operation...")
+  const httpClient = new cre.capabilities.HTTPClient()
+  const network = getNetwork({ chainFamily: "evm", chainSelectorName: runtime.config.chainSelectorName, isTestnet: true })
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
 
-function initWorkflow(runtime: Runtime<Config>) {
-  const cronTrigger = new CronCapability().trigger({
-    cronSchedule: runtime.config.cronSchedule,
-  })
+  // Fetch current NAV
+  const navResp = httpClient.sendRequest(runtime, {
+    url: runtime.config.navApiUrl,
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).result()
 
-  const httpClient = new HTTPClient()
-  const evmClient = new EVMClient()
+  const nav = JSON.parse(navResp.body)
+  const unitPrice = nav.navPerShare
 
-  handler(cronTrigger, (rt) => {
-    // Fetch current NAV
-    const navResp = httpClient.fetch(rt.config.navApiUrl, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-    }).result()
+  // Verify investor compliance
+  const compResp = httpClient.sendRequest(runtime, {
+    url: `${runtime.config.complianceApiUrl}?address=${runtime.config.investorAddress}`,
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).result()
 
-    const nav = JSON.parse(navResp.body)
-    const unitPrice = nav.navPerShare
+  const compliance = JSON.parse(compResp.body)
+  if (!compliance.approved) {
+    runtime.log("Investor compliance check failed")
+    return JSON.stringify({ status: "rejected", reason: "compliance_failed", nav: Math.round(unitPrice * 1e8) })
+  }
 
-    // Verify investor compliance
-    const compResp = httpClient.fetch(
-      `${rt.config.complianceApiUrl}?address=${rt.config.investorAddress}`,
-      { method: "GET", headers: { "Content-Type": "application/json" } }
-    ).result()
+  // Calculate shares and process operation
+  const shares = runtime.config.operation === "subscribe"
+    ? Math.floor((runtime.config.amount / unitPrice) * 1e18)
+    : runtime.config.amount
 
-    const compliance = JSON.parse(compResp.body)
-    if (!compliance.approved) {
-      return { status: "rejected", reason: "compliance_failed", nav: Math.round(unitPrice * 1e8) }
-    }
+  const reportData = encodeAbiParameters(
+    parseAbiParameters("address investor, uint256 shares, bool isMint, uint256 nav, uint256 timestamp"),
+    [
+      runtime.config.investorAddress as `0x${string}`,
+      BigInt(shares),
+      runtime.config.operation === "subscribe",
+      BigInt(Math.round(unitPrice * 1e8)),
+      BigInt(Math.floor(runtime.now().getTime() / 1000)),
+    ]
+  )
 
-    // Calculate shares and process operation
-    const shares = rt.config.operation === "subscribe"
-      ? Math.floor((rt.config.amount / unitPrice) * 1e18)
-      : rt.config.amount
+  const report = runtime.report({
+    encodedPayload: reportData,
+    encoderName: "evm",
+    signingAlgo: "evm",
+    hashingAlgo: "keccak256",
+  }).result()
 
-    const reportData = encodeAbiParameters(
-      parseAbiParameters("address investor, uint256 shares, bool isMint, uint256 nav, uint256 timestamp"),
-      [
-        rt.config.investorAddress as `0x${string}`,
-        BigInt(shares),
-        rt.config.operation === "subscribe",
-        BigInt(Math.round(unitPrice * 1e8)),
-        BigInt(Math.floor(Date.now() / 1000)),
-      ]
-    )
+  evmClient.writeReport(runtime, {
+    receiver: runtime.config.consumerContract,
+    report,
+    gasConfig: { gasLimit: 500000 },
+  }).result()
 
-    evmClient.writeReport({
-      contractAddress: rt.config.consumerContract,
-      chainSelector: getNetwork(rt.config.chainName),
-      report: rt.report(reportData),
-    })
+  runtime.log("Fund operation processed successfully")
+  return JSON.stringify({ status: "processed", shares, nav: Math.round(unitPrice * 1e8) })
+}
 
-    return { status: "processed", shares, nav: Math.round(unitPrice * 1e8) }
-  })
-
-  consensusMedianAggregation({
-    fields: ["nav"],
-    reportId: "fund_lifecycle",
-  })
+const initWorkflow = (config: Config) => {
+  const cronCapability = new cre.capabilities.CronCapability()
+  return [cre.handler(cronCapability.trigger({ schedule: config.schedule }), onCronTrigger)]
 }
 
 export async function main() {
-  runner.run(initWorkflow)
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
 }
+main()

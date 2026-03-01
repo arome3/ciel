@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test"
 import { readFileSync } from "fs"
 import { join } from "path"
-import { validateWorkflow, quickFix } from "../services/ai-engine/validator"
+import { validateWorkflow, quickFix, extractSecretNames, buildSecretsYaml } from "../services/ai-engine/validator"
 
 // ─────────────────────────────────────────────
 // Test Fixtures
@@ -453,6 +453,99 @@ describe("Check (g): State Patterns", () => {
 })
 
 // ─────────────────────────────────────────────
+// Suite 12b: Official SDK Pattern Support
+// ─────────────────────────────────────────────
+
+describe("Official CRE SDK pattern support", () => {
+  const OFFICIAL_CODE = `
+import { z } from "zod"
+import {
+  cre,
+  Runner,
+  type Runtime,
+  type CronPayload,
+  getNetwork,
+} from "@chainlink/cre-sdk"
+
+const configSchema = z.object({
+  apiUrl: z.string(),
+  threshold: z.number(),
+  schedule: z.string().default("0 */5 * * * *"),
+  consumerContract: z.string(),
+  chainSelectorName: z.string().default("base-sepolia"),
+})
+
+type Config = z.infer<typeof configSchema>
+
+const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
+  runtime.log("Starting price check...")
+  const httpClient = new cre.capabilities.HTTPClient()
+  const resp = httpClient.sendRequest(runtime, {
+    url: runtime.config.apiUrl,
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).result()
+  const data = JSON.parse(resp.body)
+  const price: number = data.price
+  return JSON.stringify({ price: Math.round(price * 1e8), alert: price < runtime.config.threshold })
+}
+
+const initWorkflow = (config: Config) => {
+  const cronCapability = new cre.capabilities.CronCapability()
+  return [cre.handler(cronCapability.trigger({ schedule: config.schedule }), onCronTrigger)]
+}
+
+export async function main() {
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
+}
+`
+
+  const OFFICIAL_CONFIG = JSON.stringify({
+    apiUrl: "https://api.coingecko.com/api/v3/simple/price",
+    threshold: 3000,
+    schedule: "0 */5 * * * *",
+    consumerContract: "0x0000000000000000000000000000000000000000",
+    chainSelectorName: "base-sepolia",
+  })
+
+  test("official SDK pattern passes all checks", async () => {
+    const result = await validateWorkflow(OFFICIAL_CODE, OFFICIAL_CONFIG)
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  }, 30_000)
+
+  test("cre.handler() not flagged as async", async () => {
+    const result = await validateWorkflow(OFFICIAL_CODE, OFFICIAL_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[ASYNC]"))).toBe(false)
+  })
+
+  test("@noble/hashes import allowed", async () => {
+    const code = `import { sha256 } from "@noble/hashes/sha2"\nimport { hmac } from "@noble/hashes/hmac"\n` + OFFICIAL_CODE
+    const result = await validateWorkflow(code, OFFICIAL_CONFIG)
+    const importErrors = result.errors.filter((e) => e.startsWith("[IMPORT]"))
+    expect(importErrors).toHaveLength(0)
+  })
+
+  test("cre.handler() with async callback caught", async () => {
+    const code = OFFICIAL_CODE.replace(
+      "cre.handler(cronCapability.trigger({ schedule: config.schedule }), onCronTrigger)",
+      "cre.handler(cronCapability.trigger({ schedule: config.schedule }), async (rt) => { return '' })",
+    )
+    const result = await validateWorkflow(code, OFFICIAL_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[ASYNC]"))).toBe(true)
+  })
+
+  test("quickFix strips async from cre.handler callback", () => {
+    const code = `cre.handler(trigger, async (ctx) => { return ctx })`
+    const { code: fixed, fixes } = quickFix(code)
+    expect(fixed).toContain("cre.handler(trigger, (ctx)")
+    expect(fixed).not.toMatch(/async/)
+    expect(fixes.some((f) => f.includes("async"))).toBe(true)
+  })
+})
+
+// ─────────────────────────────────────────────
 // Suite 13: Template 11 Integration Validation
 // ─────────────────────────────────────────────
 
@@ -478,4 +571,374 @@ describe("Template 12 integration validation", () => {
     expect(result.valid).toBe(true)
     expect(result.errors).toHaveLength(0)
   }, 30_000)
+})
+
+// ─────────────────────────────────────────────
+// Suite 15: Templates 13-14 Integration Validation
+// ─────────────────────────────────────────────
+
+describe("Template 13 integration validation", () => {
+  test("template-13.ts passes 6-point validation", async () => {
+    const code = readFileSync(join(__dirname, "../../templates/template-13.ts"), "utf-8")
+    const config = readFileSync(join(__dirname, "../../templates/template-13.config.json"), "utf-8")
+    const result = await validateWorkflow(code, config)
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  }, 30_000)
+})
+
+describe("Template 14 integration validation", () => {
+  test("template-14.ts passes 6-point validation", async () => {
+    const code = readFileSync(join(__dirname, "../../templates/template-14.ts"), "utf-8")
+    const config = readFileSync(join(__dirname, "../../templates/template-14.config.json"), "utf-8")
+    const result = await validateWorkflow(code, config)
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  }, 30_000)
+})
+
+describe("Template 15 integration validation", () => {
+  test("template-15.ts passes 6-point validation", async () => {
+    const code = readFileSync(join(__dirname, "../../templates/template-15.ts"), "utf-8")
+    const config = readFileSync(join(__dirname, "../../templates/template-15.config.json"), "utf-8")
+    const result = await validateWorkflow(code, config)
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  }, 30_000)
+})
+
+describe("Template 16 integration validation", () => {
+  test("template-16.ts passes 6-point validation", async () => {
+    const code = readFileSync(join(__dirname, "../../templates/template-16.ts"), "utf-8")
+    const config = readFileSync(join(__dirname, "../../templates/template-16.config.json"), "utf-8")
+    const result = await validateWorkflow(code, config)
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  }, 30_000)
+})
+
+// ─────────────────────────────────────────────
+// Suite 16: Templates 17-22 Integration Validation
+// ─────────────────────────────────────────────
+
+describe("Template 17 integration validation", () => {
+  test("template-17.ts passes 6-point validation", async () => {
+    const code = readFileSync(join(__dirname, "../../templates/template-17.ts"), "utf-8")
+    const config = readFileSync(join(__dirname, "../../templates/template-17.config.json"), "utf-8")
+    const result = await validateWorkflow(code, config)
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  }, 30_000)
+})
+
+describe("Template 18 integration validation", () => {
+  test("template-18.ts passes 6-point validation", async () => {
+    const code = readFileSync(join(__dirname, "../../templates/template-18.ts"), "utf-8")
+    const config = readFileSync(join(__dirname, "../../templates/template-18.config.json"), "utf-8")
+    const result = await validateWorkflow(code, config)
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  }, 30_000)
+})
+
+describe("Template 19 integration validation", () => {
+  test("template-19.ts passes 6-point validation", async () => {
+    const code = readFileSync(join(__dirname, "../../templates/template-19.ts"), "utf-8")
+    const config = readFileSync(join(__dirname, "../../templates/template-19.config.json"), "utf-8")
+    const result = await validateWorkflow(code, config)
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  }, 30_000)
+})
+
+describe("Template 20 integration validation", () => {
+  test("template-20.ts passes 6-point validation", async () => {
+    const code = readFileSync(join(__dirname, "../../templates/template-20.ts"), "utf-8")
+    const config = readFileSync(join(__dirname, "../../templates/template-20.config.json"), "utf-8")
+    const result = await validateWorkflow(code, config)
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  }, 30_000)
+})
+
+describe("Template 21 integration validation", () => {
+  test("template-21.ts passes 6-point validation", async () => {
+    const code = readFileSync(join(__dirname, "../../templates/template-21.ts"), "utf-8")
+    const config = readFileSync(join(__dirname, "../../templates/template-21.config.json"), "utf-8")
+    const result = await validateWorkflow(code, config)
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  }, 30_000)
+})
+
+describe("Template 22 integration validation", () => {
+  test("template-22.ts passes 6-point validation", async () => {
+    const code = readFileSync(join(__dirname, "../../templates/template-22.ts"), "utf-8")
+    const config = readFileSync(join(__dirname, "../../templates/template-22.config.json"), "utf-8")
+    const result = await validateWorkflow(code, config)
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  }, 30_000)
+})
+
+// ─────────────────────────────────────────────
+// Suite 17: Check (h) — Non-Determinism
+// ─────────────────────────────────────────────
+
+describe("Check (h): Non-Determinism", () => {
+  test("Date.now() caught with [NONDET] prefix", async () => {
+    const code = VALID_CODE.replace(
+      "return { price: Math.round(price * 1e8), alert: price < rt.config.threshold }",
+      "return { price: Math.round(price * 1e8), timestamp: Date.now() }",
+    )
+    const result = await validateWorkflow(code, VALID_CONFIG)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.startsWith("[NONDET]") && e.includes("Date.now()"))).toBe(true)
+  })
+
+  test("new Date() caught with [NONDET] prefix", async () => {
+    const code = VALID_CODE.replace(
+      "return { price: Math.round(price * 1e8), alert: price < rt.config.threshold }",
+      "const now = new Date()\n    return { price: 0, ts: now.toISOString() }",
+    )
+    const result = await validateWorkflow(code, VALID_CONFIG)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.startsWith("[NONDET]") && e.includes("new Date()"))).toBe(true)
+  })
+
+  test("Math.random() caught with [NONDET] prefix", async () => {
+    const code = VALID_CODE.replace(
+      "return { price: Math.round(price * 1e8), alert: price < rt.config.threshold }",
+      "return { price: Math.round(price * 1e8), nonce: Math.random() }",
+    )
+    const result = await validateWorkflow(code, VALID_CONFIG)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.startsWith("[NONDET]") && e.includes("Math.random()"))).toBe(true)
+  })
+
+  test("Promise.race() caught with [NONDET] prefix", async () => {
+    const code = VALID_CODE.replace(
+      "return { price: Math.round(price * 1e8), alert: price < rt.config.threshold }",
+      "const r = Promise.race([Promise.resolve(1)])\n    return { price: 0 }",
+    )
+    const result = await validateWorkflow(code, VALID_CONFIG)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.startsWith("[NONDET]") && e.includes("Promise.race()"))).toBe(true)
+  })
+
+  test("setTimeout() caught with [NONDET] prefix", async () => {
+    const code = VALID_CODE.replace(
+      "return { price: Math.round(price * 1e8), alert: price < rt.config.threshold }",
+      "setTimeout(() => {}, 1000)\n    return { price: 0 }",
+    )
+    const result = await validateWorkflow(code, VALID_CONFIG)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.startsWith("[NONDET]") && e.includes("setTimeout()"))).toBe(true)
+  })
+
+  test("runtime.now() is NOT flagged as non-deterministic", async () => {
+    const code = VALID_CODE.replace(
+      "return { price: Math.round(price * 1e8), alert: price < rt.config.threshold }",
+      "return { price: Math.round(price * 1e8), timestamp: rt.now().getTime() }",
+    )
+    const result = await validateWorkflow(code, VALID_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[NONDET]"))).toBe(false)
+  })
+
+  test("quickFix replaces Date.now() with runtime.now().getTime() in handler blocks", () => {
+    const code = `handler(trigger, (rt) => { return { ts: Date.now() } })`
+    const { code: fixed, fixes } = quickFix(code)
+    expect(fixed).toContain("runtime.now().getTime()")
+    expect(fixed).not.toContain("Date.now()")
+    expect(fixes.some((f) => f.includes("Date.now()"))).toBe(true)
+  })
+
+  test("quickFix replaces new Date() with runtime.now() in handler blocks", () => {
+    const code = `handler(trigger, (rt) => { const now = new Date(); return { ts: now.toISOString() } })`
+    const { code: fixed, fixes } = quickFix(code)
+    expect(fixed).toContain("runtime.now()")
+    expect(fixed).not.toContain("new Date()")
+    expect(fixes.some((f) => f.includes("new Date()"))).toBe(true)
+  })
+})
+
+// ─────────────────────────────────────────────
+// Suite 18: SDK Stub Type Completeness
+// ─────────────────────────────────────────────
+
+describe("SDK stub type completeness", () => {
+  const BASE_CODE = `
+import { z } from "zod"
+import {
+  cre,
+  Runner,
+  type Runtime,
+  type CronPayload,
+  getNetwork,
+  ConfidenceLevel,
+  LAST_FINALIZED_BLOCK_NUMBER,
+  encodeCallMsg,
+  bytesToHex,
+  type HTTPPayload,
+  decodeJson,
+} from "@chainlink/cre-sdk"
+import { encodeFunctionData, parseAbi } from "viem"
+
+const configSchema = z.object({
+  schedule: z.string(),
+  feedAddress: z.string(),
+  consumerContract: z.string(),
+  chainSelectorName: z.string(),
+})
+type Config = z.infer<typeof configSchema>
+`
+
+  const HANDLER_WRAPPER = (body: string) => `
+${BASE_CODE}
+const onTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
+  const network = getNetwork({ chainFamily: "evm", chainSelectorName: runtime.config.chainSelectorName, isTestnet: true })
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
+  ${body}
+  return JSON.stringify({ ok: true })
+}
+
+const initWorkflow = (config: Config) => {
+  const cron = new cre.capabilities.CronCapability()
+  return [cre.handler(cron.trigger({ schedule: config.schedule }), onTrigger)]
+}
+
+export async function main() {
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
+}
+`
+
+  const STUB_CONFIG = JSON.stringify({
+    schedule: "0 */5 * * * *",
+    feedAddress: "0x0000000000000000000000000000000000000000",
+    consumerContract: "0x0000000000000000000000000000000000000000",
+    chainSelectorName: "ethereum-testnet-sepolia",
+  })
+
+  test("balanceAt compiles without TSC error", async () => {
+    const code = HANDLER_WRAPPER(
+      `const bal = evmClient.balanceAt(runtime, { address: "0x0", blockNumber: ConfidenceLevel.FINALIZED }).result()`
+    )
+    const result = await validateWorkflow(code, STUB_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[TSC]") && e.includes("balanceAt"))).toBe(false)
+  }, 30_000)
+
+  test("filterLogs compiles without TSC error", async () => {
+    const code = HANDLER_WRAPPER(
+      `const logs = evmClient.filterLogs(runtime, { addresses: ["0x0"], fromBlock: "0x0" }).result()`
+    )
+    const result = await validateWorkflow(code, STUB_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[TSC]") && e.includes("filterLogs"))).toBe(false)
+  }, 30_000)
+
+  test("getTransactionReceipt compiles without TSC error", async () => {
+    const code = HANDLER_WRAPPER(
+      `const receipt = evmClient.getTransactionReceipt(runtime, { txHash: "0xabc" }).result()`
+    )
+    const result = await validateWorkflow(code, STUB_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[TSC]") && e.includes("getTransactionReceipt"))).toBe(false)
+  }, 30_000)
+
+  test("ConfidenceLevel enum compiles without TSC error", async () => {
+    const code = HANDLER_WRAPPER(
+      `const resp = evmClient.callContract(runtime, {
+        call: encodeCallMsg({ from: "0x0", to: runtime.config.feedAddress, data: "0x" }),
+        blockNumber: ConfidenceLevel.SAFE,
+      }).result()`
+    )
+    const result = await validateWorkflow(code, STUB_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[TSC]") && e.includes("ConfidenceLevel"))).toBe(false)
+  }, 30_000)
+
+  test("HTTPPayload and decodeJson compile without TSC error", async () => {
+    const code = `
+${BASE_CODE}
+const onHTTP = (runtime: Runtime<Config>, payload: HTTPPayload): string => {
+  const data = decodeJson(payload.input)
+  const key = payload.key?.publicKey
+  return JSON.stringify({ data, key })
+}
+
+const initWorkflow = (config: Config) => {
+  const http = new cre.capabilities.HTTPCapability()
+  return [cre.handler(http.trigger({ authorizedKeys: [{ type: "ECDSA_EVM", publicKey: "0x" }] }), onHTTP)]
+}
+
+export async function main() {
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
+}
+`
+    const result = await validateWorkflow(code, STUB_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[TSC]") && e.includes("decodeJson"))).toBe(false)
+    expect(result.errors.some((e) => e.startsWith("[TSC]") && e.includes("HTTPPayload"))).toBe(false)
+  }, 30_000)
+
+  test("runtime.now() compiles without TSC error", async () => {
+    const code = HANDLER_WRAPPER(
+      `const ts = runtime.now().getTime()
+  const isoDate = runtime.now().toISOString()`
+    )
+    const result = await validateWorkflow(code, STUB_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[TSC]") && e.includes("now"))).toBe(false)
+  }, 30_000)
+})
+
+// ─────────────────────────────────────────────
+// Suite 19: Secrets Extraction & YAML Generation
+// ─────────────────────────────────────────────
+
+describe("Secrets extraction & YAML generation", () => {
+  test("extracts secret names from getSecret({ id }) pattern", () => {
+    const code = `
+      const apiKey = runtime.getSecret({ id: "API_KEY" }).result().value
+      const dbPass = runtime.getSecret({ id: "DB_PASSWORD" }).result().value
+    `
+    const names = extractSecretNames(code)
+    expect(names).toContain("API_KEY")
+    expect(names).toContain("DB_PASSWORD")
+    expect(names).toHaveLength(2)
+  })
+
+  test("extracts secret names from getSecret(string) pattern", () => {
+    const code = `
+      const key = nodeRuntime.getSecret("OPENAI_API_KEY")
+    `
+    const names = extractSecretNames(code)
+    expect(names).toContain("OPENAI_API_KEY")
+    expect(names).toHaveLength(1)
+  })
+
+  test("deduplicates secret names", () => {
+    const code = `
+      const key1 = runtime.getSecret({ id: "API_KEY" }).result().value
+      const key2 = runtime.getSecret({ id: "API_KEY" }).result().value
+      const key3 = nodeRuntime.getSecret("API_KEY")
+    `
+    const names = extractSecretNames(code)
+    expect(names).toEqual(["API_KEY"])
+  })
+
+  test("returns empty array when no secrets", () => {
+    const code = `const x = runtime.config.apiUrl`
+    const names = extractSecretNames(code)
+    expect(names).toHaveLength(0)
+  })
+
+  test("buildSecretsYaml returns null for empty names", () => {
+    expect(buildSecretsYaml([])).toBeNull()
+  })
+
+  test("buildSecretsYaml generates valid YAML with placeholders", () => {
+    const yaml = buildSecretsYaml(["API_KEY", "DB_PASSWORD"])
+    expect(yaml).not.toBeNull()
+    expect(yaml).toContain('API_KEY: "PLACEHOLDER_API_KEY"')
+    expect(yaml).toContain('DB_PASSWORD: "PLACEHOLDER_DB_PASSWORD"')
+    expect(yaml).toContain("# CRE Workflow Secrets")
+  })
 })

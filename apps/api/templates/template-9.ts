@@ -355,6 +355,7 @@ const queryMultipleAIs = (nodeRuntime: NodeRuntime<Config>): ConsensusResult => 
  *    - consensusReached: identicalAggregation (all nodes must agree on consensus status)
  */
 const onHttpTrigger = (runtime: Runtime<Config>): string => {
+  runtime.log("Starting multi-AI consensus verification...")
   const verifiedResult = runtime
     .runInNodeMode(
       queryMultipleAIs,

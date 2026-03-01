@@ -28,4 +28,7 @@ export interface ParsedIntent {
 
   /** Named entities detected (brand names, proper nouns) mapped to source IDs */
   entities: Record<string, string[]>
+
+  /** Raw signal scores from trigger type detection (for dual-trigger heuristic) */
+  triggerScores?: { cron: number; http: number; evmLog: number }
 }

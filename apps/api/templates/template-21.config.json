@@ -1,0 +1,7 @@
+{
+  "chainSelectorName": "base-sepolia",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "registryContractAddress": "0x0000000000000000000000000000000000000000",
+  "registryApiUrl": "https://api.example.com/registry",
+  "complianceApiUrl": "https://api.example.com/compliance"
+}

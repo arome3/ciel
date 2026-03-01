@@ -15,15 +15,19 @@
 
 import { parseIntent, type ParsedIntent } from "./intent-parser"
 import { matchTemplate, getTemplateById, type TemplateMatch } from "./template-matcher"
+import { warmEmbeddingCache } from "./embedding-matcher"
 import { generateCode } from "./code-generator"
-import { validateWorkflow, quickFix, type ValidationResult } from "./validator"
+import { validateWorkflow, quickFix, extractSecretNames, buildSecretsYaml, type ValidationResult } from "./validator"
 import { loadTemplateFile, loadTemplateConfig, buildFallbackConfig } from "./file-manager"
 import { buildFewShotContext } from "./context-builder"
 import { retrieveRelevantDocs } from "./doc-retriever"
 import { getContext7CREDocs } from "./context7-client"
 import { AppError, ErrorCodes } from "../../types/errors"
+import { createLogger } from "../../lib/logger"
 import { db } from "../../db"
 import { workflows } from "../../db/schema"
+
+const log = createLogger("Orchestrator")
 
 // ─────────────────────────────────────────────
 // Public Interfaces
@@ -35,6 +39,7 @@ export interface GenerateResult {
   configJson: string
   explanation: string
   consumerSol: string | null
+  secretsYaml: string | null
   intent: ParsedIntent
   template: TemplateMatch
   validation: ValidationResult
@@ -44,6 +49,9 @@ export interface GenerateResult {
 // ─────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────
+
+// ── Warm embedding cache at module load (fire-and-forget) ──
+warmEmbeddingCache().catch(() => { /* graceful degradation — keyword-only mode */ })
 
 const MAX_RETRIES = 2 // Up to 3 total attempts (1 initial + 2 retries)
 const PIPELINE_TIMEOUT_MS = 90_000 // 90s aggregate timeout for entire pipeline
@@ -115,7 +123,7 @@ async function saveWorkflow(params: {
     })
   } catch (err) {
     // Log but don't throw — returning the result is more important than persistence
-    console.error("[orchestrator] DB save failed:", err instanceof Error ? err.message : err)
+    log.info("DB save failed:", err instanceof Error ? err.message : err)
   }
 }
 
@@ -200,12 +208,16 @@ async function buildFallback(
     chains: JSON.stringify(intent.chains.length > 0 ? intent.chains : ["base-sepolia"]),
   })
 
+  const secretNames = extractSecretNames(code)
+  const secretsYaml = buildSecretsYaml(secretNames)
+
   return {
     workflowId,
     code,
     configJson,
     explanation,
     consumerSol: null,
+    secretsYaml,
     intent,
     template,
     validation,
@@ -267,7 +279,7 @@ async function runPipeline(
       // quickFix — v0-inspired deterministic auto-repair
       const { code: fixedCode, fixes } = quickFix(generated.workflowTs)
       if (fixes.length > 0) {
-        console.log(`[orchestrator] quickFix applied (attempt ${attempt + 1}):`, fixes)
+        log.info(`quickFix applied (attempt ${attempt + 1}):`, fixes)
       }
 
       const configJsonStr = JSON.stringify(generated.configJson)
@@ -300,12 +312,16 @@ async function runPipeline(
           chains: JSON.stringify(intent.chains.length > 0 ? intent.chains : ["base-sepolia"]),
         })
 
+        const secretNames = extractSecretNames(fixedCode)
+        const secretsYaml = buildSecretsYaml(secretNames)
+
         return {
           workflowId,
           code: fixedCode,
           configJson: configJsonStr,
           explanation: generated.explanation,
           consumerSol: generated.consumerSol ?? null,
+          secretsYaml,
           intent,
           template,
           validation,
@@ -321,10 +337,8 @@ async function runPipeline(
       lastError =
         `## Validation Failures (Fix ALL before responding)\n${structuredErrors}`
 
-      console.log(
-        `[orchestrator] Validation failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`,
-        validation.errors.length,
-        "errors",
+      log.info(
+        `Validation failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}): ${validation.errors.length} errors`,
       )
     } catch (err) {
       // Generation itself threw — capture for retry context
@@ -336,15 +350,15 @@ async function runPipeline(
       }
 
       lastError = err instanceof Error ? err.message : String(err)
-      console.error(
-        `[orchestrator] Generation error (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`,
+      log.info(
+        `Generation error (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`,
         lastError,
       )
     }
   }
 
   // ── All attempts exhausted — fallback to pre-built template ──
-  console.log("[orchestrator] All attempts failed. Using fallback template.")
+  log.info("All attempts failed. Using fallback template.")
   return buildFallback(intent, template, ownerAddress, prompt)
 }
 
@@ -372,9 +386,9 @@ export async function generateWorkflow(
   ownerAddress: string,
   forceTemplateId?: number,
 ): Promise<GenerateResult> {
-  // ── Stage 1 & 2: Intent + Template (before semaphore — fast, no I/O) ──
+  // ── Stage 1 & 2: Intent + Template (before semaphore — fast, minimal I/O) ──
   const intent = parseIntent(prompt)
-  const template = matchTemplate(intent, forceTemplateId)
+  const template = await matchTemplate(intent, forceTemplateId, prompt)
 
   if (!template) {
     throw new AppError(
@@ -410,7 +424,7 @@ export async function generateWorkflow(
     clearTimeout(timeoutId)
 
     if (result === "timeout") {
-      console.warn(`[orchestrator] Pipeline timed out after ${PIPELINE_TIMEOUT_MS}ms. Using fallback.`)
+      log.info(`Pipeline timed out after ${PIPELINE_TIMEOUT_MS}ms. Using fallback.`)
       return buildFallback(intent, template, ownerAddress, prompt)
     }
 

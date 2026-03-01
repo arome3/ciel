@@ -3,12 +3,10 @@
 
 import { z } from "zod"
 import {
+  cre,
   Runner,
-  Runtime,
-  CronCapability,
-  HTTPClient,
-  EVMClient,
-  handler,
+  type Runtime,
+  type CronPayload,
   getNetwork,
   consensusMedianAggregation,
 } from "@chainlink/cre-sdk"
@@ -20,69 +18,74 @@ const configSchema = z.object({
   driftThreshold: z.number().default(5).describe("Rebalance trigger threshold (percentage drift)"),
   chains: z.string().default("base-sepolia,ethereum-sepolia").describe("Comma-separated chain names"),
   consumerContract: z.string().describe("Consumer contract address"),
-  chainName: z.string().default("base-sepolia").describe("Primary chain"),
-  cronSchedule: z.string().default("0 0 * * * *").describe("Hourly rebalance check"),
+  chainSelectorName: z.string().default("base-sepolia").describe("Primary chain"),
+  schedule: z.string().default("0 0 * * * *").describe("Hourly rebalance check"),
 })
 
 type Config = z.infer<typeof configSchema>
 
-const runner = Runner.newRunner<Config>({ configSchema })
+const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
+  runtime.log("Checking portfolio drift...")
+  const httpClient = new cre.capabilities.HTTPClient()
+  const network = getNetwork({ chainFamily: "evm", chainSelectorName: runtime.config.chainSelectorName, isTestnet: true })
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
 
-function initWorkflow(runtime: Runtime<Config>) {
-  const cronTrigger = new CronCapability().trigger({
-    cronSchedule: runtime.config.cronSchedule,
-  })
+  // Fetch current portfolio positions
+  const response = httpClient.sendRequest(runtime, {
+    url: runtime.config.portfolioApiUrl,
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).result()
 
-  const httpClient = new HTTPClient()
-  const evmClient = new EVMClient()
+  const positions = JSON.parse(response.body)
+  const targets = JSON.parse(runtime.config.targetAllocations)
 
-  handler(cronTrigger, (rt) => {
-    // Fetch current portfolio positions
-    const response = httpClient.fetch(rt.config.portfolioApiUrl, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
+  // Calculate drift from target allocations
+  let maxDrift = 0
+  let actionCount = 0
+
+  for (const [asset, targetPct] of Object.entries(targets)) {
+    const currentPct = positions[asset]?.percentage || 0
+    const drift = Math.abs((currentPct as number) - (targetPct as number))
+    maxDrift = Math.max(maxDrift, drift)
+
+    if (drift > runtime.config.driftThreshold) {
+      actionCount++
+    }
+  }
+
+  // Write rebalance report onchain if drift exceeds threshold
+  if (actionCount > 0) {
+    const reportData = encodeAbiParameters(
+      parseAbiParameters("uint256 maxDrift, uint256 actionCount, uint256 timestamp"),
+      [BigInt(Math.round(maxDrift * 100)), BigInt(actionCount), BigInt(Math.floor(runtime.now().getTime() / 1000))]
+    )
+
+    const report = runtime.report({
+      encodedPayload: reportData,
+      encoderName: "evm",
+      signingAlgo: "evm",
+      hashingAlgo: "keccak256",
     }).result()
 
-    const positions = JSON.parse(response.body)
-    const targets = JSON.parse(rt.config.targetAllocations)
+    evmClient.writeReport(runtime, {
+      receiver: runtime.config.consumerContract,
+      report,
+      gasConfig: { gasLimit: 500000 },
+    }).result()
+  }
 
-    // Calculate drift from target allocations
-    let maxDrift = 0
-    let actionCount = 0
+  runtime.log("Rebalance check complete")
+  return JSON.stringify({ maxDrift: Math.round(maxDrift * 100), actionCount })
+}
 
-    for (const [asset, targetPct] of Object.entries(targets)) {
-      const currentPct = positions[asset]?.percentage || 0
-      const drift = Math.abs((currentPct as number) - (targetPct as number))
-      maxDrift = Math.max(maxDrift, drift)
-
-      if (drift > rt.config.driftThreshold) {
-        actionCount++
-      }
-    }
-
-    // Write rebalance report onchain if drift exceeds threshold
-    if (actionCount > 0) {
-      const reportData = encodeAbiParameters(
-        parseAbiParameters("uint256 maxDrift, uint256 actionCount, uint256 timestamp"),
-        [BigInt(Math.round(maxDrift * 100)), BigInt(actionCount), BigInt(Math.floor(Date.now() / 1000))]
-      )
-
-      evmClient.writeReport({
-        contractAddress: rt.config.consumerContract,
-        chainSelector: getNetwork(rt.config.chainName),
-        report: rt.report(reportData),
-      })
-    }
-
-    return { maxDrift: Math.round(maxDrift * 100), actionCount }
-  })
-
-  consensusMedianAggregation({
-    fields: ["maxDrift", "actionCount"],
-    reportId: "rebalance_report",
-  })
+const initWorkflow = (config: Config) => {
+  const cronCapability = new cre.capabilities.CronCapability()
+  return [cre.handler(cronCapability.trigger({ schedule: config.schedule }), onCronTrigger)]
 }
 
 export async function main() {
-  runner.run(initWorkflow)
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
 }
+main()

@@ -1,0 +1,10 @@
+{
+  "s3Bucket": "PLACEHOLDER_S3_BUCKET",
+  "s3Region": "us-east-1",
+  "s3Key": "workflow-state.json",
+  "dataApiUrl": "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
+  "maxHistorySize": 24,
+  "schedule": "0 0 * * * *",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "chainSelectorName": "ethereum-testnet-sepolia"
+}

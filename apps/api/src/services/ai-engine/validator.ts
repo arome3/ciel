@@ -81,11 +81,12 @@ export function quickFix(code: string): { code: string; fixes: string[] } {
   // 2. Strip async from handler callbacks (parameter-name agnostic)
   //    Matches: handler(anyTrigger, async (anyParam) => { ... })
   //    Also:    handler(anyTrigger, async function(anyParam) { ... })
-  const handlerAsyncPattern = /handler\s*\([^,]+,\s*async\s+/g
+  //    Also:    cre.handler(anyTrigger, async ...) — official SDK pattern
+  const handlerAsyncPattern = /(?:cre\.)?handler\s*\([^,]+,\s*async\s+/g
   if (handlerAsyncPattern.test(fixed)) {
     fixed = fixed.replace(
-      /handler\s*\(([^,]+),\s*async\s+/g,
-      "handler($1, ",
+      /((?:cre\.)?handler\s*\()([^,]+),\s*async\s+/g,
+      "$1$2, ",
     )
     fixes.push("Stripped async from handler callback")
 
@@ -109,6 +110,48 @@ export function quickFix(code: string): { code: string; fixes: string[] } {
     fixes.push("Added missing export to function main")
   }
 
+  // 4. Replace Date.now() → runtime.now().getTime() inside handler blocks
+  if (/\bDate\.now\s*\(\s*\)/.test(fixed)) {
+    const ranges = findHandlerBlockRanges(fixed)
+    if (ranges.length > 0) {
+      let result = fixed
+      let offset = 0
+      for (const range of ranges) {
+        const block = fixed.slice(range.start, range.end)
+        const replaced = block.replace(/\bDate\.now\s*\(\s*\)/g, "runtime.now().getTime()")
+        if (replaced !== block) {
+          result = result.slice(0, range.start + offset) + replaced + result.slice(range.start + offset + block.length)
+          offset += replaced.length - block.length
+        }
+      }
+      if (result !== fixed) {
+        fixed = result
+        fixes.push("Replaced Date.now() with runtime.now().getTime() in handler blocks")
+      }
+    }
+  }
+
+  // 5. Replace new Date() → runtime.now() inside handler blocks
+  if (/\bnew\s+Date\s*\(\s*\)/.test(fixed)) {
+    const ranges = findHandlerBlockRanges(fixed)
+    if (ranges.length > 0) {
+      let result = fixed
+      let offset = 0
+      for (const range of ranges) {
+        const block = fixed.slice(range.start, range.end)
+        const replaced = block.replace(/\bnew\s+Date\s*\(\s*\)/g, "runtime.now()")
+        if (replaced !== block) {
+          result = result.slice(0, range.start + offset) + replaced + result.slice(range.start + offset + block.length)
+          offset += replaced.length - block.length
+        }
+      }
+      if (result !== fixed) {
+        fixed = result
+        fixes.push("Replaced new Date() with runtime.now() in handler blocks")
+      }
+    }
+  }
+
   return { code: fixed, fixes }
 }
 
@@ -119,7 +162,7 @@ export function quickFix(code: string): { code: string; fixes: string[] } {
  *   handler(trigger, function(rt) { ... })
  */
 function findHandlerBlockRanges(code: string): Array<{ start: number; end: number }> {
-  const pattern = /handler\s*\([^,]+,\s*(?:(?:\([^)]*\)|[a-zA-Z_$]\w*)\s*=>\s*\{|function\s*\([^)]*\)\s*\{)/g
+  const pattern = /(?:cre\.)?handler\s*\([^,]+,\s*(?:(?:\([^)]*\)|[a-zA-Z_$]\w*)\s*=>\s*\{|function\s*\([^)]*\)\s*\{)/g
   const ranges: Array<{ start: number; end: number }> = []
   let match: RegExpExecArray | null
 
@@ -183,7 +226,7 @@ function checkImports(code: string): string[] {
     if (isAllowedImport(source)) continue
 
     errors.push(
-      `[IMPORT] Disallowed import "${source}". REMOVE this import. Only @chainlink/cre-sdk, zod, and viem are allowed.`,
+      `[IMPORT] Disallowed import "${source}". REMOVE this import. Only @chainlink/cre-sdk, zod, viem, and @noble/hashes are allowed.`,
     )
   }
 
@@ -195,7 +238,7 @@ function checkImports(code: string): string[] {
     if (isAllowedImport(source)) continue
 
     errors.push(
-      `[IMPORT] Disallowed require("${source}"). REMOVE this require. Only @chainlink/cre-sdk, zod, and viem are allowed.`,
+      `[IMPORT] Disallowed require("${source}"). REMOVE this require. Only @chainlink/cre-sdk, zod, viem, and @noble/hashes are allowed.`,
     )
   }
 
@@ -208,7 +251,9 @@ function isAllowedImport(source: string): boolean {
     source.startsWith("@chainlink/cre-sdk/") ||
     source === "zod" ||
     source === "viem" ||
-    source.startsWith("viem/")
+    source.startsWith("viem/") ||
+    source === "@noble/hashes" ||
+    source.startsWith("@noble/hashes/")
   )
 }
 
@@ -221,7 +266,8 @@ function checkNoAsyncCallbacks(code: string): string[] {
   const errors: string[] = []
 
   // Pattern 1 (primary): handler(trigger, async ...) — catches arrow functions and function expressions
-  const handlerAsyncPattern = /handler\s*\([^,]+,\s*async\s/g
+  // Also matches cre.handler(trigger, async ...) — official SDK pattern
+  const handlerAsyncPattern = /(?:cre\.)?handler\s*\([^,]+,\s*async\s/g
   let match: RegExpExecArray | null
   while ((match = handlerAsyncPattern.exec(code)) !== null) {
     errors.push(
@@ -329,7 +375,7 @@ function checkConfigJson(code: string, configJson: string): string[] {
     )
     if (!hasCronConfig) {
       errors.push(
-        "[CONFIG] Code uses CronCapability but config has no schedule field. ADD cronSchedule or schedule to the config.",
+        "[CONFIG] Code uses CronCapability but config has no schedule field. ADD schedule (or cronSchedule) to the config.",
       )
     }
   }
@@ -377,6 +423,65 @@ function checkStatePatterns(code: string, configJson: string): string[] {
   return errors
 }
 
+/**
+ * (h) Non-Determinism Check — patterns that break BFT consensus on DON nodes.
+ *     CRE DON nodes must produce identical output. Non-deterministic calls
+ *     (Date.now, Math.random, etc.) cause consensus failure.
+ */
+function checkNonDeterminism(code: string): string[] {
+  const errors: string[] = []
+
+  // Date.now() — different value on each node
+  if (/\bDate\.now\s*\(\s*\)/.test(code)) {
+    errors.push(
+      "[NONDET] Found Date.now() which breaks BFT consensus — each DON node produces a different timestamp. REPLACE with runtime.now().getTime() for consensus-safe milliseconds.",
+    )
+  }
+
+  // new Date() without args — same issue
+  if (/\bnew\s+Date\s*\(\s*\)/.test(code)) {
+    errors.push(
+      "[NONDET] Found new Date() which breaks BFT consensus — each DON node produces a different timestamp. REPLACE with runtime.now() for a consensus-safe Date object.",
+    )
+  }
+
+  // Math.random() — no deterministic alternative in CRE
+  if (/\bMath\.random\s*\(\s*\)/.test(code)) {
+    errors.push(
+      "[NONDET] Found Math.random() which breaks BFT consensus — each DON node produces a different value. REMOVE or use deterministic logic (e.g., hash-based PRNG).",
+    )
+  }
+
+  // Promise.race() — result depends on timing, non-deterministic across nodes
+  if (/\bPromise\.race\s*\(/.test(code)) {
+    errors.push(
+      "[NONDET] Found Promise.race() which may produce different results across DON nodes. REPLACE with Promise.all() or sequential execution.",
+    )
+  }
+
+  // Promise.any() — same issue
+  if (/\bPromise\.any\s*\(/.test(code)) {
+    errors.push(
+      "[NONDET] Found Promise.any() which may produce different results across DON nodes. REPLACE with Promise.all() or sequential execution.",
+    )
+  }
+
+  // setTimeout / setInterval — not available in CRE runtime
+  if (/\bsetTimeout\s*\(/.test(code)) {
+    errors.push(
+      "[NONDET] Found setTimeout() which is not available in the CRE runtime. REMOVE — CRE workflows execute synchronously within handlers.",
+    )
+  }
+
+  if (/\bsetInterval\s*\(/.test(code)) {
+    errors.push(
+      "[NONDET] Found setInterval() which is not available in the CRE runtime. REMOVE — use CronCapability for scheduled execution.",
+    )
+  }
+
+  return errors
+}
+
 // ─────────────────────────────────────────────
 // TypeScript Compilation Check
 // ─────────────────────────────────────────────
@@ -400,20 +505,76 @@ declare module "@chainlink/cre-sdk" {
     success: boolean;
   }
 
-  /** EVMLog — log data passed as second param to handler callback for EVMLogTrigger */
-  interface EVMLog {
-    topics: string[];
-    data: string;
-    address: string;
-    blockNumber: number;
-    transactionHash: string;
+  /** CronPayload — payload passed to cron handler callbacks */
+  interface CronPayload {
+    scheduledExecutionTime: string;
   }
 
+  /** EVMLog — log data passed as second param to handler callback for EVMLogTrigger */
+  interface EVMLog {
+    topics: Uint8Array[];
+    data: Uint8Array;
+    address?: string;
+    blockNumber?: number;
+    transactionHash?: string;
+  }
+
+  /** NetworkInfo — returned by getNetwork() */
+  interface NetworkInfo {
+    chainSelector: { selector: string };
+    chainFamily: string;
+    chainSelectorName: string;
+  }
+
+  /** ReportOpts — options for runtime.report() */
+  interface ReportOpts {
+    encodedPayload: string;
+    encoderName?: string;
+    signingAlgo?: string;
+    hashingAlgo?: string;
+  }
+
+  /** ReportResponse — returned by runtime.report() */
+  interface ReportResponse {
+    report: string;
+  }
+
+  /** GasConfig — used in writeReport */
+  interface GasConfig {
+    gasLimit?: number;
+  }
+
+  /** WriteReportOpts — options for evmClient.writeReport() (official pattern) */
+  interface WriteReportOpts {
+    receiver: string;
+    report: string | ReportResponse | CREResponse<ReportResponse>;
+    gasConfig?: GasConfig;
+  }
+
+  /** TxStatus enum */
+  export enum TxStatus {
+    SUCCESS = "SUCCESS",
+    FAILED = "FAILED",
+    PENDING = "PENDING",
+  }
+
+  /** ConfidenceLevel — block finality for contract reads */
+  export enum ConfidenceLevel {
+    FINALIZED = "finalized",
+    SAFE = "safe",
+    LATEST = "latest",
+  }
+
+  /** LAST_FINALIZED_BLOCK_NUMBER constant for contract reads */
+  export const LAST_FINALIZED_BLOCK_NUMBER: string;
+
   interface EVMCallContractOpts {
-    contractAddress: string;
+    contractAddress?: string;
     calldata?: string;
     callData?: string;
     chainSelector?: string;
+    call?: any;
+    blockNumber?: string | ConfidenceLevel;
   }
 
   interface EVMWriteReportOpts {
@@ -425,19 +586,27 @@ declare module "@chainlink/cre-sdk" {
     chainSelectorName?: string;
   }
 
+  interface CacheSettings {
+    maxAge?: number;
+    staleWhileRevalidate?: number;
+  }
+
   interface FetchOpts {
     method?: "GET" | "POST" | "PUT" | "DELETE";
     headers?: Record<string, string>;
     body?: string;
+    cacheSettings?: CacheSettings;
   }
 
   interface CronTriggerOpts {
-    cronSchedule: string;
+    schedule?: string;
+    cronSchedule?: string;
   }
 
   interface HTTPTriggerOpts {
     method?: string;
     url?: string;
+    authorizedKeys?: Array<{ type: string; publicKey: string }>;
   }
 
   interface ConsensusOpts {
@@ -457,15 +626,21 @@ declare module "@chainlink/cre-sdk" {
     readonly config: T;
     getConfig(): T;
     getSecret(key: string): string;
+    getSecret(opts: { id: string }): CREResponse<{ value: string }>;
+    log(msg: string): void;
+    /** Consensus-safe timestamp — identical across all DON nodes. NEVER use Date.now() or new Date(). */
+    now(): Date;
+    report(data: string): string;
+    report(opts: ReportOpts): CREResponse<ReportResponse>;
     runInNodeMode<R>(callback: (nodeRuntime: Runtime<T>) => R): R;
     runInNodeMode<R>(callback: (nodeRuntime: NodeRuntime<T>) => R, consensus: any): () => CREResponse<R>;
-    report(data: string): string;
   }
 
   /** NodeRuntime — individual node context inside runInNodeMode */
   export interface NodeRuntime<T> {
     getConfig(): T;
     getSecret(key: string): string;
+    getSecret(opts: { id: string }): CREResponse<{ value: string }>;
   }
 
   /** Capability classes — these are the CRE SDK building blocks */
@@ -478,10 +653,10 @@ declare module "@chainlink/cre-sdk" {
   }
 
   export class EVMLogCapability {
-    trigger(opts: { contractAddress: string; eventSignature: string; chainSelector?: string }): EVMLogTrigger;
+    trigger(opts: { addresses?: string[]; topics?: string[]; contractAddress?: string; eventSignature?: string; chainSelector?: string }): EVMLogTrigger;
   }
 
-  /** HTTPClient — synchronous .result() unwrapping */
+  /** HTTPClient — synchronous .result() unwrapping (legacy pattern) */
   export class HTTPClient {
     fetch(url: string, opts?: FetchOpts): CREResponse<HTTPResponse>;
   }
@@ -491,31 +666,83 @@ declare module "@chainlink/cre-sdk" {
     fetch(url: string, opts?: FetchOpts): CREResponse<HTTPResponse>;
   }
 
-  /** Resolves a chain name to a chain selector string */
+  /** Resolves a chain name to a chain selector string (legacy) */
   export function getNetwork(chainName: string): string;
+  /** Resolves chain info with structured opts (official) */
+  export function getNetwork(opts: { chainFamily: string; chainSelectorName: string; isTestnet?: boolean }): NetworkInfo;
 
-  /** EVMClient — on-chain interactions */
+  /** Encode a call message for contract reads */
+  export function encodeCallMsg(opts: { from: any; to: any; data: any }): any;
+
+  /** Utility: convert bytes to hex string */
+  export function bytesToHex(bytes: Uint8Array): string;
+
+  /** Utility: convert hex to base64 string */
+  export function hexToBase64(hex: string): string;
+
+  /** Utility: extract text from HTTP response */
+  export function text(response: any): string;
+
+  /** Median function */
+  export function median(values: number[]): number;
+
+  /** EVMClient — on-chain interactions (legacy pattern, no constructor args) */
   export class EVMClient {
+    constructor(chainSelector?: string);
     static callContract(opts: EVMCallContractOpts): CREResponse<EVMResponse>;
     static writeReport(opts: EVMWriteReportOpts): CREResponse<EVMResponse>;
     static sendTransaction(opts: EVMCallContractOpts): CREResponse<EVMResponse>;
     callContract(opts: EVMCallContractOpts): CREResponse<EVMResponse>;
+    callContract(runtime: Runtime<any>, opts: EVMCallContractOpts): CREResponse<EVMResponse>;
     writeReport(opts: EVMWriteReportOpts): CREResponse<EVMResponse>;
+    writeReport(runtime: Runtime<any>, opts: WriteReportOpts): CREResponse<EVMResponse>;
     sendTransaction(opts: { contractAddress?: string; chainSelector?: string; data?: string; value?: string; to?: string }): CREResponse<EVMResponse>;
+    balanceAt(runtime: Runtime<any>, opts: { address: string; blockNumber?: string | ConfidenceLevel }): CREResponse<EVMResponse>;
+    filterLogs(runtime: Runtime<any>, opts: { addresses?: string[]; topics?: string[][]; fromBlock?: string; toBlock?: string }): CREResponse<EVMResponse>;
+    getTransactionByHash(runtime: Runtime<any>, opts: { txHash: string }): CREResponse<EVMResponse>;
+    getTransactionReceipt(runtime: Runtime<any>, opts: { txHash: string }): CREResponse<EVMResponse>;
+    headerByNumber(runtime: Runtime<any>, opts: { blockNumber?: string | ConfidenceLevel }): CREResponse<EVMResponse>;
+    estimateGas(runtime: Runtime<any>, opts: { to?: string; data?: string; value?: string }): CREResponse<EVMResponse>;
+    logTrigger(opts: { addresses?: string[]; topics?: string[] }): EVMLogTrigger;
   }
 
-  /** cre namespace — alternative API for capabilities and handler wiring */
+  /** cre namespace — official API for capabilities and handler wiring */
   export namespace cre {
     namespace capabilities {
+      class CronCapability {
+        trigger(opts: CronTriggerOpts): CronTrigger;
+      }
+      class HTTPCapability {
+        trigger(opts?: HTTPTriggerOpts): HTTPTrigger;
+      }
+      class EVMLogCapability {
+        trigger(opts: { addresses?: string[]; topics?: string[]; contractAddress?: string; eventSignature?: string; chainSelector?: string }): EVMLogTrigger;
+      }
       class HTTPClient {
+        sendRequest(runtime: NodeRuntime<any> | Runtime<any>, fetchFn: (...args: any[]) => any, consensusFn?: (...args: any[]) => any): (...args: any[]) => CREResponse<any>;
         sendRequest(runtime: NodeRuntime<any> | Runtime<any>, opts: { url: string; method?: string; headers?: Record<string, string>; body?: string }): CREResponse<HTTPResponse>;
+        fetch(url: string, opts?: FetchOpts): CREResponse<HTTPResponse>;
+      }
+      class ConfidentialHTTPClient {
+        sendRequest(runtime: NodeRuntime<any> | Runtime<any>, opts: { url: string; method?: string; headers?: Record<string, string>; body?: string }): CREResponse<HTTPResponse>;
+        sendRequest(runtime: NodeRuntime<any> | Runtime<any>, fetchFn: (...args: any[]) => any, consensusFn?: (...args: any[]) => any): (...args: any[]) => CREResponse<any>;
+        fetch(url: string, opts?: FetchOpts): CREResponse<HTTPResponse>;
       }
       class EVMClient {
-        writeReport(runtime: Runtime<any>, opts: { chainSelectorName?: string; contractAddress?: string; data?: string; report?: string; reportData?: string; chainSelector?: string; consumerAddress?: string }): CREResponse<EVMResponse>;
+        constructor(chainSelector?: string);
+        callContract(runtime: Runtime<any>, opts: EVMCallContractOpts): CREResponse<EVMResponse>;
+        writeReport(runtime: Runtime<any>, opts: WriteReportOpts | EVMWriteReportOpts): CREResponse<EVMResponse>;
         sendTransaction(runtime: Runtime<any>, opts: { contractAddress?: string; chainSelector?: string; data?: string; value?: string; to?: string }): CREResponse<EVMResponse>;
+        balanceAt(runtime: Runtime<any>, opts: { address: string; blockNumber?: string | ConfidenceLevel }): CREResponse<EVMResponse>;
+        filterLogs(runtime: Runtime<any>, opts: { addresses?: string[]; topics?: string[][]; fromBlock?: string; toBlock?: string }): CREResponse<EVMResponse>;
+        getTransactionByHash(runtime: Runtime<any>, opts: { txHash: string }): CREResponse<EVMResponse>;
+        getTransactionReceipt(runtime: Runtime<any>, opts: { txHash: string }): CREResponse<EVMResponse>;
+        headerByNumber(runtime: Runtime<any>, opts: { blockNumber?: string | ConfidenceLevel }): CREResponse<EVMResponse>;
+        estimateGas(runtime: Runtime<any>, opts: { to?: string; data?: string; value?: string }): CREResponse<EVMResponse>;
+        logTrigger(opts: { addresses?: string[]; topics?: string[] }): EVMLogTrigger;
       }
     }
-    function handler(trigger: CronTrigger | HTTPTrigger | EVMLogTrigger, callback: (runtime: Runtime<any>, triggerOutput?: EVMLog | Record<string, unknown>) => any): any;
+    function handler(trigger: CronTrigger | HTTPTrigger | EVMLogTrigger, callback: (runtime: Runtime<any>, triggerOutput: any) => any): any;
   }
 
   // Trigger types (returned by capability.trigger())
@@ -523,15 +750,24 @@ declare module "@chainlink/cre-sdk" {
   interface HTTPTrigger { readonly __brand: "HTTPTrigger" }
   interface EVMLogTrigger { readonly __brand: "EVMLogTrigger" }
 
-  /** handler() wires a trigger to a synchronous callback.
+  /** handler() wires a trigger to a synchronous callback (legacy pattern).
    *  Runtime<any> because the generic can't be inferred through triggers in stubs.
    *  The real SDK handles this via internal type wiring. */
   export function handler(
     trigger: CronTrigger | HTTPTrigger | EVMLogTrigger,
-    callback: (runtime: Runtime<any>, triggerOutput?: EVMLog | Record<string, unknown>) => Record<string, unknown>,
+    callback: (runtime: Runtime<any>, triggerOutput: any) => Record<string, unknown> | string,
   ): void;
 
-  export type { EVMLog };
+  /** HTTPPayload — payload passed to HTTP-triggered handler callbacks */
+  interface HTTPPayload {
+    input: Uint8Array;
+    key?: { type: string; publicKey: string };
+  }
+
+  /** Decode JSON from Uint8Array payload (HTTP trigger) */
+  export function decodeJson(data: Uint8Array): any;
+
+  export type { EVMLog, CronPayload, HTTPPayload };
 
   /** Consensus functions */
   export function consensusMedianAggregation(opts: ConsensusOpts): void;
@@ -565,6 +801,23 @@ declare module "@chainlink/cre-sdk/triggers" {
   export const http: {
     trigger(): any;
   };
+}
+
+declare module "@noble/hashes/sha2" {
+  export function sha256(data: Uint8Array): Uint8Array;
+}
+
+declare module "@noble/hashes/hmac" {
+  export function hmac(hash: any, key: Uint8Array, data: Uint8Array): Uint8Array;
+}
+
+declare module "@noble/hashes/utils" {
+  export function utf8ToBytes(str: string): Uint8Array;
+  export function bytesToHex(bytes: Uint8Array): string;
+}
+
+declare module "@noble/hashes" {
+  export * from "@noble/hashes/sha2";
 }
 
 declare module "zod" {
@@ -734,6 +987,7 @@ export async function validateWorkflow(
   errors.push(...checkZodSchema(code))
   errors.push(...checkConfigJson(code, configJson))
   errors.push(...checkStatePatterns(code, configJson))
+  errors.push(...checkNonDeterminism(code))
 
   // Phase 2: Expensive check — only if Phase 1 passes (cheap-first pattern)
   if (errors.length === 0) {
@@ -745,4 +999,48 @@ export async function validateWorkflow(
     valid: errors.length === 0,
     errors,
   }
+}
+
+// ─────────────────────────────────────────────
+// Secrets Extraction & YAML Generation
+// ─────────────────────────────────────────────
+
+/**
+ * Extracts secret names from generated workflow code.
+ * Matches both patterns:
+ *   - getSecret({ id: "KEY_NAME" })
+ *   - getSecret("KEY_NAME")
+ */
+export function extractSecretNames(code: string): string[] {
+  const secrets = new Set<string>()
+
+  // Pattern 1: getSecret({ id: "KEY_NAME" })
+  const objPattern = /\.getSecret\s*\(\s*\{\s*id\s*:\s*["']([^"']+)["']\s*\}/g
+  let match: RegExpExecArray | null
+  while ((match = objPattern.exec(code)) !== null) {
+    secrets.add(match[1])
+  }
+
+  // Pattern 2: getSecret("KEY_NAME")
+  const strPattern = /\.getSecret\s*\(\s*["']([^"']+)["']\s*\)/g
+  while ((match = strPattern.exec(code)) !== null) {
+    secrets.add(match[1])
+  }
+
+  return [...secrets].sort()
+}
+
+/**
+ * Builds CRE-compatible secrets.yaml content from extracted secret names.
+ * Returns null if no secrets are needed.
+ */
+export function buildSecretsYaml(secretNames: string[]): string | null {
+  if (secretNames.length === 0) return null
+
+  const lines = ["# CRE Workflow Secrets", "# Replace placeholder values before deployment", ""]
+  for (const name of secretNames) {
+    lines.push(`${name}: "PLACEHOLDER_${name}"`)
+  }
+  lines.push("")
+  return lines.join("\n")
 }

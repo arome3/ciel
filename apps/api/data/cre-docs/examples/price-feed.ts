@@ -1,54 +1,49 @@
-// Example: Price Feed Monitor with Cron Trigger
-// Pattern: CronCapability + HTTPClient + median consensus
+// Example: Price Feed Monitor with Cron Trigger (Official SDK Pattern)
+// Pattern: cre.capabilities.CronCapability + HTTPClient.sendRequest + median consensus
 
 import { z } from "zod"
 import {
+  cre,
   Runner,
-  Runtime,
-  CronCapability,
-  HTTPClient,
-  handler,
+  type Runtime,
+  type CronPayload,
   consensusMedianAggregation,
 } from "@chainlink/cre-sdk"
-import { encodeAbiParameters, parseAbiParameters } from "viem"
 
 const configSchema = z.object({
   priceApiUrl: z.string().describe("Price API endpoint"),
   assetSymbol: z.string().describe("Asset symbol to monitor (e.g. ETH)"),
-  cronSchedule: z.string().default("0 */5 * * * *").describe("Cron schedule"),
+  schedule: z.string().default("0 */5 * * * *").describe("Cron schedule"),
   consumerContract: z.string().describe("Onchain consumer contract address"),
-  chainName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia").describe("Chain selector name"),
 })
 
 type Config = z.infer<typeof configSchema>
 
-const runner = Runner.newRunner<Config>({ configSchema })
+const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
+  runtime.log("Fetching price data...")
 
-function initWorkflow(runtime: Runtime<Config>) {
-  const cronTrigger = new CronCapability().trigger({
-    cronSchedule: runtime.config.cronSchedule,
-  })
+  const httpClient = new cre.capabilities.HTTPClient()
+  const response = httpClient.sendRequest(runtime, {
+    url: `${runtime.config.priceApiUrl}?symbol=${runtime.config.assetSymbol}`,
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).result()
 
-  const httpClient = new HTTPClient()
+  const data = JSON.parse(response.body)
+  const price = Math.round(data.price * 1e8) // 8 decimal precision
 
-  handler(cronTrigger, (rt) => {
-    const response = httpClient.fetch(
-      `${rt.config.priceApiUrl}?symbol=${rt.config.assetSymbol}`,
-      { method: "GET", headers: { "Content-Type": "application/json" } }
-    ).result()
-
-    const data = JSON.parse(response.body)
-    const price = Math.round(data.price * 1e8) // 8 decimal precision
-
-    return { price, timestamp: Date.now() }
-  })
-
-  consensusMedianAggregation({
-    fields: ["price"],
-    reportId: "price_feed",
-  })
+  runtime.log(`Price for ${runtime.config.assetSymbol}: ${price}`)
+  return JSON.stringify({ price, timestamp: runtime.now().getTime() })
 }
 
-export function main() {
-  runner.run(initWorkflow)
+const initWorkflow = (config: Config) => {
+  const cronCapability = new cre.capabilities.CronCapability()
+  return [cre.handler(cronCapability.trigger({ schedule: config.schedule }), onCronTrigger)]
 }
+
+export async function main() {
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
+}
+main()

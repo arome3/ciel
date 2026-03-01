@@ -1,0 +1,7 @@
+{
+  "chainSelectorName": "base-sepolia",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "escrowContractAddress": "0x0000000000000000000000000000000000000000",
+  "settlementApiUrl": "https://api.example.com/settlement",
+  "threshold": "100000000000000000000"
+}

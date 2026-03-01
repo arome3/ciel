@@ -1,0 +1,9 @@
+{
+  "schedule": "0 */10 * * * *",
+  "dataApiUrl": "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
+  "chainSelectorName": "ethereum-testnet-sepolia",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "eventContractAddress": "0x0000000000000000000000000000000000000000",
+  "eventSignature": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "minValueChange": 100
+}

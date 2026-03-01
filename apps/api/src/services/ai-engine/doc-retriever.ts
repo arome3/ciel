@@ -32,6 +32,20 @@ const CAPABILITY_TO_DOCS: Record<string, string[]> = {
   "multi-chain": ["chain-selectors.md", "capabilities.md"],
   alert: ["capabilities.md"],
   "wallet-api": ["capabilities.md", "triggers.md"],
+  "chainlink-feeds": ["capabilities.md", "chain-selectors.md"],
+  "kv-store": ["state-management.md", "capabilities.md"],
+  "ccip": ["chain-selectors.md", "capabilities.md"],
+  evmRead: ["capabilities.md", "chain-selectors.md"],
+  ccipTransfer: ["chain-selectors.md", "capabilities.md"],
+  // Institutional finance (T17-T22)
+  "payment-api": ["capabilities.md", "triggers.md"],
+  "settlement-api": ["capabilities.md", "triggers.md"],
+  "registry-api": ["capabilities.md", "triggers.md"],
+  burn: ["capabilities.md", "chain-selectors.md"],
+  escrowLock: ["capabilities.md", "chain-selectors.md"],
+  escrowRelease: ["capabilities.md", "chain-selectors.md"],
+  initiatePayment: ["capabilities.md", "state-management.md"],
+  distribute: ["capabilities.md", "chain-selectors.md"],
 }
 
 // ─────────────────────────────────────────────

@@ -4,8 +4,8 @@
   "driftThreshold": 5,
   "chains": "base-sepolia,ethereum-sepolia",
   "consumerContract": "0x0000000000000000000000000000000000000000",
-  "chainName": "base-sepolia",
-  "cronSchedule": "0 0 * * * *",
+  "chainSelectorName": "base-sepolia",
+  "schedule": "0 0 * * * *",
   "kvStoreUrl": "",
   "kvApiKey": "",
   "stateKey": ""

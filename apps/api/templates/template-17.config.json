@@ -1,0 +1,8 @@
+{
+  "chainSelectorName": "base-sepolia",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "complianceApiUrl": "https://api.example.com/compliance",
+  "tokenAddress": "0x0000000000000000000000000000000000000000",
+  "minBurnAmount": "1000000000000000000",
+  "assetId": "USDC"
+}

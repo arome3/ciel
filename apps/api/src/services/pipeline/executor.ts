@@ -27,11 +27,26 @@ const MIN_RETRY_BUDGET_MS = 5_000     // minimum time left to justify a retry
 // Types
 // ─────────────────────────────────────────────
 
+export interface StepCondition {
+  /** Dot-path into previous step output, e.g. "result.status" */
+  field: string
+  /** Comparison operator */
+  operator: "eq" | "neq" | "gt" | "lt" | "gte" | "lte" | "contains"
+  /** Value to compare against */
+  value: string | number | boolean
+}
+
 export interface PipelineStepConfig {
   id: string
   workflowId: string
   position: number
   inputMapping?: Record<string, { source: string; field: string }>
+  /** Conditional: evaluate against previous step output. If false, step is skipped. */
+  condition?: StepCondition
+  /** Jump to this step ID on success (skip position order) */
+  onSuccessStepId?: string
+  /** Jump to this step ID on failure (skip position order) */
+  onFailureStepId?: string
 }
 
 export interface StepResult {
@@ -52,6 +67,79 @@ export interface PipelineExecutionResult {
   stepResults: StepResult[]
   finalOutput: Record<string, unknown> | null
   duration: number
+}
+
+// ─────────────────────────────────────────────
+// Condition Evaluation
+// ─────────────────────────────────────────────
+
+// Property names that must never be traversed via dot-path
+const BLOCKED_PROPS = new Set(["__proto__", "constructor", "prototype"])
+
+/**
+ * Resolves a dot-path from step outputs.
+ * Looks at all outputs and picks the most recent one that has the root key.
+ * Blocks prototype-chain property access for safety.
+ */
+function resolveDotPath(
+  field: string,
+  stepOutputs: Map<string, Record<string, unknown>>,
+): unknown {
+  const parts = field.split(".")
+  // Reject paths with dangerous property names
+  if (parts.some((p) => BLOCKED_PROPS.has(p))) return undefined
+
+  // Search outputs in reverse insertion order (most recent first)
+  const entries = [...stepOutputs.entries()].reverse()
+
+  for (const [, output] of entries) {
+    let current: unknown = output
+    let found = true
+    for (const part of parts) {
+      if (current === null || current === undefined || typeof current !== "object") {
+        found = false
+        break
+      }
+      current = (current as Record<string, unknown>)[part]
+    }
+    if (found && current !== undefined) return current
+  }
+
+  return undefined
+}
+
+/**
+ * Evaluates a step condition against accumulated step outputs.
+ * Returns true if the condition is met (step should execute), false to skip.
+ */
+export function evaluateCondition(
+  condition: StepCondition,
+  stepOutputs: Map<string, Record<string, unknown>>,
+): boolean {
+  const actual = resolveDotPath(condition.field, stepOutputs)
+  if (actual === undefined || actual === null) return false // Missing/null field → condition not met
+
+  const expected = condition.value
+  const { operator } = condition
+
+  switch (operator) {
+    case "eq":
+      return String(actual) === String(expected)
+    case "neq":
+      return String(actual) !== String(expected)
+    case "gt":
+      return Number(actual) > Number(expected)
+    case "lt":
+      return Number(actual) < Number(expected)
+    case "gte":
+      return Number(actual) >= Number(expected)
+    case "lte":
+      return Number(actual) <= Number(expected)
+    case "contains":
+      return String(actual).includes(String(expected))
+    default:
+      return false
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -379,6 +467,25 @@ async function _runPipeline(
   }
   const sortedPositions = [...positionGroups.keys()].sort((a, b) => a - b)
 
+  // Build step position index for branch validation (forward-only enforcement)
+  const stepPositionMap = new Map<string, number>()
+  for (const step of steps) {
+    stepPositionMap.set(step.id, step.position)
+  }
+
+  // Validate branch targets at load time
+  for (const step of steps) {
+    for (const targetId of [step.onSuccessStepId, step.onFailureStepId]) {
+      if (!targetId) continue
+      const targetPos = stepPositionMap.get(targetId)
+      if (targetPos === undefined) {
+        log.warn(`Step ${step.id} references unknown branch target ${targetId}`)
+      } else if (targetPos <= step.position) {
+        log.warn(`Step ${step.id} has backward branch to ${targetId} (pos ${targetPos} <= ${step.position}) — will be ignored`)
+      }
+    }
+  }
+
   // Execute position groups sequentially
   const allResults: StepResult[] = []
   const stepOutputs = new Map<string, Record<string, unknown>>()
@@ -386,6 +493,9 @@ async function _runPipeline(
 
   // Pipeline-level timeout
   const pipelineDeadline = pipelineStart + PIPELINE_TIMEOUT_MS
+
+  // Track step IDs to jump to (branching)
+  let jumpToStepId: string | null = null
 
   for (const position of sortedPositions) {
     if (failed) break
@@ -397,11 +507,38 @@ async function _runPipeline(
       break
     }
 
-    const group = positionGroups.get(position)!
+    let group = positionGroups.get(position)!
+
+    // If we have a branch target, skip positions until we find the target step
+    if (jumpToStepId) {
+      const targetStep = group.find((s) => s.id === jumpToStepId)
+      if (!targetStep) continue // Skip this position group entirely
+      // Only execute the target step from this group, not all siblings
+      group = [targetStep]
+      jumpToStepId = null // Found the target, stop skipping
+    }
 
     // Execute all steps at this position in parallel
     const groupResults = await Promise.all(
       group.map((stepConfig) => {
+        // Conditional step: evaluate condition before execution
+        if (stepConfig.condition) {
+          const conditionMet = evaluateCondition(stepConfig.condition, stepOutputs)
+          if (!conditionMet) {
+            log.info(`Step ${stepConfig.id} skipped: condition not met`)
+            return Promise.resolve<StepResult>({
+              stepId: stepConfig.id,
+              workflowId: stepConfig.workflowId,
+              workflowName: wfMap.get(stepConfig.workflowId)?.name ?? "Unknown",
+              position: stepConfig.position,
+              success: true,
+              output: { _skipped: true, reason: "condition_not_met" },
+              error: null,
+              duration: 0,
+            })
+          }
+        }
+
         const workflow = wfMap.get(stepConfig.workflowId)
         if (!workflow) {
           return Promise.resolve<StepResult>({
@@ -432,7 +569,7 @@ async function _runPipeline(
 
     allResults.push(...groupResults)
 
-    // Store outputs and check for failures
+    // Store outputs and check for failures + branching
     for (const result of groupResults) {
       if (result.success && result.output) {
         stepOutputs.set(result.stepId, result.output)
@@ -440,19 +577,47 @@ async function _runPipeline(
       if (!result.success) {
         failed = true
       }
+
+      // Check for branch directives on the step config
+      const stepConfig = group.find((s) => s.id === result.stepId)
+      if (stepConfig) {
+        const candidateId = result.success
+          ? stepConfig.onSuccessStepId
+          : stepConfig.onFailureStepId
+        if (candidateId) {
+          // Enforce forward-only branching: target must be at a higher position
+          const targetPos = stepPositionMap.get(candidateId)
+          if (targetPos !== undefined && targetPos > stepConfig.position) {
+            jumpToStepId = candidateId
+            if (!result.success) {
+              failed = false // Reset failure to allow branch continuation
+            }
+          } else {
+            log.warn(`Ignoring branch ${stepConfig.id} → ${candidateId}: backward or invalid target`)
+          }
+        }
+      }
     }
   }
 
   const totalDuration = Date.now() - pipelineStart
-  const stepsCompleted = allResults.filter((r) => r.success).length
+  // Exclude skipped steps from completion accounting
+  const skippedCount = allResults.filter(
+    (r) => r.success && r.output && (r.output as Record<string, unknown>)._skipped === true,
+  ).length
+  const stepsCompleted = allResults.filter((r) => r.success).length - skippedCount
+  const stepsExecuted = allResults.length - skippedCount
   const stepsTotal = steps.length
 
-  // Determine status
+  // Determine status: all non-skipped steps succeeded → completed
   let status: "completed" | "failed" | "partial"
-  if (stepsCompleted === stepsTotal) {
+  if (stepsCompleted === stepsExecuted && stepsExecuted > 0) {
     status = "completed"
-  } else if (stepsCompleted === 0) {
+  } else if (stepsCompleted === 0 && stepsExecuted > 0) {
     status = "failed"
+  } else if (stepsExecuted === 0) {
+    // Edge case: all steps skipped (conditions)
+    status = "completed"
   } else {
     status = "partial"
   }

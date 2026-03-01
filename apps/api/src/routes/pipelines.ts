@@ -33,6 +33,12 @@ const SUGGEST_CACHE_KEY = "pipeline_suggestions"
 
 const ETH_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
 
+const StepConditionSchema = z.object({
+  field: z.string(),
+  operator: z.enum(["eq", "neq", "gt", "lt", "gte", "lte", "contains"]),
+  value: z.union([z.string(), z.number(), z.boolean()]),
+})
+
 const PipelineStepSchema = z.object({
   id: z.string(),
   workflowId: z.string().uuid(),
@@ -41,6 +47,9 @@ const PipelineStepSchema = z.object({
     source: z.string(),
     field: z.string(),
   })).optional(),
+  condition: StepConditionSchema.optional(),
+  onSuccessStepId: z.string().optional(),
+  onFailureStepId: z.string().optional(),
 })
 
 const CreatePipelineSchema = z.object({

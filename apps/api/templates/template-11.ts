@@ -11,19 +11,16 @@
 
 import { z } from "zod"
 import {
+  cre,
   Runner,
-  Runtime,
-  CronCapability,
-  HTTPClient,
-  EVMClient,
-  handler,
+  type Runtime,
+  type CronPayload,
   getNetwork,
-  consensusIdenticalAggregation,
 } from "@chainlink/cre-sdk"
 import { encodeAbiParameters, parseAbiParameters } from "viem"
 
 const configSchema = z.object({
-  cronSchedule: z.string().default("0 */5 * * * *").describe("Price check frequency (6-field cron)"),
+  schedule: z.string().default("0 */5 * * * *").describe("Price check frequency (6-field cron)"),
   priceApiUrl: z.string().describe("Price API base URL (e.g. CoinGecko)"),
   assetId: z.string().describe("Asset identifier for price API (e.g. 'ethereum')"),
   direction: z.enum(["below", "above"]).default("below").describe("Trigger direction: 'below' or 'above'"),
@@ -37,14 +34,12 @@ const configSchema = z.object({
   tokenInDecimals: z.number().default(18).describe("Input token decimals (e.g. 6 for USDC, 18 for WETH)"),
   useNativeETH: z.boolean().default(true).describe("Whether tokenIn is native ETH (uses msg.value)"),
   recipientAddress: z.string().describe("Address that receives output tokens"),
-  chainName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
   consumerContract: z.string().describe("Consumer contract for onchain reporting"),
   tokenOutDecimals: z.number().default(18).describe("Output token decimals (e.g. 6 for USDC, 18 for WETH)"),
 })
 
 type Config = z.infer<typeof configSchema>
-
-const runner = Runner.newRunner<Config>({ configSchema })
 
 // exactInputSingle function selector: 0x414bf389
 const EXACT_INPUT_SINGLE_SELECTOR = "0x414bf389"
@@ -52,113 +47,123 @@ const EXACT_INPUT_SINGLE_SELECTOR = "0x414bf389"
 // WETH address on Base (native ETH wrapper)
 const WETH_BASE = "0x4200000000000000000000000000000000000006"
 
-function initWorkflow(runtime: Runtime<Config>) {
-  const cronTrigger = new CronCapability().trigger({
-    cronSchedule: runtime.config.cronSchedule,
-  })
+const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
+  runtime.log("Checking price condition for conditional swap...")
+  const httpClient = new cre.capabilities.HTTPClient()
+  const network = getNetwork({ chainFamily: "evm", chainSelectorName: runtime.config.chainSelectorName, isTestnet: true })
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
 
-  const httpClient = new HTTPClient()
-  const evmClient = new EVMClient()
+  // Step 1: Fetch current price
+  const priceUrl = `${runtime.config.priceApiUrl}?ids=${runtime.config.assetId}&vs_currencies=usd`
+  const priceResp = httpClient.sendRequest(runtime, {
+    url: priceUrl,
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).result()
 
-  handler(cronTrigger, (rt) => {
-    // Step 1: Fetch current price
-    const priceUrl = `${rt.config.priceApiUrl}?ids=${rt.config.assetId}&vs_currencies=usd`
-    const priceResp = httpClient.fetch(priceUrl, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-    }).result()
+  let priceData: Record<string, { usd: number }>
+  try {
+    priceData = JSON.parse(priceResp.body) as Record<string, { usd: number }>
+  } catch {
+    runtime.log("Failed to parse price response")
+    return JSON.stringify({ executed: false, reason: "price_parse_error" })
+  }
+  const currentPrice = priceData[runtime.config.assetId]?.usd
+  if (typeof currentPrice !== "number") {
+    runtime.log("Price unavailable for asset")
+    return JSON.stringify({ executed: false, reason: "price_unavailable" })
+  }
 
-    let priceData: Record<string, { usd: number }>
-    try {
-      priceData = JSON.parse(priceResp.body) as Record<string, { usd: number }>
-    } catch {
-      return { executed: false, reason: "price_parse_error" }
-    }
-    const currentPrice = priceData[rt.config.assetId]?.usd
-    if (typeof currentPrice !== "number") {
-      return { executed: false, reason: "price_unavailable" }
-    }
+  // Step 2: Check threshold condition
+  const shouldSwap =
+    runtime.config.direction === "below"
+      ? currentPrice < runtime.config.threshold
+      : currentPrice > runtime.config.threshold
 
-    // Step 2: Check threshold condition
-    const shouldSwap =
-      rt.config.direction === "below"
-        ? currentPrice < rt.config.threshold
-        : currentPrice > rt.config.threshold
+  if (!shouldSwap) {
+    runtime.log("Price condition not met, skipping swap")
+    return JSON.stringify({ executed: false, price: currentPrice, threshold: runtime.config.threshold })
+  }
 
-    if (!shouldSwap) {
-      return { executed: false, price: currentPrice, threshold: rt.config.threshold }
-    }
+  // Step 3: Compute slippage-protected amountOutMinimum
+  // Convert input amount to expected output using current market price
+  // priceBig uses 8-decimal fixed-point to avoid floating-point precision loss
+  const amountIn = BigInt(runtime.config.swapAmountWei)
+  const priceBig = BigInt(Math.round(currentPrice * 1e8))
+  const outputDecimals = BigInt(10) ** BigInt(runtime.config.tokenOutDecimals ?? 18)
+  const inputDecimals = BigInt(10) ** BigInt(runtime.config.tokenInDecimals)
+  const expectedOutput = (amountIn * priceBig * outputDecimals) / (inputDecimals * BigInt(1e8))
+  const slippageMultiplier = BigInt(10000 - runtime.config.slippageBps)
+  const amountOutMinimum = (expectedOutput * slippageMultiplier) / BigInt(10000)
 
-    // Step 3: Compute slippage-protected amountOutMinimum
-    // Convert input amount to expected output using current market price
-    // priceBig uses 8-decimal fixed-point to avoid floating-point precision loss
-    const amountIn = BigInt(rt.config.swapAmountWei)
-    const priceBig = BigInt(Math.round(currentPrice * 1e8))
-    const outputDecimals = BigInt(10) ** BigInt(rt.config.tokenOutDecimals ?? 18)
-    const inputDecimals = BigInt(10) ** BigInt(rt.config.tokenInDecimals)
-    const expectedOutput = (amountIn * priceBig * outputDecimals) / (inputDecimals * BigInt(1e8))
-    const slippageMultiplier = BigInt(10000 - rt.config.slippageBps)
-    const amountOutMinimum = (expectedOutput * slippageMultiplier) / BigInt(10000)
+  // Step 4: Encode exactInputSingle params
+  // ExactInputSingleParams: (address,address,uint24,address,uint256,uint256,uint160)
+  const encodedParams = encodeAbiParameters(
+    parseAbiParameters("address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96"),
+    [
+      runtime.config.tokenIn as `0x${string}`,
+      runtime.config.tokenOut as `0x${string}`,
+      runtime.config.poolFee,
+      runtime.config.recipientAddress as `0x${string}`,
+      amountIn,
+      amountOutMinimum,
+      BigInt(0), // no price limit
+    ],
+  )
 
-    // Step 4: Encode exactInputSingle params
-    // ExactInputSingleParams: (address,address,uint24,address,uint256,uint256,uint160)
-    const encodedParams = encodeAbiParameters(
-      parseAbiParameters("address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96"),
-      [
-        rt.config.tokenIn as `0x${string}`,
-        rt.config.tokenOut as `0x${string}`,
-        rt.config.poolFee,
-        rt.config.recipientAddress as `0x${string}`,
-        amountIn,
-        amountOutMinimum,
-        BigInt(0), // no price limit
-      ],
-    )
+  // Combine selector + encoded params
+  const calldata = EXACT_INPUT_SINGLE_SELECTOR + encodedParams.slice(2)
 
-    // Combine selector + encoded params
-    const calldata = EXACT_INPUT_SINGLE_SELECTOR + encodedParams.slice(2)
+  // Step 5: Execute swap via sendTransaction
+  const isNativeETH = runtime.config.useNativeETH
 
-    // Step 5: Execute swap via sendTransaction
-    const chainSelector = getNetwork(rt.config.chainName)
-    const isNativeETH = rt.config.useNativeETH
+  runtime.log("Executing swap transaction...")
+  const txResult = evmClient.sendTransaction(runtime, {
+    to: runtime.config.swapRouterAddress,
+    data: calldata,
+    ...(isNativeETH ? { value: runtime.config.swapAmountWei } : {}),
+  }).result()
 
-    const txResult = evmClient.sendTransaction({
-      contractAddress: rt.config.swapRouterAddress,
-      chainSelector,
-      data: calldata,
-      ...(isNativeETH ? { value: rt.config.swapAmountWei } : {}),
-    }).result()
+  // Only report onchain if swap succeeded
+  if (!txResult || !txResult.success) {
+    runtime.log("Swap transaction failed")
+    return JSON.stringify({ executed: false, reason: "swap_tx_failed", price: currentPrice })
+  }
 
-    // Only report onchain if swap succeeded
-    if (!txResult || !txResult.success) {
-      return { executed: false, reason: "swap_tx_failed", price: currentPrice }
-    }
+  // Step 6: Report execution onchain
+  const reportData = encodeAbiParameters(
+    parseAbiParameters("uint256 price, uint256 amountIn, uint256 timestamp"),
+    [
+      BigInt(Math.round(currentPrice * 1e8)),
+      amountIn,
+      BigInt(Math.floor(runtime.now().getTime() / 1000)),
+    ],
+  )
 
-    // Step 6: Report execution onchain
-    const reportData = encodeAbiParameters(
-      parseAbiParameters("uint256 price, uint256 amountIn, uint256 timestamp"),
-      [
-        BigInt(Math.round(currentPrice * 1e8)),
-        amountIn,
-        BigInt(Math.floor(Date.now() / 1000)),
-      ],
-    )
+  const report = runtime.report({
+    encodedPayload: reportData,
+    encoderName: "evm",
+    signingAlgo: "evm",
+    hashingAlgo: "keccak256",
+  }).result()
 
-    evmClient.writeReport({
-      contractAddress: rt.config.consumerContract,
-      chainSelector,
-      report: rt.report(reportData),
-    })
+  evmClient.writeReport(runtime, {
+    receiver: runtime.config.consumerContract,
+    report,
+    gasConfig: { gasLimit: 500000 },
+  }).result()
 
-    return { executed: true, price: currentPrice, amountIn: rt.config.swapAmountWei }
-  })
+  runtime.log("Swap executed and reported onchain")
+  return JSON.stringify({ executed: true, price: currentPrice, amountIn: runtime.config.swapAmountWei })
+}
 
-  consensusIdenticalAggregation({
-    fields: ["price"],
-    reportId: "dex_swap",
-  })
+const initWorkflow = (config: Config) => {
+  const cronCapability = new cre.capabilities.CronCapability()
+  return [cre.handler(cronCapability.trigger({ schedule: config.schedule }), onCronTrigger)]
 }
 
 export async function main() {
-  runner.run(initWorkflow)
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
 }
+main()

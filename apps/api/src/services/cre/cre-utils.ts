@@ -33,8 +33,10 @@ export function buildPackageJson(prefix: string): string {
       name: `${prefix}-${randomUUID().slice(0, 8)}`,
       private: true,
       dependencies: {
-        "@chainlink/cre-sdk": "^1.0.7",
+        "@chainlink/cre-sdk": "^1.1.2",
         zod: "^3.22.0",
+        viem: "^2.0.0",
+        "@noble/hashes": "^1.4.0",
       },
     },
     null,
@@ -125,6 +127,7 @@ export interface WorkspaceOptions {
   prefix: string                  // "ciel-sim" or "ciel-deploy"
   code: string
   configJson: Record<string, unknown>
+  secretsYaml?: string | null     // CRE secrets.yaml content (optional)
   semaphore?: Semaphore           // optional concurrency control
   bunInstallTimeout?: number      // default 30_000
 }
@@ -149,6 +152,11 @@ export async function withCREWorkspace<T>(
       JSON.stringify(options.configJson, null, 2),
       "utf-8",
     )
+
+    // Step 2b: Write secrets.yaml if provided
+    if (options.secretsYaml) {
+      await writeFile(join(tempDir, "secrets.yaml"), options.secretsYaml, "utf-8")
+    }
 
     // Step 3: Write package.json
     await writeFile(

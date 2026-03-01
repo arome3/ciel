@@ -1,5 +1,5 @@
 {
-  "chainName": "base-sepolia",
+  "chainSelectorName": "base-sepolia",
   "tokenContractAddress": "0x0000000000000000000000000000000000000000",
   "transferEventSignature": "Transfer(address,address,uint256)",
   "watchAddresses": "0x0000000000000000000000000000000000000000",

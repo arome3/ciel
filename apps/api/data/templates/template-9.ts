@@ -197,11 +197,10 @@ function computeMajority(responses: ModelResponse[]): ConsensusResult {
  * 4. Parses each response into structured format
  * 5. Computes local majority vote
  *
- * CRITICAL: No async/await — all .result() calls are synchronous.
+ * CRITICAL: No async/await -- all .result() calls are synchronous.
  * CRITICAL: Secrets accessed via nodeRuntime.getSecret() only.
  */
 const queryMultipleAIs = (nodeRuntime: NodeRuntime<Config>): ConsensusResult => {
-  const config = nodeRuntime.getConfig()
   const httpClient = new cre.capabilities.HTTPClient()
 
   const responses: ModelResponse[] = []
@@ -211,17 +210,17 @@ const queryMultipleAIs = (nodeRuntime: NodeRuntime<Config>): ConsensusResult => 
   try {
     const gptResponse = httpClient
       .sendRequest(nodeRuntime, {
-        url: config.openaiApiEndpoint,
+        url: nodeRuntime.config.openaiApiEndpoint,
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${nodeRuntime.getSecret("OPENAI_API_KEY")}`,
         },
         body: JSON.stringify({
-          model: config.openaiModel,
+          model: nodeRuntime.config.openaiModel,
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: config.prompt },
+            { role: "user", content: nodeRuntime.config.prompt },
           ],
           temperature: 0,
           max_tokens: 128,
@@ -273,13 +272,13 @@ const queryMultipleAIs = (nodeRuntime: NodeRuntime<Config>): ConsensusResult => 
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({
-          model: config.claudeModel,
+          model: nodeRuntime.config.claudeModel,
           max_tokens: 256,
           temperature: 0,
           messages: [
             {
               role: "user",
-              content: `${SYSTEM_PROMPT}\n\nQuestion: ${config.prompt}`,
+              content: `${SYSTEM_PROMPT}\n\nQuestion: ${nodeRuntime.config.prompt}`,
             },
           ],
         }),
@@ -299,7 +298,7 @@ const queryMultipleAIs = (nodeRuntime: NodeRuntime<Config>): ConsensusResult => 
   try {
     const geminiResponse = httpClient
       .sendRequest(nodeRuntime, {
-        url: `https://generativelanguage.googleapis.com/v1beta/models/${config.geminiModel}:generateContent`,
+        url: `https://generativelanguage.googleapis.com/v1beta/models/${nodeRuntime.config.geminiModel}:generateContent`,
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -310,7 +309,7 @@ const queryMultipleAIs = (nodeRuntime: NodeRuntime<Config>): ConsensusResult => 
             {
               parts: [
                 {
-                  text: `${SYSTEM_PROMPT}\n\nQuestion: ${config.prompt}`,
+                  text: `${SYSTEM_PROMPT}\n\nQuestion: ${nodeRuntime.config.prompt}`,
                 },
               ],
             },
@@ -341,7 +340,7 @@ const queryMultipleAIs = (nodeRuntime: NodeRuntime<Config>): ConsensusResult => 
   return result
 }
 
-// ─── Main Handler (Layer 2 — BFT Consensus) ──────────────────────────────
+// ─── Main Handler (Layer 2 -- BFT Consensus) ──────────────────────────────
 
 /**
  * Main HTTP trigger handler.
@@ -355,6 +354,7 @@ const queryMultipleAIs = (nodeRuntime: NodeRuntime<Config>): ConsensusResult => 
  *    - consensusReached: identicalAggregation (all nodes must agree on consensus status)
  */
 const onHttpTrigger = (runtime: Runtime<Config>): string => {
+  runtime.log("Starting multi-AI consensus verification...")
   const verifiedResult = runtime
     .runInNodeMode(
       queryMultipleAIs,
@@ -378,18 +378,26 @@ const onHttpTrigger = (runtime: Runtime<Config>): string => {
   }
 
   // Write result onchain via EVM client
-  const config = runtime.getConfig()
-  if (config.evms && config.evms.length > 0) {
+  if (runtime.config.evms && runtime.config.evms.length > 0) {
     const evmClient = new cre.capabilities.EVMClient()
 
-    for (const evm of config.evms) {
+    for (const evm of runtime.config.evms) {
+      const reportData = encodeAbiParameters(
+        parseAbiParameters("string,uint256,uint256"),
+        [verifiedResult.answer, Math.round(verifiedResult.agreementRatio * 1000), verifiedResult.modelsAgreed]
+      )
+
+      const report = runtime.report({
+        encodedPayload: reportData,
+        encoderName: "EVM",
+        signingAlgo: "SECP256K1",
+        hashingAlgo: "KECCAK256",
+      }).result()
+
       evmClient.writeReport(runtime, {
-        chainSelectorName: evm.chainSelectorName,
-        contractAddress: evm.contractAddress,
-        data: encodeAbiParameters(
-          parseAbiParameters("string,uint256,uint256"),
-          [verifiedResult.answer, Math.round(verifiedResult.agreementRatio * 1000), verifiedResult.modelsAgreed]
-        ),
+        receiver: evm.contractAddress,
+        report: report.report,
+        gasConfig: { gasLimit: 500000 },
       }).result()
     }
   }
@@ -405,7 +413,7 @@ const onHttpTrigger = (runtime: Runtime<Config>): string => {
 
 // ─── Workflow Initialization ─────────────────────────────────────────────
 
-function initWorkflow(config: Config) {
+const initWorkflow = (config: Config) => {
   return [cre.handler(http.trigger(), onHttpTrigger)]
 }
 

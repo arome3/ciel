@@ -85,6 +85,8 @@ describe("buildPackageJson", () => {
     const parsed = JSON.parse(buildPackageJson("test"))
     expect(parsed.dependencies).toHaveProperty("@chainlink/cre-sdk")
     expect(parsed.dependencies).toHaveProperty("zod")
+    expect(parsed.dependencies).toHaveProperty("viem")
+    expect(parsed.dependencies).toHaveProperty("@noble/hashes")
   })
 
   test("marked as private", () => {

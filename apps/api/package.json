@@ -10,6 +10,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",
     "@chainlink/cre-sdk": "^1.0.7",
+    "@huggingface/transformers": "^3.8.1",
     "@x402/core": "latest",
     "@x402/evm": "latest",
     "@x402/express": "latest",

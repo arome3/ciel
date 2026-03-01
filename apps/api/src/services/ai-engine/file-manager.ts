@@ -101,12 +101,13 @@ export function buildFallbackConfig(
   // Chain configuration
   const chain = intent.chains.length > 0 ? intent.chains[0] : "base-sepolia"
   config.chainName = chain
+  config.chainSelectorName = chain
 
   // Schedule (for cron-triggered templates)
   if (template.triggerType === "cron" && intent.schedule) {
-    config.cronSchedule = intent.schedule
+    config.schedule = intent.schedule
   } else if (template.triggerType === "cron") {
-    config.cronSchedule = "0 */5 * * * *" // Default: every 5 minutes
+    config.schedule = "0 */5 * * * *" // Default: every 5 minutes
   }
 
   // Consumer contract placeholder
@@ -216,6 +217,38 @@ export function buildFallbackConfig(
     config.evms = [{ chainSelectorName: "base-sepolia", contractAddress: config.consumerContract || "0x0000000000000000000000000000000000000000" }]
   }
 
+  if (intent.dataSources.includes("chainlink-feeds")) {
+    config.feedAddress = "0x0000000000000000000000000000000000000000"
+    config.chainSelectorName = config.chainSelectorName || "ethereum-testnet-sepolia"
+  }
+
+  if (intent.dataSources.includes("kv-store")) {
+    config.s3Bucket = "PLACEHOLDER_S3_BUCKET"
+    config.s3Region = "us-east-1"
+    config.s3Key = "workflow-state.json"
+  }
+
+  if (intent.dataSources.includes("ccip")) {
+    config.sourceChainSelector = "ethereum-testnet-sepolia"
+    config.destChainSelector = "base-testnet-sepolia"
+    config.ccipRouterAddress = "0x0000000000000000000000000000000000000000"
+    config.tokenAddress = "0x0000000000000000000000000000000000000000"
+    config.transferAmount = "1000000000000000000"
+  }
+
+  if (intent.dataSources.includes("payment-api")) {
+    config.paymentApiUrl = "https://api.example.com/payments"
+    config.maxPaymentAmount = "50000000000"
+  }
+
+  if (intent.dataSources.includes("settlement-api")) {
+    config.settlementApiUrl = "https://api.example.com/settlement"
+  }
+
+  if (intent.dataSources.includes("registry-api")) {
+    config.registryApiUrl = "https://api.example.com/registry"
+  }
+
   // Alert webhook placeholder
   if (intent.actions.includes("alert")) {
     config.alertWebhookUrl = "PLACEHOLDER_ALERT_WEBHOOK_URL"
@@ -227,9 +260,35 @@ export function buildFallbackConfig(
     intent.actions.includes("transfer") ||
     intent.actions.includes("mint") ||
     intent.actions.includes("payout") ||
-    intent.actions.includes("dexSwap")
+    intent.actions.includes("dexSwap") ||
+    intent.actions.includes("burn") ||
+    intent.actions.includes("escrowLock") ||
+    intent.actions.includes("escrowRelease") ||
+    intent.actions.includes("initiatePayment") ||
+    intent.actions.includes("distribute")
   ) {
     config.consumerContract = config.consumerContract || "0x0000000000000000000000000000000000000000"
+  }
+
+  if (intent.actions.includes("burn")) {
+    config.tokenAddress = config.tokenAddress || "0x0000000000000000000000000000000000000000"
+    config.minBurnAmount = "1000000000000000000"
+  }
+
+  if (intent.actions.includes("escrowLock") || intent.actions.includes("escrowRelease")) {
+    config.escrowContractAddress = "0x0000000000000000000000000000000000000000"
+    config.threshold = config.threshold || "100000000000000000000"
+  }
+
+  if (intent.actions.includes("initiatePayment")) {
+    config.paymentApiUrl = config.paymentApiUrl || "https://api.example.com/payments"
+    config.maxPaymentAmount = config.maxPaymentAmount || "50000000000"
+  }
+
+  if (intent.actions.includes("distribute")) {
+    config.registryApiUrl = config.registryApiUrl || "https://api.example.com/registry"
+    config.distributionTokenAddress = config.distributionTokenAddress || "0x0000000000000000000000000000000000000000"
+    config.totalDistributionAmount = config.totalDistributionAmount || "1000000000000000000000"
   }
 
   if (intent.actions.includes("dexSwap")) {

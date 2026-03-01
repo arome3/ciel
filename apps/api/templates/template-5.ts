@@ -3,12 +3,10 @@
 
 import { z } from "zod"
 import {
+  cre,
   Runner,
-  Runtime,
-  CronCapability,
-  HTTPClient,
-  EVMClient,
-  handler,
+  type Runtime,
+  type CronPayload,
   getNetwork,
   consensusMedianAggregation,
 } from "@chainlink/cre-sdk"
@@ -20,73 +18,80 @@ const configSchema = z.object({
   minCollateralRatio: z.number().default(1.0).describe("Minimum collateralization ratio"),
   alertWebhookUrl: z.string().describe("Alert webhook for low collateral"),
   consumerContract: z.string().describe("Proof of reserve consumer contract"),
-  chainName: z.string().default("base-sepolia").describe("Target chain"),
-  cronSchedule: z.string().default("0 0 * * * *").describe("Hourly check"),
+  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  schedule: z.string().default("0 0 * * * *").describe("Hourly check"),
 })
 
 type Config = z.infer<typeof configSchema>
 
-const runner = Runner.newRunner<Config>({ configSchema })
+const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
+  runtime.log("Checking proof of reserve...")
+  const httpClient = new cre.capabilities.HTTPClient()
+  const network = getNetwork({ chainFamily: "evm", chainSelectorName: runtime.config.chainSelectorName, isTestnet: true })
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
 
-function initWorkflow(runtime: Runtime<Config>) {
-  const cronTrigger = new CronCapability().trigger({
-    cronSchedule: runtime.config.cronSchedule,
-  })
+  // Fetch off-chain reserve holdings
+  const reserveResp = httpClient.sendRequest(runtime, {
+    url: runtime.config.reserveApiUrl,
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).result()
 
-  const httpClient = new HTTPClient()
-  const evmClient = new EVMClient()
+  const reserves = JSON.parse(reserveResp.body)
+  const totalReserves = reserves.totalValue
 
-  handler(cronTrigger, (rt) => {
-    // Fetch off-chain reserve holdings
-    const reserveResp = httpClient.fetch(rt.config.reserveApiUrl, {
-      method: "GET",
+  // Read on-chain token supply
+  const abi = parseAbi(["function totalSupply() view returns (uint256)"])
+  const supplyResult = evmClient.callContract({
+    contractAddress: runtime.config.tokenContract,
+    chainSelector: network.chainSelector.selector,
+    callData: encodeFunctionData({ abi, functionName: "totalSupply" }),
+  }).result()
+
+  const totalSupply = Number(decodeFunctionResult({ abi, functionName: "totalSupply", data: supplyResult }))
+  const ratio = totalReserves / (totalSupply / 1e18)
+
+  // Alert if ratio drops below threshold
+  if (ratio < runtime.config.minCollateralRatio) {
+    runtime.log("Low collateral ratio detected, sending alert")
+    httpClient.sendRequest(runtime, {
+      url: runtime.config.alertWebhookUrl,
+      method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ratio, threshold: runtime.config.minCollateralRatio, timestamp: runtime.now().getTime() }),
     }).result()
+  }
 
-    const reserves = JSON.parse(reserveResp.body)
-    const totalReserves = reserves.totalValue
+  // Write proof of reserve attestation onchain
+  const reportData = encodeAbiParameters(
+    parseAbiParameters("uint256 reserves, uint256 supply, uint256 ratio, uint256 timestamp"),
+    [BigInt(Math.round(totalReserves * 1e8)), BigInt(totalSupply), BigInt(Math.round(ratio * 1e8)), BigInt(Math.floor(runtime.now().getTime() / 1000))]
+  )
 
-    // Read on-chain token supply
-    const abi = parseAbi(["function totalSupply() view returns (uint256)"])
-    const supplyResult = evmClient.callContract({
-      contractAddress: rt.config.tokenContract,
-      chainSelector: getNetwork(rt.config.chainName),
-      callData: encodeFunctionData({ abi, functionName: "totalSupply" }),
-    }).result()
+  const report = runtime.report({
+    encodedPayload: reportData,
+    encoderName: "evm",
+    signingAlgo: "evm",
+    hashingAlgo: "keccak256",
+  }).result()
 
-    const totalSupply = Number(decodeFunctionResult({ abi, functionName: "totalSupply", data: supplyResult }))
-    const ratio = totalReserves / (totalSupply / 1e18)
+  evmClient.writeReport(runtime, {
+    receiver: runtime.config.consumerContract,
+    report,
+    gasConfig: { gasLimit: 500000 },
+  }).result()
 
-    // Alert if ratio drops below threshold
-    if (ratio < rt.config.minCollateralRatio) {
-      httpClient.fetch(rt.config.alertWebhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ratio, threshold: rt.config.minCollateralRatio, timestamp: Date.now() }),
-      }).result()
-    }
+  runtime.log("Proof of reserve attestation written")
+  return JSON.stringify({ ratio: Math.round(ratio * 1e8), reserves: Math.round(totalReserves * 1e8) })
+}
 
-    // Write proof of reserve attestation onchain
-    const reportData = encodeAbiParameters(
-      parseAbiParameters("uint256 reserves, uint256 supply, uint256 ratio, uint256 timestamp"),
-      [BigInt(Math.round(totalReserves * 1e8)), BigInt(totalSupply), BigInt(Math.round(ratio * 1e8)), BigInt(Math.floor(Date.now() / 1000))]
-    )
-
-    evmClient.writeReport({
-      contractAddress: rt.config.consumerContract,
-      chainSelector: getNetwork(rt.config.chainName),
-      report: rt.report(reportData),
-    })
-
-    return { ratio: Math.round(ratio * 1e8), reserves: Math.round(totalReserves * 1e8) }
-  })
-
-  consensusMedianAggregation({
-    fields: ["ratio", "reserves"],
-    reportId: "proof_of_reserve",
-  })
+const initWorkflow = (config: Config) => {
+  const cronCapability = new cre.capabilities.CronCapability()
+  return [cre.handler(cronCapability.trigger({ schedule: config.schedule }), onCronTrigger)]
 }
 
 export async function main() {
-  runner.run(initWorkflow)
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
 }
+main()

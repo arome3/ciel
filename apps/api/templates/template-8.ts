@@ -3,12 +3,10 @@
 
 import { z } from "zod"
 import {
+  cre,
   Runner,
-  Runtime,
-  CronCapability,
-  HTTPClient,
-  EVMClient,
-  handler,
+  type Runtime,
+  type CronPayload,
   getNetwork,
   consensusIdenticalAggregation,
 } from "@chainlink/cre-sdk"
@@ -21,71 +19,79 @@ const configSchema = z.object({
   operationType: z.string().describe("Type of DeFi operation (swap, lend, stake)"),
   operationData: z.string().describe("JSON-encoded operation parameters"),
   consumerContract: z.string().describe("DeFi operations contract"),
-  chainName: z.string().default("base-sepolia").describe("Target chain"),
-  cronSchedule: z.string().default("0 */1 * * * *").describe("Check frequency"),
+  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  schedule: z.string().default("0 */1 * * * *").describe("Check frequency"),
 })
 
 type Config = z.infer<typeof configSchema>
 
-const runner = Runner.newRunner<Config>({ configSchema })
+const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
+  runtime.log("Running compliance gate checks...")
+  const httpClient = new cre.capabilities.HTTPClient()
+  const network = getNetwork({ chainFamily: "evm", chainSelectorName: runtime.config.chainSelectorName, isTestnet: true })
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
 
-function initWorkflow(runtime: Runtime<Config>) {
-  const cronTrigger = new CronCapability().trigger({
-    cronSchedule: runtime.config.cronSchedule,
-  })
+  // Step 1: KYC/AML compliance check
+  const kycResp = httpClient.sendRequest(runtime, {
+    url: `${runtime.config.complianceApiUrl}?address=${runtime.config.operatorAddress}`,
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).result()
 
-  const httpClient = new HTTPClient()
-  const evmClient = new EVMClient()
+  const kyc = JSON.parse(kycResp.body)
+  if (!kyc.verified) {
+    runtime.log("KYC check failed")
+    return JSON.stringify({ status: "rejected", reason: "kyc_failed" })
+  }
 
-  handler(cronTrigger, (rt) => {
-    // Step 1: KYC/AML compliance check
-    const kycResp = httpClient.fetch(
-      `${rt.config.complianceApiUrl}?address=${rt.config.operatorAddress}`,
-      { method: "GET", headers: { "Content-Type": "application/json" } }
-    ).result()
+  // Step 2: Sanctions screening
+  const sanctionsResp = httpClient.sendRequest(runtime, {
+    url: `${runtime.config.sanctionsApiUrl}?address=${runtime.config.operatorAddress}`,
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).result()
 
-    const kyc = JSON.parse(kycResp.body)
-    if (!kyc.verified) {
-      return { status: "rejected", reason: "kyc_failed" }
-    }
+  const sanctions = JSON.parse(sanctionsResp.body)
+  if (sanctions.flagged) {
+    runtime.log("Sanctions screening flagged")
+    return JSON.stringify({ status: "rejected", reason: "sanctions_flagged" })
+  }
 
-    // Step 2: Sanctions screening
-    const sanctionsResp = httpClient.fetch(
-      `${rt.config.sanctionsApiUrl}?address=${rt.config.operatorAddress}`,
-      { method: "GET", headers: { "Content-Type": "application/json" } }
-    ).result()
+  // Step 3: Execute approved DeFi operation
+  const reportData = encodeAbiParameters(
+    parseAbiParameters("address operator, string operationType, bool approved, uint256 timestamp"),
+    [
+      runtime.config.operatorAddress as `0x${string}`,
+      runtime.config.operationType,
+      true,
+      BigInt(Math.floor(runtime.now().getTime() / 1000)),
+    ]
+  )
 
-    const sanctions = JSON.parse(sanctionsResp.body)
-    if (sanctions.flagged) {
-      return { status: "rejected", reason: "sanctions_flagged" }
-    }
+  const report = runtime.report({
+    encodedPayload: reportData,
+    encoderName: "evm",
+    signingAlgo: "evm",
+    hashingAlgo: "keccak256",
+  }).result()
 
-    // Step 3: Execute approved DeFi operation
-    const reportData = encodeAbiParameters(
-      parseAbiParameters("address operator, string operationType, bool approved, uint256 timestamp"),
-      [
-        rt.config.operatorAddress as `0x${string}`,
-        rt.config.operationType,
-        true,
-        BigInt(Math.floor(Date.now() / 1000)),
-      ]
-    )
+  evmClient.writeReport(runtime, {
+    receiver: runtime.config.consumerContract,
+    report,
+    gasConfig: { gasLimit: 500000 },
+  }).result()
 
-    evmClient.writeReport({
-      contractAddress: rt.config.consumerContract,
-      chainSelector: getNetwork(rt.config.chainName),
-      report: rt.report(reportData),
-    })
+  runtime.log("DeFi operation approved and executed")
+  return JSON.stringify({ status: "approved", operationType: runtime.config.operationType })
+}
 
-    return { status: "approved", operationType: rt.config.operationType }
-  })
-
-  consensusIdenticalAggregation({
-    fields: ["status"],
-    reportId: "compliance_gate",
-  })
+const initWorkflow = (config: Config) => {
+  const cronCapability = new cre.capabilities.CronCapability()
+  return [cre.handler(cronCapability.trigger({ schedule: config.schedule }), onCronTrigger)]
 }
 
 export async function main() {
-  runner.run(initWorkflow)
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
 }
+main()

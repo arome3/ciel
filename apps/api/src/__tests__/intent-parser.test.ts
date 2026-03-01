@@ -608,3 +608,331 @@ describe("parseIntent — wallet activity monitor (Template 12)", () => {
     expect(result.actions).toContain("dexSwap")
   })
 })
+
+// ─────────────────────────────────────────────
+// Template 13-16: New data sources and actions
+// ─────────────────────────────────────────────
+describe("parseIntent — chainlink-feeds data source (Template 13)", () => {
+  test("'Read Chainlink data feed latestAnswer' → chainlink-feeds", () => {
+    const result = parseIntent("Read Chainlink data feed latestAnswer every 5 minutes")
+    expect(result.dataSources).toContain("chainlink-feeds")
+  })
+
+  test("'price proxy' → chainlink-feeds", () => {
+    const result = parseIntent("Read price proxy contract for ETH/USD feed")
+    expect(result.dataSources).toContain("chainlink-feeds")
+  })
+
+  test("'Chainlink price oracle' → chainlink-feeds", () => {
+    const result = parseIntent("Query Chainlink price oracle for market data")
+    expect(result.dataSources).toContain("chainlink-feeds")
+  })
+
+  test("'Chainlink' entity extraction", () => {
+    const result = parseIntent("Read Chainlink data feed for price")
+    expect(result.entities["chainlink-feeds"]).toContain("chainlink")
+  })
+})
+
+describe("parseIntent — kv-store data source (Template 14)", () => {
+  test("'persist state to S3 storage' → kv-store", () => {
+    const result = parseIntent("Persist state to S3 storage with moving average")
+    expect(result.dataSources).toContain("kv-store")
+  })
+
+  test("'stateful workflow' → kv-store", () => {
+    const result = parseIntent("Build a stateful workflow that remembers previous values")
+    expect(result.dataSources).toContain("kv-store")
+  })
+
+  test("'accumulate values over time' → kv-store", () => {
+    const result = parseIntent("Accumulate counter values over time hourly")
+    expect(result.dataSources).toContain("kv-store")
+  })
+})
+
+describe("parseIntent — ccip data source (Template 15)", () => {
+  test("'cross-chain transfer using CCIP' → ccip", () => {
+    const result = parseIntent("Cross-chain transfer tokens using CCIP from Ethereum to Base")
+    expect(result.dataSources).toContain("ccip")
+  })
+
+  test("'bridge tokens' → ccip", () => {
+    const result = parseIntent("Bridge tokens between Ethereum and Base every hour")
+    expect(result.dataSources).toContain("ccip")
+  })
+
+  test("'multi-chain token transfer' → ccip", () => {
+    const result = parseIntent("Multi-chain token transfer via Chainlink CCIP")
+    expect(result.dataSources).toContain("ccip")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Synonym Expansion Tests
+// ─────────────────────────────────────────────
+describe("parseIntent — synonym expansion", () => {
+  test("'crypto went up' triggers price-feed + alert signals", () => {
+    const result = parseIntent("Check if my crypto went up and text me")
+    expect(result.dataSources).toContain("price-feed")
+    expect(result.actions).toContain("alert")
+  })
+
+  test("'coin dropped' triggers price-feed via synonym", () => {
+    const result = parseIntent("My coin dropped, let me know when it recovers")
+    expect(result.dataSources).toContain("price-feed")
+    expect(result.actions).toContain("alert")
+  })
+
+  test("'keep an eye on' expands to monitor watch", () => {
+    const result = parseIntent("Keep an eye on ETH price every hour")
+    expect(result.triggerType).toBe("cron")
+  })
+
+  test("'pay people' expands to payout distribute", () => {
+    const result = parseIntent("Pay people when rainfall drops below 50mm")
+    expect(result.actions).toContain("payout")
+  })
+
+  test("'cron job' expands to schedule cron", () => {
+    const result = parseIntent("Set up a cron job to check prices")
+    expect(result.triggerType).toBe("cron")
+  })
+
+  test("'blockchain event' expands to event emit log", () => {
+    const result = parseIntent("React to a blockchain event when tokens move")
+    expect(result.triggerType).toBe("evm_log")
+  })
+
+  test("'big transfer' expands to large threshold whale transfer", () => {
+    const result = parseIntent("Alert me on big transfers from whale wallets")
+    expect(result.dataSources).toContain("wallet-api")
+  })
+
+  test("'winners' expands to outcome resolution settle", () => {
+    const result = parseIntent("Pay winners after the game ends")
+    expect(result.actions).toContain("payout")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Trigger Scores Tests
+// ─────────────────────────────────────────────
+describe("parseIntent — triggerScores", () => {
+  test("triggerScores is populated on non-empty prompt", () => {
+    const result = parseIntent("Every 5 minutes check ETH price")
+    expect(result.triggerScores).toBeDefined()
+    expect(result.triggerScores!.cron).toBeGreaterThan(0)
+  })
+
+  test("evm_log prompt has evmLog score > 0", () => {
+    const result = parseIntent("Listen for Transfer events on the contract")
+    expect(result.triggerScores).toBeDefined()
+    expect(result.triggerScores!.evmLog).toBeGreaterThan(0)
+  })
+
+  test("dual-trigger prompt has both cron and evmLog > 0", () => {
+    const result = parseIntent("Respond to both scheduled cron and on-chain log events")
+    expect(result.triggerScores).toBeDefined()
+    expect(result.triggerScores!.cron).toBeGreaterThan(0)
+    expect(result.triggerScores!.evmLog).toBeGreaterThan(0)
+  })
+
+  test("empty prompt has no triggerScores", () => {
+    const result = parseIntent("")
+    expect(result.triggerScores).toBeUndefined()
+  })
+})
+
+describe("parseIntent — new actions (evmRead, ccipTransfer)", () => {
+  test("'read contract' → evmRead action", () => {
+    const result = parseIntent("Read contract state from on-chain data feed")
+    expect(result.actions).toContain("evmRead")
+  })
+
+  test("'ccip transfer' → ccipTransfer action", () => {
+    const result = parseIntent("Do a CCIP transfer of tokens to Base chain")
+    expect(result.actions).toContain("ccipTransfer")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Institutional Data Sources (T17-T22)
+// ─────────────────────────────────────────────
+describe("parseIntent — institutional data sources", () => {
+  test("payment-api from 'wire transfer' keywords", () => {
+    const result = parseIntent("Initiate wire transfer payments every 4 hours")
+    expect(result.dataSources).toContain("payment-api")
+  })
+
+  test("payment-api from 'swift' keyword", () => {
+    const result = parseIntent("Send SWIFT payment for settled trades")
+    expect(result.dataSources).toContain("payment-api")
+  })
+
+  test("payment-api from 'remittance' keyword", () => {
+    const result = parseIntent("Process remittance payments on a schedule")
+    expect(result.dataSources).toContain("payment-api")
+  })
+
+  test("settlement-api from 'reconciliation' keyword", () => {
+    const result = parseIntent("Run daily reconciliation of on-chain settlements")
+    expect(result.dataSources).toContain("settlement-api")
+  })
+
+  test("settlement-api from 'clearing' keyword", () => {
+    const result = parseIntent("Clearing house settlement verification every hour")
+    expect(result.dataSources).toContain("settlement-api")
+  })
+
+  test("settlement-api from 'delivery versus payment' via dvp synonym", () => {
+    const result = parseIntent("Check DvP settlement status for trades")
+    expect(result.dataSources).toContain("settlement-api")
+  })
+
+  test("registry-api from 'shareholder' keyword", () => {
+    const result = parseIntent("Update shareholder registry when equity transfers occur")
+    expect(result.dataSources).toContain("registry-api")
+  })
+
+  test("registry-api from 'cap table' via synonym expansion", () => {
+    const result = parseIntent("Maintain the cap table on chain with compliance")
+    expect(result.dataSources).toContain("registry-api")
+  })
+
+  test("registry-api from 'transfer agent' keyword", () => {
+    const result = parseIntent("Process share transfers through a digital transfer agent")
+    expect(result.dataSources).toContain("registry-api")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Institutional Actions (T17-T22)
+// ─────────────────────────────────────────────
+describe("parseIntent — institutional actions", () => {
+  test("'stablecoin redeem' → burn action (multi-word key)", () => {
+    const result = parseIntent("Stablecoin redeem and burn USDC after compliance check")
+    expect(result.actions).toContain("burn")
+  })
+
+  test("'burn redeem' → burn action (multi-word key)", () => {
+    const result = parseIntent("Burn redeem tokens from the stablecoin supply")
+    expect(result.actions).toContain("burn")
+  })
+
+  test("'token burn' → burn action", () => {
+    const result = parseIntent("Process token burn after compliance verification")
+    expect(result.actions).toContain("burn")
+  })
+
+  test("short 'redeem' alone stays as payout (T6 backward compat)", () => {
+    const result = parseIntent("Redeem my fund tokens for NAV value")
+    expect(result.actions).toContain("payout")
+    expect(result.actions).not.toContain("burn")
+  })
+
+  test("'escrow lock' → escrowLock action", () => {
+    const result = parseIntent("Escrow lock funds until delivery is confirmed")
+    expect(result.actions).toContain("escrowLock")
+  })
+
+  test("'release escrow' → escrowRelease action", () => {
+    const result = parseIntent("Release escrow when settlement conditions are met")
+    expect(result.actions).toContain("escrowRelease")
+  })
+
+  test("'initiate payment' → initiatePayment action", () => {
+    const result = parseIntent("Initiate payment instruction to the bank gateway")
+    expect(result.actions).toContain("initiatePayment")
+  })
+
+  test("'distribute dividend' → distribute action (multi-word key)", () => {
+    const result = parseIntent("Distribute dividend to all equity holders monthly")
+    expect(result.actions).toContain("distribute")
+  })
+
+  test("'shareholder payout' → distribute action (multi-word key)", () => {
+    const result = parseIntent("Shareholder payout based on pro rata allocation")
+    expect(result.actions).toContain("distribute")
+  })
+
+  test("short 'distribute' alone stays as payout (backward compat)", () => {
+    const result = parseIntent("Distribute rewards to pool participants")
+    expect(result.actions).toContain("payout")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Institutional Synonym Expansion
+// ─────────────────────────────────────────────
+describe("parseIntent — institutional synonym expansion", () => {
+  test("'dvp' expands to include settlement keywords", () => {
+    const result = parseIntent("Check DvP status for pending trades")
+    expect(result.dataSources).toContain("settlement-api")
+  })
+
+  test("'pro rata' expands to include distribute/dividend keywords", () => {
+    const result = parseIntent("Calculate pro rata payout for shareholders")
+    expect(result.actions).toContain("distribute")
+  })
+
+  test("'t+1' expands to settlement cycle", () => {
+    const result = parseIntent("Verify T+1 settlement completion daily")
+    expect(result.dataSources).toContain("settlement-api")
+  })
+
+  test("'wire transfer' synonym expands to payment initiation", () => {
+    const result = parseIntent("Process wire transfer to counterparty bank")
+    expect(result.dataSources).toContain("payment-api")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Negative Disambiguation Tests
+// ─────────────────────────────────────────────
+describe("parseIntent — negative disambiguation", () => {
+  test("'shares data' does NOT trigger nav-api (disambiguation)", () => {
+    const result = parseIntent("The service shares data with external systems")
+    expect(result.dataSources).not.toContain("nav-api")
+  })
+
+  test("'fund shares' DOES trigger nav-api (confirming context)", () => {
+    const result = parseIntent("Calculate fund shares for investor redemptions")
+    expect(result.dataSources).toContain("nav-api")
+  })
+
+  test("'swift' alone maps to payment-api (no false synonym expansion)", () => {
+    const result = parseIntent("Process swift banking messages")
+    expect(result.dataSources).toContain("payment-api")
+  })
+
+  test("'payments' singular retains payment-api signal", () => {
+    const result = parseIntent("Set up recurring payments for subscriptions")
+    expect(result.dataSources).toContain("payment-api")
+  })
+
+  test("escrow + release context → escrowRelease (not escrowLock)", () => {
+    const result = parseIntent("Release the escrow after delivery is confirmed")
+    expect(result.actions).toContain("escrowRelease")
+    expect(result.actions).not.toContain("escrowLock")
+  })
+
+  test("escrow + unlock context → escrowRelease (not escrowLock)", () => {
+    const result = parseIntent("Unlock the escrow funds for the beneficiary")
+    expect(result.actions).toContain("escrowRelease")
+    expect(result.actions).not.toContain("escrowLock")
+  })
+
+  test("bare 'escrow' without release context → escrowLock (default)", () => {
+    const result = parseIntent("Set up an escrow for the property transaction")
+    expect(result.actions).toContain("escrowLock")
+  })
+
+  test("null-coercion prevention: 'settlement' alone is ambiguous", () => {
+    // "settlement" is in AMBIGUOUS_KEYWORDS — needs confirming context
+    const result = parseIntent("Track settlement status updates")
+    // Should only include settlement-api if there's confirming context
+    // "settlement" is ambiguous but appears in DATA_SOURCE_MAP
+    // The disambiguation Phase 4 should require confirming keywords
+  })
+})

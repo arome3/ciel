@@ -1,0 +1,9 @@
+{
+  "schedule": "0 0 9 1 * *",
+  "chainSelectorName": "base-sepolia",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "registryApiUrl": "https://api.example.com/registry",
+  "distributionTokenAddress": "0x0000000000000000000000000000000000000000",
+  "totalDistributionAmount": "1000000000000000000000",
+  "minSharesForDividend": "100"
+}

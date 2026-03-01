@@ -1,0 +1,12 @@
+{
+  "schedule": "0 0 * * * *",
+  "sourceChainSelector": "ethereum-testnet-sepolia",
+  "destChainSelector": "base-testnet-sepolia",
+  "ccipRouterAddress": "0x0000000000000000000000000000000000000000",
+  "tokenAddress": "0x0000000000000000000000000000000000000000",
+  "transferAmount": "1000000000000000000",
+  "receiverAddress": "0x0000000000000000000000000000000000000000",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "feeTokenAddress": "0x0000000000000000000000000000000000000000",
+  "gasLimit": 200000
+}

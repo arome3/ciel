@@ -1,18 +1,16 @@
 // Template 6: Tokenized Fund Lifecycle
 // Trigger: CronCapability | Capabilities: HTTPClient NAV + compliance, mint/burn
 
-import { z } from "zod"
 import {
+  cre,
   Runner,
-  Runtime,
-  CronCapability,
-  HTTPClient,
-  EVMClient,
-  handler,
   getNetwork,
-  consensusMedianAggregation,
+  encodeAbiParameters,
+  parseAbiParameters,
+  type Runtime,
+  type CronPayload,
 } from "@chainlink/cre-sdk"
-import { encodeAbiParameters, parseAbiParameters } from "viem"
+import { z } from "zod"
 
 const configSchema = z.object({
   navApiUrl: z.string().describe("NAV calculation API endpoint"),
@@ -21,74 +19,102 @@ const configSchema = z.object({
   operation: z.enum(["subscribe", "redeem"]).describe("Fund operation type"),
   amount: z.number().describe("Amount in fund units"),
   consumerContract: z.string().describe("Fund token contract"),
-  chainName: z.string().default("base-sepolia").describe("Target chain"),
-  cronSchedule: z.string().default("0 0 0 * * *").describe("Daily NAV update"),
+  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  schedule: z.string().default("0 0 0 * * *").describe("Daily NAV update"),
 })
 
 type Config = z.infer<typeof configSchema>
 
-const runner = Runner.newRunner<Config>({ configSchema })
+// ─── Handler ──────────────────────────────────────────────────────────────
 
-function initWorkflow(runtime: Runtime<Config>) {
-  const cronTrigger = new CronCapability().trigger({
-    cronSchedule: runtime.config.cronSchedule,
-  })
+const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
+  const httpClient = new cre.capabilities.HTTPClient()
 
-  const httpClient = new HTTPClient()
-  const evmClient = new EVMClient()
+  runtime.log("Processing fund lifecycle operation: " + runtime.config.operation)
 
-  handler(cronTrigger, (rt) => {
-    // Fetch current NAV
-    const navResp = httpClient.fetch(rt.config.navApiUrl, {
+  // Fetch current NAV
+  const navResp = httpClient
+    .sendRequest(runtime, {
+      url: runtime.config.navApiUrl,
       method: "GET",
       headers: { "Content-Type": "application/json" },
-    }).result()
-
-    const nav = JSON.parse(navResp.body)
-    const unitPrice = nav.navPerShare
-
-    // Verify investor compliance
-    const compResp = httpClient.fetch(
-      `${rt.config.complianceApiUrl}?address=${rt.config.investorAddress}`,
-      { method: "GET", headers: { "Content-Type": "application/json" } }
-    ).result()
-
-    const compliance = JSON.parse(compResp.body)
-    if (!compliance.approved) {
-      return { status: "rejected", reason: "compliance_failed", nav: Math.round(unitPrice * 1e8) }
-    }
-
-    // Calculate shares and process operation
-    const shares = rt.config.operation === "subscribe"
-      ? Math.floor((rt.config.amount / unitPrice) * 1e18)
-      : rt.config.amount
-
-    const reportData = encodeAbiParameters(
-      parseAbiParameters("address investor, uint256 shares, bool isMint, uint256 nav, uint256 timestamp"),
-      [
-        rt.config.investorAddress as `0x${string}`,
-        BigInt(shares),
-        rt.config.operation === "subscribe",
-        BigInt(Math.round(unitPrice * 1e8)),
-        BigInt(Math.floor(Date.now() / 1000)),
-      ]
-    )
-
-    evmClient.writeReport({
-      contractAddress: rt.config.consumerContract,
-      chainSelector: getNetwork(rt.config.chainName),
-      report: rt.report(reportData),
     })
+    .result()
 
-    return { status: "processed", shares, nav: Math.round(unitPrice * 1e8) }
-  })
+  const nav = JSON.parse(navResp.body)
+  const unitPrice = nav.navPerShare
 
-  consensusMedianAggregation({
-    fields: ["nav"],
-    reportId: "fund_lifecycle",
+  runtime.log("Current NAV per share: " + unitPrice)
+
+  // Verify investor compliance
+  const compResp = httpClient
+    .sendRequest(runtime, {
+      url: `${runtime.config.complianceApiUrl}?address=${runtime.config.investorAddress}`,
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    })
+    .result()
+
+  const compliance = JSON.parse(compResp.body)
+  if (!compliance.approved) {
+    runtime.log("Compliance check failed for investor " + runtime.config.investorAddress)
+    return JSON.stringify({ status: "rejected", reason: "compliance_failed", nav: Math.round(unitPrice * 1e8) })
+  }
+
+  // Calculate shares and process operation
+  const shares = runtime.config.operation === "subscribe"
+    ? Math.floor((runtime.config.amount / unitPrice) * 1e18)
+    : runtime.config.amount
+
+  const network = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: runtime.config.chainSelectorName,
+    isTestnet: true,
   })
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
+
+  const reportData = encodeAbiParameters(
+    parseAbiParameters("address investor, uint256 shares, bool isMint, uint256 nav, uint256 timestamp"),
+    [
+      runtime.config.investorAddress as `0x${string}`,
+      BigInt(shares),
+      runtime.config.operation === "subscribe",
+      BigInt(Math.round(unitPrice * 1e8)),
+      BigInt(Math.floor(runtime.now().getTime() / 1000)),
+    ]
+  )
+
+  runtime.log("Writing fund operation report onchain")
+
+  const report = runtime.report({
+    encodedPayload: reportData,
+    encoderName: "EVM",
+    signingAlgo: "SECP256K1",
+    hashingAlgo: "KECCAK256",
+  }).result()
+
+  evmClient.writeReport(runtime, {
+    receiver: runtime.config.consumerContract,
+    report: report.report,
+    gasConfig: { gasLimit: 500000 },
+  }).result()
+
+  return JSON.stringify({ status: "processed", shares, nav: Math.round(unitPrice * 1e8) })
 }
 
-export function main() {
-  runner.run(initWorkflow)
+// ─── Workflow Initialization ──────────────────────────────────────────────
+
+const initWorkflow = (config: Config) => {
+  const cronTrigger = new cre.capabilities.CronCapability().trigger({
+    schedule: config.schedule,
+  })
+
+  return [cre.handler(cronTrigger, onCronTrigger)]
 }
+
+export async function main() {
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
+}
+
+main()

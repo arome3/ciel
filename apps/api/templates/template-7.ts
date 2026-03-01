@@ -3,12 +3,10 @@
 
 import { z } from "zod"
 import {
+  cre,
   Runner,
-  Runtime,
-  CronCapability,
-  HTTPClient,
-  EVMClient,
-  handler,
+  type Runtime,
+  type CronPayload,
   getNetwork,
   consensusMedianAggregation,
 } from "@chainlink/cre-sdk"
@@ -23,69 +21,75 @@ const configSchema = z.object({
   payoutAmount: z.number().describe("Payout amount in wei"),
   beneficiaryAddress: z.string().describe("Beneficiary wallet address"),
   consumerContract: z.string().describe("Insurance contract address"),
-  chainName: z.string().default("base-sepolia").describe("Target chain"),
-  cronSchedule: z.string().default("0 0 */6 * * *").describe("Check every 6 hours"),
+  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  schedule: z.string().default("0 0 */6 * * *").describe("Check every 6 hours"),
 })
 
 type Config = z.infer<typeof configSchema>
 
-const runner = Runner.newRunner<Config>({ configSchema })
+const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
+  runtime.log("Checking parametric insurance conditions...")
+  const httpClient = new cre.capabilities.HTTPClient()
+  const network = getNetwork({ chainFamily: "evm", chainSelectorName: runtime.config.chainSelectorName, isTestnet: true })
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
 
-function initWorkflow(runtime: Runtime<Config>) {
-  const cronTrigger = new CronCapability().trigger({
-    cronSchedule: runtime.config.cronSchedule,
+  // Fetch weather data
+  const weatherResp = httpClient.sendRequest(runtime, {
+    url: `${runtime.config.weatherApiUrl}?location=${runtime.config.location}&param=${runtime.config.parameterName}`,
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).result()
+
+  const weather = JSON.parse(weatherResp.body)
+  const currentValue = weather[runtime.config.parameterName]
+
+  // Check parametric trigger condition
+  const triggered =
+    runtime.config.triggerDirection === "below"
+      ? currentValue < runtime.config.triggerThreshold
+      : currentValue > runtime.config.triggerThreshold
+
+  if (triggered) {
+    runtime.log("Insurance trigger condition met, executing payout")
+    // Execute automatic payout
+    const reportData = encodeAbiParameters(
+      parseAbiParameters("address beneficiary, uint256 amount, uint256 paramValue, uint256 timestamp"),
+      [
+        runtime.config.beneficiaryAddress as `0x${string}`,
+        BigInt(runtime.config.payoutAmount),
+        BigInt(Math.round(currentValue * 1e8)),
+        BigInt(Math.floor(runtime.now().getTime() / 1000)),
+      ]
+    )
+
+    const report = runtime.report({
+      encodedPayload: reportData,
+      encoderName: "evm",
+      signingAlgo: "evm",
+      hashingAlgo: "keccak256",
+    }).result()
+
+    evmClient.writeReport(runtime, {
+      receiver: runtime.config.consumerContract,
+      report,
+      gasConfig: { gasLimit: 500000 },
+    }).result()
+  }
+
+  runtime.log("Insurance check complete")
+  return JSON.stringify({
+    parameterValue: Math.round(currentValue * 1e8),
+    triggered: triggered ? 1 : 0,
   })
+}
 
-  const httpClient = new HTTPClient()
-  const evmClient = new EVMClient()
-
-  handler(cronTrigger, (rt) => {
-    // Fetch weather data
-    const weatherResp = httpClient.fetch(
-      `${rt.config.weatherApiUrl}?location=${rt.config.location}&param=${rt.config.parameterName}`,
-      { method: "GET", headers: { "Content-Type": "application/json" } }
-    ).result()
-
-    const weather = JSON.parse(weatherResp.body)
-    const currentValue = weather[rt.config.parameterName]
-
-    // Check parametric trigger condition
-    const triggered =
-      rt.config.triggerDirection === "below"
-        ? currentValue < rt.config.triggerThreshold
-        : currentValue > rt.config.triggerThreshold
-
-    if (triggered) {
-      // Execute automatic payout
-      const reportData = encodeAbiParameters(
-        parseAbiParameters("address beneficiary, uint256 amount, uint256 paramValue, uint256 timestamp"),
-        [
-          rt.config.beneficiaryAddress as `0x${string}`,
-          BigInt(rt.config.payoutAmount),
-          BigInt(Math.round(currentValue * 1e8)),
-          BigInt(Math.floor(Date.now() / 1000)),
-        ]
-      )
-
-      evmClient.writeReport({
-        contractAddress: rt.config.consumerContract,
-        chainSelector: getNetwork(rt.config.chainName),
-        report: rt.report(reportData),
-      })
-    }
-
-    return {
-      parameterValue: Math.round(currentValue * 1e8),
-      triggered: triggered ? 1 : 0,
-    }
-  })
-
-  consensusMedianAggregation({
-    fields: ["parameterValue"],
-    reportId: "parametric_insurance",
-  })
+const initWorkflow = (config: Config) => {
+  const cronCapability = new cre.capabilities.CronCapability()
+  return [cre.handler(cronCapability.trigger({ schedule: config.schedule }), onCronTrigger)]
 }
 
 export async function main() {
-  runner.run(initWorkflow)
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
 }
+main()

@@ -4,6 +4,7 @@ import {
   levenshtein,
   fuzzyMatch,
   expandAbbreviations,
+  expandSynonyms,
   detectNegation,
   buildStemmedMap,
   buildStemmedSet,
@@ -215,6 +216,36 @@ const DATA_SOURCE_MAP: Record<string, string> = {
   "limit order": "exchange-api",
   "cex": "exchange-api",
 
+  // Chainlink Data Feeds (Template 13)
+  "chainlink price": "chainlink-feeds",
+  "chainlink data feed": "chainlink-feeds",
+  "latestanswer": "chainlink-feeds",
+  "price proxy": "chainlink-feeds",
+  "aggregator": "chainlink-feeds",
+  "chainlink oracle": "chainlink-feeds",
+  "feed proxy": "chainlink-feeds",
+  "price feed contract": "chainlink-feeds",
+
+  // KV Store / Stateful (Template 14)
+  "stateful": "kv-store",
+  "persist": "kv-store",
+  "remember": "kv-store",
+  "counter": "kv-store",
+  "accumulate": "kv-store",
+  "s3": "kv-store",
+  "storage": "kv-store",
+  "kv store": "kv-store",
+  "key value": "kv-store",
+
+  // CCIP / Cross-chain (Template 15)
+  "ccip": "ccip",
+  "cross-chain transfer": "ccip",
+  "bridge": "ccip",
+  "multi-chain token": "ccip",
+  "cross chain": "ccip",
+  "interoperability": "ccip",
+  "chain transfer": "ccip",
+
   // Wallet / On-chain Analytics (Doc 21)
   "wallet": "wallet-api",
   "whale": "wallet-api",
@@ -234,6 +265,36 @@ const DATA_SOURCE_MAP: Record<string, string> = {
   "token movement": "wallet-api",
   "wallet movement": "wallet-api",
   "wallet activity": "wallet-api",
+
+  // Payment / Banking (Template 18)
+  "payment": "payment-api",
+  "swift": "payment-api",
+  "wire transfer": "payment-api",
+  "bank transfer": "payment-api",
+  "remittance": "payment-api",
+  "payment initiation": "payment-api",
+  "payment confirmation": "payment-api",
+  "payment status": "payment-api",
+
+  // Settlement / Reconciliation (Template 20)
+  "settlement": "settlement-api",
+  "reconciliation": "settlement-api",
+  "clearing": "settlement-api",
+  "netting": "settlement-api",
+  "settlement cycle": "settlement-api",
+  // "t+1" and "t+0" handled via synonym expansion in nlp-utils.ts (regex escapes +)
+  "dvp": "settlement-api",
+  "delivery versus payment": "settlement-api",
+
+  // Registry / Transfer Agent (Template 21)
+  "shareholder": "registry-api",
+  "registry": "registry-api",
+  "cap table": "registry-api",
+  "equity holder": "registry-api",
+  "share register": "registry-api",
+  "transfer agent": "registry-api",
+  "beneficial owner": "registry-api",
+  "dividend record": "registry-api",
 }
 
 // ── Disambiguation: keywords that are polysemous and need confirming context ──
@@ -251,6 +312,9 @@ const AMBIGUOUS_KEYWORDS = new Set([
   "holdings",     // wallet-api — but generic finance term
   "outcome",      // prediction-market — but "project outcome"
   "resolution",   // prediction-market — but "screen resolution"
+  "shares",       // nav-api — but "shares data", "shares information"
+  "settlement",   // settlement-api — but "prediction market settlement", "trade settlement"
+  "registry",     // registry-api — but "Docker registry", "npm registry"
 ])
 
 // ── Entity map: brand names / proper nouns → data source (always non-ambiguous) ──
@@ -266,6 +330,7 @@ const ENTITY_MAP: Record<string, string> = {
   "github": "github-api",
   "gitlab": "github-api",
   "etherscan": "wallet-api",
+  "chainlink": "chainlink-feeds",
 }
 
 // Pre-compute stemmed lookup (includes both original keys and stemmed variants)
@@ -346,6 +411,15 @@ const ACTION_MAP: Record<string, string> = {
   "allocate": "rebalance",
   "adjust": "rebalance",
 
+  // Contract reads (Template 13)
+  "read": "evmRead",
+  "callContract": "evmRead",
+  "view": "evmRead",
+
+  // CCIP transfers (Template 15)
+  "ccip transfer": "ccipTransfer",
+  "cross-chain send": "ccipTransfer",
+
   // DEX swaps (Template 11)
   "swap": "dexSwap",
   "buy": "dexSwap",
@@ -356,6 +430,37 @@ const ACTION_MAP: Record<string, string> = {
   "dex": "dexSwap",
   "amm": "dexSwap",
   "slippage": "dexSwap",
+
+  // Token burn (Template 17)
+  "burn": "burn",
+  "stablecoin redeem": "burn",
+  "burn redeem": "burn",
+  "token burn": "burn",
+  "destroy token": "burn",
+  "redeem and burn": "burn",
+
+  // Escrow operations (Template 19)
+  "escrow": "escrowLock",
+  "lock funds": "escrowLock",
+  "escrow lock": "escrowLock",
+  "hold in escrow": "escrowLock",
+  "collateral lock": "escrowLock",
+  "release escrow": "escrowRelease",
+  "escrow release": "escrowRelease",
+  "unlock funds": "escrowRelease",
+  "release collateral": "escrowRelease",
+
+  // Payment initiation (Template 18)
+  "initiate payment": "initiatePayment",
+  "send payment": "initiatePayment",
+  "trigger payment": "initiatePayment",
+  "payment instruction": "initiatePayment",
+
+  // Distribution (Template 22)
+  "distribute dividend": "distribute",
+  "dividend payout": "distribute",
+  "shareholder payout": "distribute",
+  "pro rata": "distribute",
 
   // Messaging platforms
   "telegram": "alert",
@@ -499,7 +604,7 @@ function detectTriggerType(
   text: string,
   stemmedWords: string[],
   inputWords: string[],
-): { type: ParsedIntent["triggerType"]; confidence: number } {
+): { type: ParsedIntent["triggerType"]; confidence: number; rawScores: { cron: number; http: number; evmLog: number } } {
   const lower = text.toLowerCase()
 
   const cronScore = matchesSignalSet(lower, CRON_SIGNALS, CRON_STEMS, stemmedWords, inputWords)
@@ -527,14 +632,15 @@ function detectTriggerType(
 
   const adjustedCron = cronScore + cronBonus
   const maxScore = Math.max(adjustedCron, httpScore, evmLogScore)
-  if (maxScore === 0) return { type: "unknown", confidence: 0 }
+  const rawScores = { cron: adjustedCron, http: httpScore, evmLog: evmLogScore }
+  if (maxScore === 0) return { type: "unknown", confidence: 0, rawScores }
 
   const total = adjustedCron + httpScore + evmLogScore
   const confidence = total > 0 ? maxScore / total : 0
 
-  if (adjustedCron === maxScore) return { type: "cron", confidence }
-  if (httpScore === maxScore) return { type: "http", confidence }
-  return { type: "evm_log", confidence }
+  if (adjustedCron === maxScore) return { type: "cron", confidence, rawScores }
+  if (httpScore === maxScore) return { type: "http", confidence, rawScores }
+  return { type: "evm_log", confidence, rawScores }
 }
 
 // ─────────────────────────────────────────────
@@ -686,7 +792,22 @@ function detectActions(keywords: string[], text: string): string[] {
     }
   }
 
-  // Phase 4: Action disambiguation — remove dexSwap if triggered only by generic keywords
+  // Phase 4a: Escrow disambiguation — if escrowRelease present, remove escrowLock
+  // "Release the escrow" matches bare "escrow" → escrowLock AND multi-word "release escrow" → escrowRelease
+  // Release is the more specific intent, so drop the generic lock
+  if (actions.has("escrowRelease") && actions.has("escrowLock")) {
+    actions.delete("escrowLock")
+  }
+  // Also check for release-context words near "escrow" even without multi-word match
+  if (actions.has("escrowLock") && !actions.has("escrowRelease")) {
+    const lower = text.toLowerCase()
+    if (/\b(?:release|unlock|free|unfreeze)\b.*\bescrow\b|\bescrow\b.*\b(?:release|unlock|free|unfreeze)\b/i.test(lower)) {
+      actions.delete("escrowLock")
+      actions.add("escrowRelease")
+    }
+  }
+
+  // Phase 4b: Action disambiguation — remove dexSwap if triggered only by generic keywords
   // Mirrors the data source disambiguation pattern (detectDataSources Phase 4)
   if (actions.has("dexSwap")) {
     const hasConfirming = keywords.some((kw) => DEX_CONFIRMING_KEYWORDS.has(kw))
@@ -746,7 +867,8 @@ export function parseIntent(prompt: string): ParsedIntent {
   }
 
   // Step 0: Expand abbreviations ("min" → "minute", "hr" → "hour")
-  const text = expandAbbreviations(raw)
+  // then expand synonyms ("crypto" → "token price", "text me" → "alert notify")
+  const text = expandSynonyms(expandAbbreviations(raw))
 
   // Step 1: Extract raw keywords and compute stemmed variants
   const keywords = extractKeywords(text)
@@ -760,7 +882,7 @@ export function parseIntent(prompt: string): ParsedIntent {
   const isNegated = detectNegation(text)
 
   // Step 4: Pipeline stages
-  const { type: triggerType, confidence: rawConfidence } = detectTriggerType(text, allStemmed, allWords)
+  const { type: triggerType, confidence: rawConfidence, rawScores: triggerScores } = detectTriggerType(text, allStemmed, allWords)
   const schedule = extractSchedule(text)
   const chains = resolveChains(text, allWords)
   const conditions = extractConditions(text)
@@ -781,5 +903,6 @@ export function parseIntent(prompt: string): ParsedIntent {
     keywords,
     negated: isNegated,
     entities,
+    triggerScores,
   }
 }

@@ -20,6 +20,21 @@ sqlite.exec("PRAGMA journal_mode = WAL")
 // Enable foreign key enforcement
 sqlite.exec("PRAGMA foreign_keys = ON")
 
+// Ensure intentLogs table exists (no formal migration — table was added mid-sprint)
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS intentLogs (
+    id TEXT PRIMARY KEY,
+    prompt TEXT NOT NULL,
+    matched_template_id INTEGER,
+    matched_confidence REAL,
+    keyword_score REAL,
+    embedding_score REAL,
+    user_accepted INTEGER,
+    override_template_id INTEGER,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+`)
+
 // Create indexes
 sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_workflow_category ON workflows(category);
@@ -30,6 +45,7 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_pipeline_active ON pipelines(is_active);
   CREATE INDEX IF NOT EXISTS idx_pipeline_exec_pipeline ON pipeline_executions(pipeline_id);
   CREATE INDEX IF NOT EXISTS idx_pipeline_exec_created ON pipeline_executions(created_at);
+  CREATE INDEX IF NOT EXISTS idx_intent_log_template ON intentLogs(matched_template_id);
 `)
 
 // Export the Drizzle ORM instance with full schema for relational queries

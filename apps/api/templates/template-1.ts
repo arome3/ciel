@@ -3,11 +3,10 @@
 
 import { z } from "zod"
 import {
+  cre,
   Runner,
-  Runtime,
-  CronCapability,
-  HTTPClient,
-  handler,
+  type Runtime,
+  type CronPayload,
   consensusMedianAggregation,
 } from "@chainlink/cre-sdk"
 
@@ -17,62 +16,56 @@ const configSchema = z.object({
   threshold: z.number().describe("Price threshold for alert"),
   direction: z.enum(["above", "below"]).describe("Alert when price goes above or below threshold"),
   alertWebhookUrl: z.string().describe("Webhook URL for alert notifications"),
-  cronSchedule: z.string().default("0 */5 * * * *").describe("Check frequency"),
+  schedule: z.string().default("0 */5 * * * *").describe("Check frequency"),
   consumerContract: z.string().describe("Consumer contract address"),
-  chainName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia").describe("Chain selector name"),
 })
 
 type Config = z.infer<typeof configSchema>
 
-const runner = Runner.newRunner<Config>({ configSchema })
+const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
+  runtime.log("Checking price...")
+  const httpClient = new cre.capabilities.HTTPClient()
 
-function initWorkflow(runtime: Runtime<Config>) {
-  const cronTrigger = new CronCapability().trigger({
-    cronSchedule: runtime.config.cronSchedule,
-  })
+  const priceResponse = httpClient.sendRequest(runtime, {
+    url: `${runtime.config.priceApiUrl}?ids=${runtime.config.assetId}&vs_currencies=usd`,
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).result()
 
-  const httpClient = new HTTPClient()
+  const priceData = JSON.parse(priceResponse.body)
+  const currentPrice = priceData[runtime.config.assetId]?.usd ?? 0
 
-  handler(cronTrigger, (rt) => {
-    // Fetch current price from CoinGecko
-    const priceResponse = httpClient.fetch(
-      `${rt.config.priceApiUrl}?ids=${rt.config.assetId}&vs_currencies=usd`,
-      { method: "GET", headers: { "Content-Type": "application/json" } }
-    ).result()
+  const shouldAlert =
+    runtime.config.direction === "below"
+      ? currentPrice < runtime.config.threshold
+      : currentPrice > runtime.config.threshold
 
-    const priceData = JSON.parse(priceResponse.body)
-    const currentPrice = priceData[rt.config.assetId]?.usd ?? 0
+  if (shouldAlert) {
+    httpClient.sendRequest(runtime, {
+      url: runtime.config.alertWebhookUrl,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        asset: runtime.config.assetId,
+        price: currentPrice,
+        threshold: runtime.config.threshold,
+        direction: runtime.config.direction,
+        timestamp: runtime.now().getTime(),
+      }),
+    }).result()
+  }
 
-    // Check threshold condition
-    const shouldAlert =
-      rt.config.direction === "below"
-        ? currentPrice < rt.config.threshold
-        : currentPrice > rt.config.threshold
+  return JSON.stringify({ price: Math.round(currentPrice * 1e8), alerted: shouldAlert })
+}
 
-    if (shouldAlert) {
-      // Send alert notification
-      httpClient.fetch(rt.config.alertWebhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          asset: rt.config.assetId,
-          price: currentPrice,
-          threshold: rt.config.threshold,
-          direction: rt.config.direction,
-          timestamp: Date.now(),
-        }),
-      }).result()
-    }
-
-    return { price: Math.round(currentPrice * 1e8), alerted: shouldAlert }
-  })
-
-  consensusMedianAggregation({
-    fields: ["price"],
-    reportId: "price_alert",
-  })
+const initWorkflow = (config: Config) => {
+  const cronCapability = new cre.capabilities.CronCapability()
+  return [cre.handler(cronCapability.trigger({ schedule: config.schedule }), onCronTrigger)]
 }
 
 export async function main() {
-  runner.run(initWorkflow)
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
 }
+main()
