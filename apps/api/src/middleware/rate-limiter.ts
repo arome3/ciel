@@ -71,3 +71,11 @@ export const pipelineLimiter = rateLimit({
   legacyHeaders: false,
   message: rateLimitMessage,
 })
+
+export const tenderlyLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: rateLimitMessage,
+})

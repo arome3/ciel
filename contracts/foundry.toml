@@ -10,6 +10,7 @@ via_ir = true
 [rpc_endpoints]
 base-sepolia = "${BASE_SEPOLIA_RPC_URL}"
 anvil = "http://127.0.0.1:8545"
+tenderly = "${TENDERLY_VIRTUAL_TESTNET_RPC}"
 
 [etherscan]
 base-sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api-sepolia.basescan.org/api", chain = 84532 }

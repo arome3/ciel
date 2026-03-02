@@ -1,4 +1,4 @@
-import { publicClient } from "./provider"
+import { getPublicClient } from "./provider"
 import { config } from "../../config"
 import { parseAbi, type Hex } from "viem"
 import { createLogger } from "../../lib/logger"
@@ -25,7 +25,7 @@ export async function getLatestReport(
 ): Promise<{ report: Hex; timestamp: bigint }> {
   try {
     const [report, timestamp] = await withRetry(() =>
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: consumerAddress,
         abi: consumerAbi,
         functionName: "getLatestReport",
@@ -48,7 +48,7 @@ export async function getLatestReport(
 export async function getReportCount(workflowId: Hex): Promise<bigint> {
   try {
     const count = await withRetry(() =>
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: consumerAddress,
         abi: consumerAbi,
         functionName: "getReportCount",
@@ -74,7 +74,7 @@ export async function getReportsPaginated(
 ): Promise<{ data: readonly Hex[]; total: bigint }> {
   try {
     const [reports, total] = await withRetry(() =>
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: consumerAddress,
         abi: consumerAbi,
         functionName: "getAllReports",

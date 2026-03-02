@@ -162,6 +162,26 @@ export interface PipelineFailedEvent {
   data: PipelineFailedEventData
 }
 
+// ─────────────────────────────────────────────
+// Tenderly Event Types
+// ─────────────────────────────────────────────
+
+export interface TenderlyEventData {
+  action: string
+  testnetId?: string
+  name?: string
+  explorerUrl?: string
+  registry?: string
+  consumer?: string
+  timestamp: number
+}
+
+export interface TenderlyEvent {
+  type: "tenderly"
+  silent?: boolean
+  data: TenderlyEventData
+}
+
 export type SSEEvent =
   | ExecutionEvent
   | PublishEvent
@@ -173,3 +193,4 @@ export type SSEEvent =
   | PipelineStepFailedEvent
   | PipelineCompletedEvent
   | PipelineFailedEvent
+  | TenderlyEvent

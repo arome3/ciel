@@ -1,4 +1,4 @@
-import { publicClient, walletClient } from "./provider"
+import { getPublicClient, getWalletClient } from "./provider"
 import { config } from "../../config"
 import { parseAbi, decodeEventLog, type Hex } from "viem"
 import { createLogger } from "../../lib/logger"
@@ -49,7 +49,7 @@ export async function publishToRegistry(params: {
   return txMutex.withLock(async () => {
     try {
       const hash = await withRetry(() =>
-        walletClient.writeContract({
+        getWalletClient().writeContract({
           address: registryAddress,
           abi: registryAbi,
           functionName: "publishWorkflow",
@@ -67,7 +67,7 @@ export async function publishToRegistry(params: {
 
       log.info(`Published workflow — tx: ${hash}`)
 
-      const receipt = await publicClient.waitForTransactionReceipt({
+      const receipt = await getPublicClient().waitForTransactionReceipt({
         hash,
         timeout: TX_TIMEOUT,
       })
@@ -122,7 +122,7 @@ export async function updateWorkflow(params: {
   return txMutex.withLock(async () => {
     try {
       const hash = await withRetry(() =>
-        walletClient.writeContract({
+        getWalletClient().writeContract({
           address: registryAddress,
           abi: registryAbi,
           functionName: "updateWorkflow",
@@ -138,7 +138,7 @@ export async function updateWorkflow(params: {
         })
       )
 
-      await publicClient.waitForTransactionReceipt({ hash, timeout: TX_TIMEOUT })
+      await getPublicClient().waitForTransactionReceipt({ hash, timeout: TX_TIMEOUT })
       log.info(`Updated workflow ${params.workflowId} — tx: ${hash}`)
       return hash
     } catch (err) {
@@ -162,7 +162,7 @@ export async function recordExecution(
   return txMutex.withLock(async () => {
     try {
       const hash = await withRetry(() =>
-        walletClient.writeContract({
+        getWalletClient().writeContract({
           address: registryAddress,
           abi: registryAbi,
           functionName: "recordExecution",
@@ -170,7 +170,7 @@ export async function recordExecution(
         })
       )
 
-      await publicClient.waitForTransactionReceipt({ hash, timeout: TX_TIMEOUT })
+      await getPublicClient().waitForTransactionReceipt({ hash, timeout: TX_TIMEOUT })
       log.info(
         `Recorded execution for ${workflowId} — success: ${success}`
       )
@@ -191,7 +191,7 @@ export async function deactivateWorkflow(workflowId: Hex): Promise<void> {
   return txMutex.withLock(async () => {
     try {
       const hash = await withRetry(() =>
-        walletClient.writeContract({
+        getWalletClient().writeContract({
           address: registryAddress,
           abi: registryAbi,
           functionName: "deactivateWorkflow",
@@ -199,7 +199,7 @@ export async function deactivateWorkflow(workflowId: Hex): Promise<void> {
         })
       )
 
-      await publicClient.waitForTransactionReceipt({ hash, timeout: TX_TIMEOUT })
+      await getPublicClient().waitForTransactionReceipt({ hash, timeout: TX_TIMEOUT })
       log.info(`Deactivated workflow ${workflowId}`)
     } catch (err) {
       throw new AppError(
@@ -218,7 +218,7 @@ export async function reactivateWorkflow(workflowId: Hex): Promise<void> {
   return txMutex.withLock(async () => {
     try {
       const hash = await withRetry(() =>
-        walletClient.writeContract({
+        getWalletClient().writeContract({
           address: registryAddress,
           abi: registryAbi,
           functionName: "reactivateWorkflow",
@@ -226,7 +226,7 @@ export async function reactivateWorkflow(workflowId: Hex): Promise<void> {
         })
       )
 
-      await publicClient.waitForTransactionReceipt({ hash, timeout: TX_TIMEOUT })
+      await getPublicClient().waitForTransactionReceipt({ hash, timeout: TX_TIMEOUT })
       log.info(`Reactivated workflow ${workflowId}`)
     } catch (err) {
       throw new AppError(
@@ -245,7 +245,7 @@ export async function addAuthorizedSender(sender: Hex): Promise<void> {
   return txMutex.withLock(async () => {
     try {
       const hash = await withRetry(() =>
-        walletClient.writeContract({
+        getWalletClient().writeContract({
           address: registryAddress,
           abi: registryAbi,
           functionName: "addAuthorizedSender",
@@ -253,7 +253,7 @@ export async function addAuthorizedSender(sender: Hex): Promise<void> {
         })
       )
 
-      await publicClient.waitForTransactionReceipt({ hash, timeout: TX_TIMEOUT })
+      await getPublicClient().waitForTransactionReceipt({ hash, timeout: TX_TIMEOUT })
       log.info(`Added authorized sender: ${sender}`)
     } catch (err) {
       throw new AppError(
@@ -270,7 +270,7 @@ export async function removeAuthorizedSender(sender: Hex): Promise<void> {
   return txMutex.withLock(async () => {
     try {
       const hash = await withRetry(() =>
-        walletClient.writeContract({
+        getWalletClient().writeContract({
           address: registryAddress,
           abi: registryAbi,
           functionName: "removeAuthorizedSender",
@@ -278,7 +278,7 @@ export async function removeAuthorizedSender(sender: Hex): Promise<void> {
         })
       )
 
-      await publicClient.waitForTransactionReceipt({ hash, timeout: TX_TIMEOUT })
+      await getPublicClient().waitForTransactionReceipt({ hash, timeout: TX_TIMEOUT })
       log.info(`Removed authorized sender: ${sender}`)
     } catch (err) {
       throw new AppError(
@@ -296,7 +296,7 @@ export async function removeAuthorizedSender(sender: Hex): Promise<void> {
 export async function getWorkflowFromRegistry(workflowId: Hex) {
   try {
     return await withRetry(() =>
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: registryAddress,
         abi: registryAbi,
         functionName: "getWorkflow",
@@ -320,7 +320,7 @@ export async function searchWorkflowsByCategory(
 ): Promise<{ data: readonly Hex[]; total: bigint }> {
   try {
     const [ids, total] = await withRetry(() =>
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: registryAddress,
         abi: registryAbi,
         functionName: "searchByCategory",
@@ -345,7 +345,7 @@ export async function searchWorkflowsByChain(
 ): Promise<{ data: readonly Hex[]; total: bigint }> {
   try {
     const [ids, total] = await withRetry(() =>
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: registryAddress,
         abi: registryAbi,
         functionName: "searchByChain",
@@ -369,7 +369,7 @@ export async function getAllWorkflowIds(
 ): Promise<{ data: readonly Hex[]; total: bigint }> {
   try {
     const [ids, total] = await withRetry(() =>
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: registryAddress,
         abi: registryAbi,
         functionName: "getAllWorkflows",
@@ -394,7 +394,7 @@ export async function getCreatorWorkflows(
 ): Promise<{ data: readonly Hex[]; total: bigint }> {
   try {
     const [ids, total] = await withRetry(() =>
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: registryAddress,
         abi: registryAbi,
         functionName: "getCreatorWorkflows",

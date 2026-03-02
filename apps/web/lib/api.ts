@@ -332,6 +332,80 @@ export const api = {
     return request("/api/pipelines/suggest")
   },
 
+  // ─────────────────────────────────────────────
+  // Tenderly API methods
+  // ─────────────────────────────────────────────
+
+  async tenderlyCreate(opts: {
+    name: string
+    networkId?: number
+    chainId?: number
+    syncState?: boolean
+  }): Promise<{
+    id: string
+    name: string
+    networkId: number
+    chainId: number
+    rpcUrl: string
+    explorerUrl: string
+  }> {
+    return request("/api/tenderly/create", {
+      method: "POST",
+      body: JSON.stringify(opts),
+    })
+  },
+
+  async tenderlyDeployContracts(): Promise<{
+    registryAddress: string
+    consumerAddress: string
+    explorerUrl: string
+  }> {
+    return request("/api/tenderly/deploy-contracts", {
+      method: "POST",
+    })
+  },
+
+  async tenderlyFund(
+    address: string,
+    amountEth: number = 100,
+  ): Promise<{ address: string; amountEth: number; funded: boolean }> {
+    return request("/api/tenderly/fund", {
+      method: "POST",
+      body: JSON.stringify({ address, amountEth }),
+    })
+  },
+
+  async tenderlyStatus(): Promise<{
+    active: boolean
+    testnet: {
+      id: string
+      name: string
+      networkId: number
+      chainId: number
+      rpcUrl: string
+      explorerUrl: string
+    } | null
+    contracts: { registry: string | null; consumer: string | null }
+    snapshotId: string | null
+  }> {
+    return request("/api/tenderly/status")
+  },
+
+  async tenderlySnapshot(): Promise<{ snapshotId: string }> {
+    return request("/api/tenderly/snapshot", { method: "POST" })
+  },
+
+  async tenderlyRevert(snapshotId: string): Promise<{ reverted: boolean }> {
+    return request("/api/tenderly/revert", {
+      method: "POST",
+      body: JSON.stringify({ snapshotId }),
+    })
+  },
+
+  async tenderlyCleanup(): Promise<{ destroyed: boolean }> {
+    return request("/api/tenderly/cleanup", { method: "DELETE" })
+  },
+
   async executeWorkflow(
     id: string,
     ownerAuth?: { address: string; signature: string },

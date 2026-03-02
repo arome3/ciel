@@ -28,6 +28,8 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 
   // Tenderly
+  TENDERLY_ACCESS_KEY: z.string().optional(),
+  TENDERLY_ACCOUNT_SLUG: z.string().default("me"),
   TENDERLY_PROJECT_SLUG: z.string().optional(),
   TENDERLY_VIRTUAL_TESTNET_RPC: z.string().url().optional(),
 })

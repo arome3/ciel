@@ -3,7 +3,7 @@
 import { useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Hammer, Store, GitBranch, ChevronLeft } from "lucide-react"
+import { Hammer, Store, GitBranch, FlaskConical, ChevronLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSidebarStore } from "@/lib/sidebar-store"
 
@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/build", label: "Build", icon: Hammer },
   { href: "/marketplace", label: "Marketplace", icon: Store },
   { href: "/pipelines", label: "Pipelines", icon: GitBranch },
+  { href: "/testnet", label: "TestNet", icon: FlaskConical },
 ] as const
 
 export function Sidebar() {

@@ -15,6 +15,7 @@ import redeployRouter from "./routes/redeploy"
 import eventsRouter from "./routes/events"
 import discoverRouter from "./routes/discover"
 import pipelinesRouter from "./routes/pipelines"
+import tenderlyRouter from "./routes/tenderly"
 import { requestId } from "./middleware/request-id"
 import { createLogger } from "./lib/logger"
 import { checkCRECli } from "./services/cre/compiler"
@@ -76,6 +77,7 @@ app.use("/api", executeRouter)
 app.use("/api", redeployRouter)
 app.use("/api", discoverRouter)
 app.use("/api", pipelinesRouter)
+app.use("/api", tenderlyRouter)
 
 // ── Error handler (must be last) ──
 app.use(errorHandler)
