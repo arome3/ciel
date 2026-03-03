@@ -14,83 +14,83 @@ interface Template {
 const TEMPLATES: Template[] = [
   {
     id: 1,
-    title: "Price Monitor",
-    category: "DeFi",
-    description: "Track asset prices and trigger alerts on thresholds",
+    title: "Proof of Reserve",
+    category: "Finance",
+    description: "Verify off-chain reserves and write attestations on-chain",
     prompt:
-      "Monitor the ETH/USD price feed every 5 minutes and send an alert when the price drops below $2000 or rises above $4000",
+      "Check the USDC reserve balance every hour via the custodian API, validate it against on-chain token supply, and write a proof-of-reserve attestation on-chain",
   },
   {
     id: 2,
-    title: "Weather Oracle",
-    category: "Utility",
-    description: "Fetch weather data and report on-chain",
+    title: "Stablecoin Issuance",
+    category: "Finance",
+    description: "Compliance-gated minting with reserve verification",
     prompt:
-      "Fetch the current weather for New York City every hour and report the temperature and conditions on-chain",
+      "Verify compliance and reserve backing for incoming deposits, then mint stablecoins on-chain and deliver them cross-chain to the depositor via CCIP",
   },
   {
     id: 3,
-    title: "Flight Tracker",
-    category: "Utility",
-    description: "Monitor flight status and trigger actions on delays",
+    title: "AI Market Settlement",
+    category: "AI",
+    description: "Settle prediction markets using multi-AI consensus",
     prompt:
-      "Track flight AA100 status and send an alert if the flight is delayed by more than 30 minutes",
+      "When a prediction market resolution event is emitted on-chain, query three AI models for the outcome, aggregate via BFT consensus, and settle the market contract on-chain",
   },
   {
     id: 4,
-    title: "Reserve Proof",
-    category: "Finance",
-    description: "Verify asset reserves and report compliance data",
+    title: "Cross-Chain Rebalancer",
+    category: "DeFi",
+    description: "Auto-rebalance portfolio across chains via CCIP",
     prompt:
-      "Check the USDC reserve balance every hour and report proof of reserves data on-chain for compliance verification",
+      "Monitor portfolio allocations every hour and execute cross-chain token swaps via CCIP when any asset deviates more than 5% from target weights",
   },
   {
     id: 5,
-    title: "NAV Calculator",
-    category: "Finance",
-    description: "Calculate net asset value for tokenized funds",
+    title: "Compliance Gate",
+    category: "Security",
+    description: "KYC/AML screening before on-chain execution",
     prompt:
-      "Calculate the NAV for a tokenized fund by fetching the latest prices of ETH, BTC, and LINK, then report the weighted portfolio value on-chain",
+      "Before executing a DeFi swap, run KYC/AML checks on the sender address via the compliance API and block the on-chain transaction if the risk score exceeds the threshold",
   },
   {
     id: 6,
-    title: "Compliance Check",
-    category: "Security",
-    description: "Run KYC/AML checks and gate transactions",
+    title: "NAV Oracle",
+    category: "Finance",
+    description: "Multi-source NAV calculation reported on-chain",
     prompt:
-      "Before processing a transfer, run a compliance check on the sender address and block the transaction if the risk score exceeds the threshold",
+      "Fetch the latest prices of ETH, BTC, and LINK from multiple sources, compute the weighted NAV for a tokenized fund, and report the value on-chain",
   },
   {
     id: 7,
-    title: "DeFi Rebalancer",
+    title: "Conditional DEX Swap",
     category: "DeFi",
-    description: "Auto-rebalance portfolio based on target allocations",
+    description: "Price-triggered automated swaps on Uniswap V3",
     prompt:
-      "Monitor my portfolio allocation every hour and rebalance by swapping tokens when any asset deviates more than 5% from target weights",
+      "Monitor ETH/USD price every 5 minutes and automatically execute a token swap on Uniswap V3 when the price drops below a configured threshold",
   },
   {
     id: 8,
-    title: "Prediction Market",
-    category: "Analytics",
-    description: "Resolve prediction markets with verified data",
+    title: "CCIP Transfer",
+    category: "Infrastructure",
+    description: "Cross-chain token transfers via Chainlink CCIP",
     prompt:
-      "Fetch the outcome of the upcoming election from multiple data sources, reach consensus, and resolve the prediction market contract",
+      "Estimate CCIP fees, approve token spend, and execute a cross-chain token transfer from Ethereum to Base via the Chainlink CCIP Router",
   },
   {
     id: 9,
-    title: "Multi-AI Agent",
-    category: "Analytics",
-    description: "Orchestrate multiple AI models for consensus",
+    title: "Escrow Settlement",
+    category: "Settlement",
+    description: "Verify conditions and lock or release escrow on-chain",
     prompt:
-      "Query three different AI models about the sentiment of the crypto market, aggregate their responses, and report the consensus sentiment on-chain",
+      "When a settlement request arrives via HTTP, verify conditions via the settlement API and lock or release escrow funds on-chain based on the result",
   },
   {
     id: 10,
-    title: "Cross-Chain Bridge",
-    category: "Infrastructure",
-    description: "Monitor and execute cross-chain token transfers",
+    title: "Dividend Distribution",
+    category: "Finance",
+    description: "Batch on-chain payouts from shareholder registry",
     prompt:
-      "Monitor for deposit events on Ethereum mainnet and execute corresponding mint transactions on Base when deposits are confirmed",
+      "On the first of each month, fetch the shareholder registry, calculate pro-rata dividend amounts, and execute batch token transfers on-chain to all holders",
   },
 ]
 

@@ -15,6 +15,8 @@ export const CATEGORY_VARIANTS: Record<string, string> = {
   Infrastructure: "bg-gray-800/60 text-gray-300 dark:bg-gray-800/60 dark:text-gray-300",
   NFT: "bg-pink-900/60 text-pink-300 dark:bg-pink-900/60 dark:text-pink-300",
   Utility: "bg-orange-900/60 text-orange-300 dark:bg-orange-900/60 dark:text-orange-300",
+  AI: "bg-cyan-900/60 text-cyan-300 dark:bg-cyan-900/60 dark:text-cyan-300",
+  Settlement: "bg-amber-900/60 text-amber-300 dark:bg-amber-900/60 dark:text-amber-300",
 }
 
 /**
@@ -31,6 +33,8 @@ export const CATEGORY_LABELS: Record<string, string> = {
   Infrastructure: "Infrastructure",
   NFT: "NFT",
   Utility: "Utility",
+  AI: "AI",
+  Settlement: "Settlement",
   // Legacy marketplace slugs
   "core-defi": "DeFi",
   institutional: "Finance",

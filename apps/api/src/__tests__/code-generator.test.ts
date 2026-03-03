@@ -3,7 +3,7 @@ import { buildFewShotContext } from "../services/ai-engine/context-builder"
 import { retrieveRelevantDocs } from "../services/ai-engine/doc-retriever"
 import { buildSystemPrompt } from "../services/ai-engine/prompts/system"
 import { buildGenerationPrompt, type GenerationPromptInput } from "../services/ai-engine/prompts/generation"
-import { getContext7CREDocs, _resetContext7Cache } from "../services/ai-engine/context7-client"
+// Context7 tests in context7-client.test.ts (isolated from mock contamination)
 import { TEMPLATES, getTemplateById } from "../services/ai-engine/template-matcher"
 import type { ParsedIntent } from "../services/ai-engine/types"
 
@@ -222,10 +222,11 @@ describe("buildSystemPrompt", () => {
 
   // ── State management patterns ──
 
-  test("contains all 3 state management pattern names when needsState=true", () => {
+  test("contains all 4 state management pattern names when needsState=true", () => {
     const prompt = buildSystemPrompt("", "", "", true)
     expect(prompt).toContain("State Management Patterns")
-    expect(prompt).toContain("External KV Store")
+    expect(prompt).toContain("AWS S3 KV Store")
+    expect(prompt).toContain("Simple KV Store")
     expect(prompt).toContain("Onchain State")
     expect(prompt).toContain("Config-as-State")
   })
@@ -233,7 +234,7 @@ describe("buildSystemPrompt", () => {
   test("contains decision tree for state pattern selection", () => {
     const prompt = buildSystemPrompt("", "", "", true)
     expect(prompt).toContain("Decision Tree")
-    expect(prompt).toContain("ALWAYS prefer Pattern 1")
+    expect(prompt).toContain("Pattern 1 (AWS S3)")
   })
 
   test("references KV config fields in state patterns", () => {
@@ -255,14 +256,14 @@ describe("buildSystemPrompt", () => {
   test("omits state patterns when needsState=false", () => {
     const prompt = buildSystemPrompt("", "", "", false)
     expect(prompt).not.toContain("State Management Patterns")
-    expect(prompt).not.toContain("External KV Store")
+    expect(prompt).not.toContain("AWS S3 KV Store")
     expect(prompt).not.toContain("kvStoreUrl")
   })
 
   test("includes state patterns when needsState is undefined (backward compat)", () => {
     const prompt = buildSystemPrompt("", "", "")
     expect(prompt).toContain("State Management Patterns")
-    expect(prompt).toContain("External KV Store")
+    expect(prompt).toContain("AWS S3 KV Store")
   })
 
   test("Pattern 2 has inline code example with EVMClient", () => {
@@ -345,34 +346,7 @@ describe("buildGenerationPrompt", () => {
   })
 })
 
-// ─────────────────────────────────────────────
-// Suite 5: Context7 Client
-// ─────────────────────────────────────────────
-
-describe("getContext7CREDocs", () => {
-  beforeEach(() => {
-    _resetContext7Cache()
-  })
-
-  test("returns a string (may be empty if Context7 is unreachable)", async () => {
-    const docs = await getContext7CREDocs()
-    expect(typeof docs).toBe("string")
-  })
-
-  test("caches results on subsequent calls", async () => {
-    const first = await getContext7CREDocs()
-    const second = await getContext7CREDocs()
-    // Both calls should return the exact same reference (cached)
-    expect(first).toBe(second)
-  })
-
-  test("never throws (graceful degradation)", async () => {
-    // Even if Context7 is down, it should return empty string
-    const docs = await getContext7CREDocs()
-    expect(docs).toBeDefined()
-    expect(typeof docs).toBe("string")
-  })
-})
+// Context7 tests in context7-client.test.ts (isolated from mock contamination)
 
 // ─────────────────────────────────────────────
 // Suite 6: Code Generator (mocked OpenAI)
@@ -390,7 +364,16 @@ describe("generateCode", () => {
               workflow_ts: `import { z } from "zod"\nimport { Runner, Runtime, CronCapability, HTTPClient, handler, consensusMedianAggregation } from "@chainlink/cre-sdk"\n\nconst configSchema = z.object({ apiUrl: z.string() })\ntype Config = z.infer<typeof configSchema>\nconst runner = Runner.newRunner<Config>({ configSchema })\nfunction initWorkflow(runtime: Runtime<Config>) {\n  const trigger = new CronCapability().trigger({ cronSchedule: "0 */5 * * * *" })\n  const http = new HTTPClient()\n  handler(trigger, (rt) => {\n    const res = http.fetch(rt.config.apiUrl).result()\n    return JSON.parse(res.body)\n  })\n}\nexport function main() { runner.run(initWorkflow) }`,
               config_json: '{"apiUrl":"https://api.example.com/price"}',
               consumer_sol: null,
-              self_review: "All constraints satisfied. No async/await in callbacks. Only @chainlink/cre-sdk, zod imports. Uses Runner.newRunner pattern.",
+              self_review: {
+                no_async_in_handlers: true,
+                imports_valid: true,
+                uses_runner_pattern: true,
+                uses_cre_handler: true,
+                config_via_runtime: true,
+                no_nondeterminism: true,
+                implements_user_request: true,
+                issues_found: "",
+              },
               explanation: "Monitors ETH price every 5 minutes using a CRE cron workflow.",
             },
             refusal: null,
@@ -493,7 +476,16 @@ describe("generateCode", () => {
                 workflow_ts: "",
                 config_json: "{}",
                 consumer_sol: null,
-                self_review: "No code generated",
+                self_review: {
+                  no_async_in_handlers: true,
+                  imports_valid: true,
+                  uses_runner_pattern: false,
+                  uses_cre_handler: false,
+                  config_via_runtime: false,
+                  no_nondeterminism: true,
+                  implements_user_request: false,
+                  issues_found: "No code generated",
+                },
                 explanation: "Empty",
               },
               refusal: null,
@@ -561,3 +553,99 @@ describe("generateCode", () => {
     }
   })
 })
+
+// ─────────────────────────────────────────────
+// Suite 7: TEMPLATE_RELATIONS covers all 22 (Change #1)
+// ─────────────────────────────────────────────
+
+describe("buildFewShotContext — all 22 templates", () => {
+  test("returns non-empty context for all 22 templates", () => {
+    for (let id = 1; id <= 22; id++) {
+      const context = buildFewShotContext(id)
+      expect(context.length).toBeGreaterThan(0)
+      expect(context).toContain("Working CRE Workflow Examples")
+    }
+  })
+
+  test("template 13 (Data Feed Reader) relates to T1 and T4", () => {
+    const context = buildFewShotContext(13)
+    expect(context).toContain("Template 1")
+    expect(context).toContain("Template 4")
+  })
+
+  test("template 16 (Dual-Trigger) relates to T1 and T12", () => {
+    const context = buildFewShotContext(16)
+    expect(context).toContain("Template 1")
+    expect(context).toContain("Template 12")
+  })
+
+  test("template 22 (Dividend Distribution) relates to T6 and T21", () => {
+    const context = buildFewShotContext(22)
+    expect(context).toContain("Template 6")
+    expect(context).toContain("Template 21")
+  })
+
+  test("all templates include valid CRE SDK patterns", () => {
+    for (let id = 1; id <= 22; id++) {
+      const context = buildFewShotContext(id)
+      expect(context).toContain("@chainlink/cre-sdk")
+    }
+  })
+})
+
+// ─────────────────────────────────────────────
+// Suite 8: System prompt contains anti-patterns (Change #2)
+// ─────────────────────────────────────────────
+
+describe("buildSystemPrompt — anti-pattern examples", () => {
+  test("system prompt contains COMMON MISTAKES section", () => {
+    const prompt = buildSystemPrompt("", "", "")
+    expect(prompt).toContain("COMMON MISTAKES")
+    expect(prompt).toContain("DON'T")
+    expect(prompt).toContain("DO —")
+  })
+
+  test("anti-patterns cover async handler mistake", () => {
+    const prompt = buildSystemPrompt("", "", "")
+    expect(prompt).toContain("async handler breaks CRE runtime")
+    expect(prompt).toContain("synchronous with .result()")
+  })
+
+  test("anti-patterns cover runtime.getConfig() mistake", () => {
+    const prompt = buildSystemPrompt("", "", "")
+    expect(prompt).toContain("getConfig()")
+    expect(prompt).toContain("runtime.config")
+  })
+
+  test("anti-patterns cover Date.now() mistake", () => {
+    const prompt = buildSystemPrompt("", "", "")
+    expect(prompt).toContain("Date.now()")
+    expect(prompt).toContain("runtime.now()")
+  })
+
+  test("anti-patterns cover two-step report pattern", () => {
+    const prompt = buildSystemPrompt("", "", "")
+    expect(prompt).toContain("Report writing is two steps")
+    expect(prompt).toContain("runtime.report(")
+    expect(prompt).toContain("writeReport(")
+  })
+
+  test("anti-patterns appear before API_REFERENCE", () => {
+    const prompt = buildSystemPrompt("", "", "")
+    const mistakesIdx = prompt.indexOf("COMMON MISTAKES")
+    const apiRefIdx = prompt.indexOf("CRE SDK API Reference")
+    expect(mistakesIdx).toBeGreaterThan(-1)
+    expect(apiRefIdx).toBeGreaterThan(-1)
+    expect(mistakesIdx).toBeLessThan(apiRefIdx)
+  })
+
+  test("system prompt contains structured self-review description", () => {
+    const prompt = buildSystemPrompt("", "", "")
+    expect(prompt).toContain("no_async_in_handlers")
+    expect(prompt).toContain("imports_valid")
+    expect(prompt).toContain("implements_user_request")
+  })
+})
+
+// Context7 tests moved to context7-client.test.ts to avoid mock contamination
+// from orchestrator.test.ts (which mocks context7-client at module level).

@@ -14,7 +14,8 @@ import { resolve } from "path"
 
 const SRC = resolve(import.meta.dir, "..")
 
-// ── Valid CRE workflow code that passes all 6 validation checks ──
+// ── Valid CRE workflow code that passes all validation checks ──
+// Includes alert in return value to satisfy intent alignment check
 const VALID_WORKFLOW_TS = `
 import { z } from "zod"
 import { Runner, Runtime, CronCapability, HTTPClient, handler, consensusMedianAggregation } from "@chainlink/cre-sdk"
@@ -26,9 +27,11 @@ function initWorkflow(runtime: Runtime<Config>) {
   const http = new HTTPClient()
   handler(cron, (rt) => {
     const resp = http.fetch(rt.config.apiUrl, { method: "GET" }).result()
-    return { data: resp.body }
+    const data = JSON.parse(resp.body)
+    const alert = data.price < 2000
+    return { price: data.price, alert }
   })
-  consensusMedianAggregation({ fields: ["data"], reportId: "test" })
+  consensusMedianAggregation({ fields: ["price"], reportId: "test" })
 }
 export async function main() { runner.run(initWorkflow) }
 `
@@ -36,6 +39,18 @@ export async function main() { runner.run(initWorkflow) }
 const VALID_CONFIG_JSON = '{"apiUrl":"https://api.coingecko.com","cronSchedule":"0 */5 * * * *"}'
 
 // ── OpenAI mock — controls what the real code-generator produces ──
+/** Structured self-review that passes all checks (matches SelfReviewSchema) */
+const PASSING_SELF_REVIEW = {
+  no_async_in_handlers: true,
+  imports_valid: true,
+  uses_runner_pattern: true,
+  uses_cre_handler: true,
+  config_via_runtime: true,
+  no_nondeterminism: true,
+  implements_user_request: true,
+  issues_found: "",
+}
+
 const mockParse = mock(() =>
   Promise.resolve({
     choices: [
@@ -45,11 +60,11 @@ const mockParse = mock(() =>
             thinking: "Using CronCapability for scheduled monitoring...",
             workflow_ts: VALID_WORKFLOW_TS,
             config_json: VALID_CONFIG_JSON,
-            consumer_sol: null,
-            self_review: "All constraints satisfied. No async in callbacks. Correct imports.",
+            consumer_sol: null as string | null,
+            self_review: PASSING_SELF_REVIEW,
             explanation: "Monitors price via cron trigger",
           },
-          refusal: null,
+          refusal: null as string | null,
         },
       },
     ],
@@ -66,11 +81,7 @@ mock.module("openai", () => ({
   },
 }))
 
-// ── Context7 mock (avoid network calls) ──
-mock.module(resolve(SRC, "services/ai-engine/context7-client.ts"), () => ({
-  getContext7CREDocs: () => Promise.resolve(""),
-  _resetContext7Cache: () => {},
-}))
+// Context7: no mock needed — real module has bundled fallback for network failures
 
 // ── DB mock (absolute path — directory import resolution quirk) ──
 const mockValues = mock(() => Promise.resolve())
@@ -130,7 +141,7 @@ function makeOpenAIResponse(overrides: {
   workflow_ts?: string
   config_json?: string
   consumer_sol?: string | null
-  self_review?: string
+  self_review?: typeof PASSING_SELF_REVIEW
   explanation?: string
 } = {}) {
   return {
@@ -141,11 +152,11 @@ function makeOpenAIResponse(overrides: {
             thinking: "...",
             workflow_ts: overrides.workflow_ts ?? VALID_WORKFLOW_TS,
             config_json: overrides.config_json ?? VALID_CONFIG_JSON,
-            consumer_sol: overrides.consumer_sol ?? null,
-            self_review: overrides.self_review ?? "All constraints satisfied.",
+            consumer_sol: (overrides.consumer_sol ?? null) as string | null,
+            self_review: overrides.self_review ?? PASSING_SELF_REVIEW,
             explanation: overrides.explanation ?? "Monitors price via cron trigger",
           },
-          refusal: null,
+          refusal: null as string | null,
         },
       },
     ],
@@ -438,6 +449,38 @@ describe("orchestrator — structured error feedback", () => {
 
 describe("orchestrator — T12 Wallet Activity Monitor", () => {
   test("forceTemplateId: 12 returns correct template match", async () => {
+    // T12 uses evm_log trigger — provide matching code so intent alignment passes
+    const T12_WORKFLOW = `
+import { z } from "zod"
+import { cre, Runner, type Runtime, type EVMLog, getNetwork, hexToBase64, bytesToHex } from "@chainlink/cre-sdk"
+const configSchema = z.object({ chainSelectorName: z.string(), tokenContractAddress: z.string(), watchAddresses: z.string(), alertWebhookUrl: z.string() })
+type Config = z.infer<typeof configSchema>
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+const onEvmLogTrigger = (runtime: Runtime<Config>, log: EVMLog): string => {
+  const httpClient = new cre.capabilities.HTTPClient()
+  const from = bytesToHex(log.topics[1].slice(12))
+  const to = bytesToHex(log.topics[2].slice(12))
+  const value = BigInt("0x" + bytesToHex(log.data))
+  const alert = { type: "transfer", from, to, value: value.toString() }
+  httpClient.sendRequest(runtime, { url: runtime.config.alertWebhookUrl, method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(alert) }).result()
+  return JSON.stringify(alert)
+}
+const initWorkflow = (config: Config) => {
+  const network = getNetwork({ chainFamily: "evm", chainSelectorName: config.chainSelectorName, isTestnet: true })
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
+  const logTrigger = evmClient.logTrigger({ addresses: [hexToBase64(config.tokenContractAddress)], topics: [TRANSFER_TOPIC] })
+  return [cre.handler(logTrigger, onEvmLogTrigger)]
+}
+export async function main() { const runner = await Runner.newRunner<Config>({ configSchema }); await runner.run(initWorkflow) }
+`
+    const T12_CONFIG = '{"chainSelectorName":"base-sepolia","tokenContractAddress":"0x1234","watchAddresses":"0xabcd","alertWebhookUrl":"https://hooks.example.com/alert"}'
+    mockParse.mockImplementation(() =>
+      Promise.resolve(makeOpenAIResponse({
+        workflow_ts: T12_WORKFLOW,
+        config_json: T12_CONFIG,
+      })),
+    )
+
     const result = await generateWorkflow(
       "Watch wallet for large token transfers and alert",
       OWNER,
@@ -448,14 +491,15 @@ describe("orchestrator — T12 Wallet Activity Monitor", () => {
     expect(result.fallback).toBe(false)
   })
 
-  test("T12 fallback loads EVMLogCapability template when OpenAI fails", async () => {
+  test("T12 fallback loads EVMLog template when OpenAI fails", async () => {
     mockParse.mockImplementation(() => { throw new Error("OpenAI timeout") })
     const result = await generateWorkflow(
       "Watch whale wallet for large ERC20 transfers and alert me",
       OWNER,
     )
     expect(result.fallback).toBe(true)
-    expect(result.code).toContain("EVMLogCapability")
+    // Template-12 uses EVMClient + logTrigger (not literal "EVMLogCapability")
+    expect(result.code).toContain("logTrigger")
     expect(result.code).toContain("handler(")
   })
 })
@@ -471,16 +515,16 @@ describe("orchestrator — fallback state config merge", () => {
       throw new Error("forced failure for fallback test")
     })
 
-    // Prompt with state keyword "history" — triggers KV config generation
-    const statePrompt = "Monitor ETH price history and track daily average over time"
+    // Prompt with state keyword "history" + strong T1 keywords (alert + price) for template matching
+    const statePrompt = "Monitor ETH price every 5 minutes, alert when below 2000, and store history state over time"
     const result = await generateWorkflow(statePrompt, OWNER)
 
     expect(result.fallback).toBe(true)
 
-    // The fallback config should have KV fields merged from intent
+    // The fallback config should have KV fields merged from intent (PLACEHOLDER_ prefix convention)
     const config = JSON.parse(result.configJson)
-    expect(config.kvStoreUrl).toBe("https://your-kv-store.upstash.io")
-    expect(config.kvApiKey).toBe("kv-api-key-placeholder")
+    expect(config.kvStoreUrl).toBe("PLACEHOLDER_KV_STORE_URL")
+    expect(config.kvApiKey).toBe("PLACEHOLDER_KV_API_KEY")
     expect(typeof config.stateKey).toBe("string")
     expect(config.stateKey).toContain("ciel-")
     expect(config.stateKey).toContain("-data")

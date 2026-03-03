@@ -58,6 +58,79 @@ const CRITICAL_CONSTRAINTS = `## 11 CRITICAL CONSTRAINTS — VIOLATION = INVALID
    - \`setTimeout()\`, \`setInterval()\` → not available in CRE runtime
    - Unsorted \`Object.keys()\`/Map iteration → sort before encoding if order matters`
 
+const COMMON_MISTAKES = `## COMMON MISTAKES — DO NOT / DO Pairs
+
+These are the top 5 LLM failure modes. Study each pair carefully.
+
+### 1. Handler callbacks MUST be synchronous
+\`\`\`typescript
+// ❌ DON'T — async handler breaks CRE runtime
+cre.handler(trigger, async (runtime, payload) => {
+  const resp = await httpClient.sendRequest(runtime, opts)
+  return JSON.stringify(resp)
+})
+
+// ✅ DO — synchronous with .result() unwrapping
+cre.handler(trigger, (runtime, payload) => {
+  const resp = httpClient.sendRequest(runtime, opts).result()
+  return JSON.stringify(resp)
+})
+\`\`\`
+
+### 2. Config access: runtime.config, NOT runtime.getConfig()
+\`\`\`typescript
+// ❌ DON'T — getConfig() is not the config accessor
+const url = runtime.getConfig().apiUrl
+
+// ✅ DO — use runtime.config property
+const url = runtime.config.apiUrl
+\`\`\`
+
+### 3. initWorkflow receives config (not Runtime)
+\`\`\`typescript
+// ❌ DON'T — initWorkflow does NOT receive Runtime
+const initWorkflow = (runtime: Runtime<Config>) => {
+  const schedule = runtime.config.schedule
+  return [cre.handler(cron.trigger({ schedule }), onTrigger)]
+}
+
+// ✅ DO — initWorkflow receives the parsed config object
+const initWorkflow = (config: Config) => {
+  const schedule = config.schedule
+  return [cre.handler(cron.trigger({ schedule }), onTrigger)]
+}
+\`\`\`
+
+### 4. Timestamps: runtime.now(), NOT Date.now()
+\`\`\`typescript
+// ❌ DON'T — Date.now() breaks BFT consensus across DON nodes
+const timestamp = Date.now()
+const now = new Date()
+
+// ✅ DO — consensus-safe timestamps identical on all nodes
+const timestamp = runtime.now().getTime()
+const now = runtime.now()
+\`\`\`
+
+### 5. Report writing is two steps
+\`\`\`typescript
+// ❌ DON'T — single-step report (will fail)
+evmClient.writeReport(runtime, { data: payload })
+
+// ✅ DO — step 1: create report, step 2: write onchain
+const report = runtime.report({
+  encodedPayload: encodeAbiParameters(types, values),
+  encoderName: "EVM",
+  signingAlgo: "SECP256K1",
+  hashingAlgo: "KECCAK256",
+}).result()
+evmClient.writeReport(runtime, {
+  receiver: config.consumerContract,
+  report: report.report,
+  gasConfig: { gasLimit: 500000 },
+}).result()
+\`\`\``
+
 const API_REFERENCE = `## CRE SDK API Reference (@chainlink/cre-sdk v1.1.2 — Official Pattern)
 
 ### Imports
@@ -666,7 +739,16 @@ Use the structured output fields as follows:
 - **workflow_ts**: The complete CRE TypeScript workflow. Must compile standalone. Must follow all 10 constraints above. Use the official SDK pattern (cre.handler, initWorkflow returns handler array, async Runner).
 - **config_json**: A valid JSON string with default config values matching your Zod schema. Parse-safe.
 - **consumer_sol**: If the workflow writes onchain, provide a minimal Solidity consumer contract that implements the \`IReceiver\` interface (\`onReport(bytes calldata metadata, bytes calldata report)\`), supports ERC165 \`supportsInterface()\`, and verifies the caller is the KeystoneForwarder. Otherwise null.
-- **self_review**: After generating code, verify: no async/await in handler callbacks, only 4 allowed import sources, uses \`await Runner.newRunner()\` pattern, \`cre.handler()\` wiring, \`initWorkflow(config)\` returns handler array, config via \`runtime.config\`, no Date.now()/new Date() (use runtime.now()), no Math.random()/setTimeout(). Flag any issues found.
+- **self_review**: A structured checklist object with boolean fields:
+  - \`no_async_in_handlers\`: true if handler callbacks contain NO async/await
+  - \`imports_valid\`: true if ONLY @chainlink/cre-sdk, zod, viem, @noble/hashes are imported
+  - \`uses_runner_pattern\`: true if code uses await Runner.newRunner<Config>({ configSchema })
+  - \`uses_cre_handler\`: true if code uses cre.handler() to wire triggers
+  - \`config_via_runtime\`: true if config is accessed via runtime.config (NOT getConfig())
+  - \`no_nondeterminism\`: true if no Date.now(), new Date(), Math.random(), setTimeout used
+  - \`implements_user_request\`: true if the code implements what the user asked for
+  - \`issues_found\`: Description of any issues found, or empty string if none
+  Set each boolean to true ONLY if the constraint is fully satisfied.
 - **explanation**: Brief human-readable explanation of what the workflow does and how to configure it.`
 
 // ─────────────────────────────────────────────
@@ -692,6 +774,7 @@ export function buildSystemPrompt(
   const sections: string[] = [
     ROLE_DEFINITION,
     CRITICAL_CONSTRAINTS,
+    COMMON_MISTAKES,
     API_REFERENCE,
     CONTRACT_READ_PATTERN,
     EXTENDED_DATA_SOURCE_APIS,

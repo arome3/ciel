@@ -11,6 +11,8 @@
 import { mkdtemp, writeFile, rm } from "fs/promises"
 import { join } from "path"
 import { tmpdir } from "os"
+import type { ParsedIntent } from "./types"
+import type { TemplateDefinition } from "./template-matcher"
 
 // ─────────────────────────────────────────────
 // Public Interfaces
@@ -148,6 +150,51 @@ export function quickFix(code: string): { code: string; fixes: string[] } {
       if (result !== fixed) {
         fixed = result
         fixes.push("Replaced new Date() with runtime.now() in handler blocks")
+      }
+    }
+  }
+
+  // 6. Replace Math.random() → 0 with FIXME comment inside handler blocks
+  if (/\bMath\.random\s*\(\s*\)/.test(fixed)) {
+    const ranges = findHandlerBlockRanges(fixed)
+    if (ranges.length > 0) {
+      let result = fixed
+      let offset = 0
+      for (const range of ranges) {
+        const block = fixed.slice(range.start, range.end)
+        const replaced = block.replace(/\bMath\.random\s*\(\s*\)/g, "0 /* FIXME: use deterministic logic */")
+        if (replaced !== block) {
+          result = result.slice(0, range.start + offset) + replaced + result.slice(range.start + offset + block.length)
+          offset += replaced.length - block.length
+        }
+      }
+      if (result !== fixed) {
+        fixed = result
+        fixes.push("Replaced Math.random() with deterministic placeholder in handler blocks")
+      }
+    }
+  }
+
+  // 7. Remove setTimeout() / setInterval() calls inside handler blocks
+  if (/\b(?:setTimeout|setInterval)\s*\(/.test(fixed)) {
+    const ranges = findHandlerBlockRanges(fixed)
+    if (ranges.length > 0) {
+      let result = fixed
+      let offset = 0
+      for (const range of ranges) {
+        const block = fixed.slice(range.start, range.end)
+        const replaced = block.replace(
+          /\b(setTimeout|setInterval)\s*\([^)]*(?:\([^)]*\)[^)]*)*\)[^;\n]*/g,
+          "/* $1 removed — not available in CRE runtime */",
+        )
+        if (replaced !== block) {
+          result = result.slice(0, range.start + offset) + replaced + result.slice(range.start + offset + block.length)
+          offset += replaced.length - block.length
+        }
+      }
+      if (result !== fixed) {
+        fixed = result
+        fixes.push("Removed setTimeout/setInterval from handler blocks (not available in CRE runtime)")
       }
     }
   }
@@ -476,6 +523,125 @@ function checkNonDeterminism(code: string): string[] {
   if (/\bsetInterval\s*\(/.test(code)) {
     errors.push(
       "[NONDET] Found setInterval() which is not available in the CRE runtime. REMOVE — use CronCapability for scheduled execution.",
+    )
+  }
+
+  return errors
+}
+
+/**
+ * (j) Intent Alignment — verifies generated code implements what the user asked.
+ *     Checks trigger type, actions, and data source alignment.
+ *     Only runs when intent and templateDef are provided (backward compatible).
+ */
+function checkIntentAlignment(
+  code: string,
+  intent: ParsedIntent,
+  templateDef: TemplateDefinition,
+): string[] {
+  // Skip alignment when intent confidence is too low — the parser couldn't
+  // meaningfully understand the prompt, so alignment checks would be noise
+  if (intent.confidence < 0.3) return []
+
+  const errors: string[] = []
+
+  // Trigger type alignment
+  const triggerChecks: Record<string, RegExp> = {
+    cron: /CronCapability|CronTrigger|cronTrigger|cron\.trigger/,
+    http: /HTTPCapability|HTTPTrigger|httpTrigger|http\.trigger|HTTPCapability/,
+    evm_log: /logTrigger|EVMLog|evmLogTrigger|EVMLogCapability/,
+  }
+
+  const expectedTrigger = templateDef.triggerType
+  const triggerPattern = triggerChecks[expectedTrigger]
+  if (triggerPattern && !triggerPattern.test(code)) {
+    errors.push(
+      `[ALIGN] Expected ${expectedTrigger} trigger (template ${templateDef.id}: ${templateDef.name}) ` +
+      `but code does not contain the corresponding capability. ` +
+      `ADD ${expectedTrigger === "cron" ? "CronCapability" : expectedTrigger === "http" ? "HTTPCapability" : "EVMLogCapability/logTrigger"} usage.`,
+    )
+  }
+
+  // Action alignment — check that key actions from the intent appear in code
+  const actionPatterns: Record<string, RegExp> = {
+    dexSwap: /swap|exactInput|exactOutput|uniswap|routerAddr/i,
+    evmWrite: /writeReport|sendTransaction|evmClient/i,
+    alert: /alert|webhook|notify|slack|telegram/i,
+    transfer: /transfer|send|ERC20/i,
+    mint: /mint/i,
+    burn: /burn/i,
+    rebalance: /rebalance|swap|allocation/i,
+    payout: /payout|distribute|transfer/i,
+    ccipTransfer: /ccip|crossChain|cross.chain/i,
+    escrowLock: /escrow|lock/i,
+    escrowRelease: /escrow|release/i,
+    initiatePayment: /payment|initiate|settle/i,
+    distribute: /distribute|dividend|pro.rata/i,
+  }
+
+  for (const action of intent.actions) {
+    const pattern = actionPatterns[action]
+    if (pattern && !pattern.test(code)) {
+      errors.push(
+        `[ALIGN] Intent requires action "${action}" but code does not appear to implement it. ` +
+        `ADD ${action}-related logic to the workflow.`,
+      )
+    }
+  }
+
+  // Data source alignment — HTTP data sources should have HTTPClient
+  const httpDataSources = intent.dataSources.filter((ds) =>
+    !["chainlink-feeds", "kv-store"].includes(ds),
+  )
+  if (httpDataSources.length > 0 && !/HTTPClient|httpClient|sendRequest|fetch/.test(code)) {
+    errors.push(
+      `[ALIGN] Intent requires data sources [${httpDataSources.join(", ")}] which need HTTP access, ` +
+      `but code does not use HTTPClient. ADD HTTPClient to fetch data from external APIs.`,
+    )
+  }
+
+  return errors
+}
+
+/**
+ * (i) Config-Code Consistency — cross-references runtime.config.X in code
+ *     with keys in the config JSON object.
+ */
+function checkConfigCodeConsistency(code: string, configJson: string): string[] {
+  let configKeys: string[]
+  try {
+    const parsed = JSON.parse(configJson)
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return []
+    configKeys = Object.keys(parsed as Record<string, unknown>)
+  } catch {
+    return [] // Invalid JSON caught by checkConfigJson
+  }
+
+  const errors: string[] = []
+  const configKeySet = new Set(configKeys)
+
+  // Extract runtime.config.X and config.X references from code
+  // Matches: runtime.config.fieldName, config.fieldName (inside initWorkflow)
+  const configRefPattern = /(?:runtime\.config|config)\.([a-zA-Z_$]\w*)/g
+  const referencedFields = new Set<string>()
+  let match: RegExpExecArray | null
+  while ((match = configRefPattern.exec(code)) !== null) {
+    referencedFields.add(match[1])
+  }
+
+  // Find fields referenced in code but missing from config JSON
+  const missingFields: string[] = []
+  for (const field of referencedFields) {
+    if (!configKeySet.has(field)) {
+      missingFields.push(field)
+    }
+  }
+
+  if (missingFields.length > 0) {
+    errors.push(
+      `[CONFIG_MISMATCH] Code references config fields not in config JSON: ${missingFields.join(", ")}. ` +
+      `Available config fields: ${configKeys.join(", ")}. ` +
+      `ADD the missing fields to config JSON or FIX the field names in code.`,
     )
   }
 
@@ -967,16 +1133,21 @@ async function checkTypeScriptCompilation(code: string): Promise<string[]> {
 /**
  * Validates generated CRE workflow code with cheap-first ordering.
  *
- * Phase 1 (instant, no I/O): Import check, async check, main export, zod schema, config JSON
+ * Phase 1 (instant, no I/O): Import check, async check, main export, zod schema, config JSON,
+ *         config-code consistency, intent alignment (when provided)
  * Phase 2 (expensive): TypeScript compilation — only runs if Phase 1 passes
  *
  * @param code - The generated TypeScript workflow code
  * @param configJson - Stringified JSON config
+ * @param intent - Optional parsed intent for alignment checks
+ * @param templateDef - Optional template definition for alignment checks
  * @returns ValidationResult with structured [CATEGORY] prefixed errors
  */
 export async function validateWorkflow(
   code: string,
   configJson: string,
+  intent?: ParsedIntent,
+  templateDef?: TemplateDefinition,
 ): Promise<ValidationResult> {
   const errors: string[] = []
 
@@ -988,6 +1159,12 @@ export async function validateWorkflow(
   errors.push(...checkConfigJson(code, configJson))
   errors.push(...checkStatePatterns(code, configJson))
   errors.push(...checkNonDeterminism(code))
+  errors.push(...checkConfigCodeConsistency(code, configJson))
+
+  // Intent alignment — only when intent + templateDef are provided
+  if (intent && templateDef) {
+    errors.push(...checkIntentAlignment(code, intent, templateDef))
+  }
 
   // Phase 2: Expensive check — only if Phase 1 passes (cheap-first pattern)
   if (errors.length === 0) {

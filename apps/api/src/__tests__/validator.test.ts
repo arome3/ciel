@@ -2,6 +2,8 @@ import { describe, test, expect } from "bun:test"
 import { readFileSync } from "fs"
 import { join } from "path"
 import { validateWorkflow, quickFix, extractSecretNames, buildSecretsYaml } from "../services/ai-engine/validator"
+import type { ParsedIntent } from "../services/ai-engine/types"
+import { getTemplateById } from "../services/ai-engine/template-matcher"
 
 // ─────────────────────────────────────────────
 // Test Fixtures
@@ -940,5 +942,200 @@ describe("Secrets extraction & YAML generation", () => {
     expect(yaml).toContain('API_KEY: "PLACEHOLDER_API_KEY"')
     expect(yaml).toContain('DB_PASSWORD: "PLACEHOLDER_DB_PASSWORD"')
     expect(yaml).toContain("# CRE Workflow Secrets")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Suite 20: quickFix — Math.random, setTimeout, setInterval (Change #3)
+// ─────────────────────────────────────────────
+
+describe("quickFix — expanded non-determinism repair", () => {
+  test("replaces Math.random() with deterministic placeholder in handler blocks", () => {
+    const code = `handler(trigger, (rt) => { const nonce = Math.random(); return { nonce } })`
+    const { code: fixed, fixes } = quickFix(code)
+    expect(fixed).toContain("0 /* FIXME: use deterministic logic */")
+    expect(fixed).not.toContain("Math.random()")
+    expect(fixes.some((f) => f.includes("Math.random()"))).toBe(true)
+  })
+
+  test("Math.random() outside handler blocks is NOT replaced", () => {
+    const code = `const seed = Math.random()\nhandler(trigger, (rt) => { return { seed } })`
+    const { code: fixed } = quickFix(code)
+    // Only replaces inside handler blocks
+    expect(fixed).toContain("Math.random()")
+  })
+
+  test("removes setTimeout inside handler blocks", () => {
+    const code = `handler(trigger, (rt) => { setTimeout(() => {}, 1000); return { ok: true } })`
+    const { code: fixed, fixes } = quickFix(code)
+    expect(fixed).toContain("/* setTimeout removed")
+    expect(fixed).not.toMatch(/\bsetTimeout\s*\(/)
+    expect(fixes.some((f) => f.includes("setTimeout"))).toBe(true)
+  })
+
+  test("removes setInterval inside handler blocks", () => {
+    const code = `handler(trigger, (rt) => { setInterval(() => {}, 5000); return { ok: true } })`
+    const { code: fixed, fixes } = quickFix(code)
+    expect(fixed).toContain("/* setInterval removed")
+    expect(fixed).not.toMatch(/\bsetInterval\s*\(/)
+    expect(fixes.some((f) => f.includes("setInterval") || f.includes("setTimeout"))).toBe(true)
+  })
+
+  test("does not touch setTimeout outside handler blocks", () => {
+    const code = `setTimeout(() => console.log("warmup"), 100)\nhandler(trigger, (rt) => { return {} })`
+    const { code: fixed } = quickFix(code)
+    expect(fixed).toContain("setTimeout")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Suite 21: Check (i) — Config-Code Consistency (Change #5)
+// ─────────────────────────────────────────────
+
+describe("Check (i): Config-Code Consistency", () => {
+  test("detects runtime.config.X referencing non-existent config field", async () => {
+    const code = VALID_CODE.replace(
+      "rt.config.apiUrl",
+      "rt.config.nonExistentField",
+    )
+    const result = await validateWorkflow(code, VALID_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[CONFIG_MISMATCH]"))).toBe(true)
+    expect(result.errors.some((e) => e.includes("nonExistentField"))).toBe(true)
+  })
+
+  test("passes when all config references exist", async () => {
+    const result = await validateWorkflow(VALID_CODE, VALID_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[CONFIG_MISMATCH]"))).toBe(false)
+  })
+
+  test("lists available config fields in error message", async () => {
+    const code = VALID_CODE.replace(
+      "rt.config.apiUrl",
+      "rt.config.priceEndpoint",
+    )
+    const result = await validateWorkflow(code, VALID_CONFIG)
+    const mismatchError = result.errors.find((e) => e.startsWith("[CONFIG_MISMATCH]"))
+    expect(mismatchError).toBeDefined()
+    expect(mismatchError).toContain("apiUrl")
+    expect(mismatchError).toContain("threshold")
+  })
+
+  test("detects multiple missing config fields", async () => {
+    const code = VALID_CODE
+      .replace("rt.config.apiUrl", "rt.config.endpoint")
+      .replace("rt.config.threshold", "rt.config.limit")
+    const result = await validateWorkflow(code, VALID_CONFIG)
+    const mismatchError = result.errors.find((e) => e.startsWith("[CONFIG_MISMATCH]"))
+    expect(mismatchError).toBeDefined()
+    expect(mismatchError).toContain("endpoint")
+    expect(mismatchError).toContain("limit")
+  })
+
+  test("handles empty config JSON gracefully", async () => {
+    const result = await validateWorkflow(VALID_CODE, "{}")
+    // Empty config should not crash, but will show mismatches
+    expect(result.errors.some((e) => e.startsWith("[CONFIG_MISMATCH]"))).toBe(true)
+  })
+
+  test("skips check when config JSON is invalid", async () => {
+    const result = await validateWorkflow(VALID_CODE, "not json")
+    // Invalid JSON caught by checkConfigJson, not by config-code consistency
+    expect(result.errors.some((e) => e.startsWith("[CONFIG]"))).toBe(true)
+  })
+})
+
+// ─────────────────────────────────────────────
+// Suite 22: Check (j) — Intent Alignment (Change #6)
+// ─────────────────────────────────────────────
+
+describe("Check (j): Intent Alignment", () => {
+  const makeIntent = (overrides: Partial<ParsedIntent> = {}): ParsedIntent => ({
+    triggerType: "cron",
+    confidence: 0.9,
+    dataSources: ["price-feed"],
+    conditions: [],
+    actions: ["alert"],
+    chains: ["base-sepolia"],
+    keywords: ["monitor", "price"],
+    negated: false,
+    entities: {},
+    ...overrides,
+  })
+
+  test("detects trigger type mismatch (cron template but no CronCapability)", async () => {
+    const intent = makeIntent({ triggerType: "cron" })
+    const templateDef = getTemplateById(1)! // T1 is cron-triggered
+    // Code that has no CronCapability
+    const badCode = `
+import { z } from "zod"
+import { cre, Runner, type Runtime, type HTTPPayload, getNetwork } from "@chainlink/cre-sdk"
+const configSchema = z.object({ apiUrl: z.string(), schedule: z.string() })
+type Config = z.infer<typeof configSchema>
+const onHTTP = (runtime: Runtime<Config>, payload: HTTPPayload): string => {
+  return JSON.stringify({ ok: true })
+}
+const initWorkflow = (config: Config) => {
+  const http = new cre.capabilities.HTTPCapability()
+  return [cre.handler(http.trigger(), onHTTP)]
+}
+export async function main() {
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
+}
+`
+    const result = await validateWorkflow(badCode, '{"apiUrl":"https://example.com","schedule":"0 * * * * *"}', intent, templateDef)
+    expect(result.errors.some((e) => e.startsWith("[ALIGN]") && e.includes("cron"))).toBe(true)
+  })
+
+  test("passes when trigger type matches", async () => {
+    const intent = makeIntent({ triggerType: "cron" })
+    const templateDef = getTemplateById(1)!
+    const result = await validateWorkflow(VALID_CODE, VALID_CONFIG, intent, templateDef)
+    expect(result.errors.some((e) => e.startsWith("[ALIGN]") && e.includes("trigger"))).toBe(false)
+  })
+
+  test("detects missing action implementation (dexSwap without swap code)", async () => {
+    const intent = makeIntent({ actions: ["dexSwap"] })
+    const templateDef = getTemplateById(5)! // T5 = DeFi swap
+    const result = await validateWorkflow(VALID_CODE, VALID_CONFIG, intent, templateDef)
+    expect(result.errors.some((e) => e.startsWith("[ALIGN]") && e.includes("dexSwap"))).toBe(true)
+  })
+
+  test("detects missing HTTPClient for HTTP data sources", async () => {
+    const intent = makeIntent({ dataSources: ["news-api", "sports-api"] })
+    const templateDef = getTemplateById(10)!
+    // Code with no HTTPClient
+    const noHttpCode = `
+import { z } from "zod"
+import { cre, Runner, type Runtime, type CronPayload } from "@chainlink/cre-sdk"
+const configSchema = z.object({ schedule: z.string() })
+type Config = z.infer<typeof configSchema>
+const onCron = (runtime: Runtime<Config>, payload: CronPayload): string => {
+  return JSON.stringify({ ok: true })
+}
+const initWorkflow = (config: Config) => {
+  const cron = new cre.capabilities.CronCapability()
+  return [cre.handler(cron.trigger({ schedule: config.schedule }), onCron)]
+}
+export async function main() {
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
+}
+`
+    const result = await validateWorkflow(noHttpCode, '{"schedule":"0 * * * * *"}', intent, templateDef)
+    expect(result.errors.some((e) => e.startsWith("[ALIGN]") && e.includes("HTTPClient"))).toBe(true)
+  })
+
+  test("skips alignment check when intent/templateDef not provided", async () => {
+    // Backward compatible — no alignment errors without intent
+    const result = await validateWorkflow(VALID_CODE, VALID_CONFIG)
+    expect(result.errors.some((e) => e.startsWith("[ALIGN]"))).toBe(false)
+  })
+
+  test("chainlink-feeds data source does not require HTTPClient", async () => {
+    const intent = makeIntent({ dataSources: ["chainlink-feeds"] })
+    const templateDef = getTemplateById(13)!
+    const result = await validateWorkflow(VALID_CODE, VALID_CONFIG, intent, templateDef)
+    expect(result.errors.some((e) => e.startsWith("[ALIGN]") && e.includes("HTTPClient"))).toBe(false)
   })
 })

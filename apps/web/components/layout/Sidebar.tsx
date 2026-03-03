@@ -65,7 +65,7 @@ export function Sidebar() {
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          "hidden md:flex flex-col border-r border-border bg-card transition-all duration-200",
+          "hidden md:flex flex-col border-r border-border bg-background transition-all duration-200",
           isCollapsed ? "w-12" : "w-60",
         )}
       >
@@ -96,7 +96,7 @@ export function Sidebar() {
             onClick={() => setMobileOpen(false)}
             aria-hidden="true"
           />
-          <aside className="fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-border bg-card md:hidden">
+          <aside className="fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-border bg-background md:hidden">
             <div className="flex h-12 items-center px-4 border-b border-border">
               <span className="text-sm font-semibold text-foreground">Ciel</span>
             </div>

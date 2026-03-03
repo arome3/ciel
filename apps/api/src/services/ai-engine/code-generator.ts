@@ -23,6 +23,18 @@ import { detectStateKeyword } from "./file-manager"
 // Response Schema (Structured Outputs)
 // ─────────────────────────────────────────────
 
+/** Structured self-review — boolean checklist replaces free-text regex parsing */
+const SelfReviewSchema = z.object({
+  no_async_in_handlers: z.boolean().describe("True if handler callbacks contain NO async/await"),
+  imports_valid: z.boolean().describe("True if ONLY @chainlink/cre-sdk, zod, viem, @noble/hashes are imported"),
+  uses_runner_pattern: z.boolean().describe("True if code uses await Runner.newRunner<Config>({ configSchema })"),
+  uses_cre_handler: z.boolean().describe("True if code uses cre.handler() to wire triggers"),
+  config_via_runtime: z.boolean().describe("True if config is accessed via runtime.config (NOT getConfig())"),
+  no_nondeterminism: z.boolean().describe("True if no Date.now(), new Date(), Math.random(), setTimeout used"),
+  implements_user_request: z.boolean().describe("True if the code implements what the user asked for"),
+  issues_found: z.string().describe("Description of any issues found, or empty string if none"),
+})
+
 const CREWorkflowResponseSchema = z.object({
   // Chain-of-thought: forces GPT-5.3-Codex to reason before coding
   thinking: z.string().describe(
@@ -32,10 +44,10 @@ const CREWorkflowResponseSchema = z.object({
   workflow_ts: z.string().describe("Complete CRE TypeScript workflow code"),
   config_json: z.string().describe("Stringified JSON config matching the Zod schema"),
   consumer_sol: z.string().nullable().describe("Solidity consumer contract, or null"),
-  // Self-review: model checks its own output against constraints
-  self_review: z.string().describe(
-    "Verify: no async/await in callbacks, only @chainlink/cre-sdk + zod + viem imports, " +
-    "uses Runner.newRunner pattern, handler() wiring, config accessed via runtime.config",
+  // Structured self-review: boolean checklist replaces free-text for reliable red flag detection
+  self_review: SelfReviewSchema.describe(
+    "After generating code, verify each constraint. Set boolean to true ONLY if the constraint is satisfied. " +
+    "Describe any issues in issues_found.",
   ),
   explanation: z.string().describe("Human-readable explanation of what the workflow does"),
 })
@@ -102,18 +114,8 @@ const MODEL = "gpt-5.3-codex"
 const MAX_COMPLETION_TOKENS = 16_384
 const MAX_RETRIES = 3  // 1 initial + 2 retries (self-review or error-driven)
 
-// Self-review red flag patterns that trigger auto-retry.
-// Each pattern requires BOTH a violation keyword AND a negative-sentiment context word
-// to avoid false-positives like "no async issues found" matching "async".
-const SELF_REVIEW_RED_FLAG_PATTERNS: Array<{ keyword: RegExp; sentiment: RegExp }> = [
-  { keyword: /async\/await/i, sentiment: /found|detected|uses|contains|has|violation|issue|bug/i },
-  { keyword: /getConfig/i, sentiment: /uses|found|calls|invokes|still/i },
-  { keyword: /missing\s+(Runner|handler|export|main)/i, sentiment: /./i },  // "missing X" is always negative
-  { keyword: /wrong\s+import/i, sentiment: /./i },
-  { keyword: /does\s+not\s+compile/i, sentiment: /./i },
-  { keyword: /invalid\s+import/i, sentiment: /./i },
-  { keyword: /import\s+from\s+["'][^"']*["']/i, sentiment: /unauthorized|invalid|wrong|disallowed/i },
-]
+/** Self-review type for structured boolean checks */
+type SelfReview = z.infer<typeof SelfReviewSchema>
 
 // ─────────────────────────────────────────────
 // Core Generator
@@ -175,9 +177,9 @@ export async function generateCode(input: GenerateCodeInput): Promise<GeneratedC
         lastSelfReview,
       )
 
-      // ── Check self-review for red flags ──
+      // ── Check self-review for red flags (structured boolean checks) ──
       if (attempt < maxRetries && hasRedFlags(result.self_review)) {
-        lastSelfReview = result.self_review
+        lastSelfReview = formatSelfReview(result.self_review)
         lastError = "Self-review identified constraint violations. See previous self-review."
         continue
       }
@@ -294,16 +296,38 @@ async function callGPT52(
 }
 
 // ─────────────────────────────────────────────
-// Self-Review Analysis
+// Self-Review Analysis (Structured)
 // ─────────────────────────────────────────────
 
 /**
- * Checks self-review text for red flags indicating constraint violations.
- * Uses keyword + sentiment matching to avoid false-positives like
- * "no async issues found" triggering on the word "async".
+ * Checks structured self-review for red flags.
+ * Any boolean field set to false indicates a constraint violation.
+ * No regex parsing — direct boolean checks eliminate false positives.
  */
-function hasRedFlags(selfReview: string): boolean {
-  return SELF_REVIEW_RED_FLAG_PATTERNS.some(
-    ({ keyword, sentiment }) => keyword.test(selfReview) && sentiment.test(selfReview),
+function hasRedFlags(selfReview: SelfReview): boolean {
+  return (
+    !selfReview.no_async_in_handlers ||
+    !selfReview.imports_valid ||
+    !selfReview.uses_runner_pattern ||
+    !selfReview.uses_cre_handler ||
+    !selfReview.config_via_runtime ||
+    !selfReview.no_nondeterminism ||
+    !selfReview.implements_user_request
   )
+}
+
+/**
+ * Formats structured self-review into a string for retry context.
+ */
+function formatSelfReview(selfReview: SelfReview): string {
+  const failures: string[] = []
+  if (!selfReview.no_async_in_handlers) failures.push("async/await found in handler callbacks")
+  if (!selfReview.imports_valid) failures.push("invalid imports detected")
+  if (!selfReview.uses_runner_pattern) failures.push("missing Runner.newRunner pattern")
+  if (!selfReview.uses_cre_handler) failures.push("missing cre.handler() wiring")
+  if (!selfReview.config_via_runtime) failures.push("config not accessed via runtime.config")
+  if (!selfReview.no_nondeterminism) failures.push("non-deterministic patterns detected")
+  if (!selfReview.implements_user_request) failures.push("does not implement user request")
+  if (selfReview.issues_found) failures.push(selfReview.issues_found)
+  return failures.join("; ")
 }

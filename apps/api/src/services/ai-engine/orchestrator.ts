@@ -285,7 +285,7 @@ async function runPipeline(
       const configJsonStr = JSON.stringify(generated.configJson)
 
       // Stage 4: Validation (cheap-first: fast regex then tsc)
-      const validation = await validateWorkflow(fixedCode, configJsonStr)
+      const validation = await validateWorkflow(fixedCode, configJsonStr, intent, templateDef ?? undefined)
 
       if (validation.valid) {
         // Check abort signal before DB save

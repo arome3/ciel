@@ -10,7 +10,7 @@ export function TopBar() {
   const toggleCommand = useCommandStore((s) => s.toggle)
 
   return (
-    <header className="sticky top-0 z-10 flex h-12 items-center gap-3 border-b border-border bg-card px-4">
+    <header className="sticky top-0 z-10 flex h-12 items-center gap-3 border-b border-border bg-background px-4">
       {/* Mobile hamburger */}
       <button
         type="button"
