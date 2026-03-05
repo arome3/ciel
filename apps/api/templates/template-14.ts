@@ -2,14 +2,14 @@
 // Trigger: CronCapability | Capabilities: ConfidentialHTTPClient, S3, @noble/hashes, writeReport
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
   type Runtime,
   type CronPayload,
   getNetwork,
-  encodeAbiParameters,
-  parseAbiParameters,
+  decodeJson,
 } from "@chainlink/cre-sdk"
 import { sha256 } from "@noble/hashes/sha2"
 import { hmac } from "@noble/hashes/hmac"
@@ -89,7 +89,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
       method: "GET",
       headers: { ...getHeaders, Host: host },
     }).result()
-    state = JSON.parse(getResp.body)
+    state = decodeJson(getResp.body)
   } catch {
     runtime.log("No existing state found, using defaults")
   }
@@ -101,7 +101,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     method: "GET",
     headers: { "Content-Type": "application/json" },
   }).result()
-  const data = JSON.parse(dataResp.body)
+  const data = decodeJson(dataResp.body)
   const newValue = Math.round((data.value ?? 0) * 1e8)
 
   // Update state
@@ -141,7 +141,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     [BigInt(newValue), BigInt(movingAverage), BigInt(state.count)]
   )
 
-  const report = runtime.report({
+  const creReport = runtime.report({
     encodedPayload,
     encoderName: "EVM",
     signingAlgo: "SECP256K1",
@@ -150,7 +150,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
 
   evmClient.writeReport(runtime, {
     receiver: runtime.config.consumerContract,
-    report: report.report,
+    report: creReport,
     gasConfig: { gasLimit: 500000 },
   }).result()
 

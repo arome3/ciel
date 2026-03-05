@@ -2,6 +2,7 @@
 // Trigger: CronCapability | Capabilities: Multi-chain EVMClient, rebalance
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
@@ -9,8 +10,8 @@ import {
   type CronPayload,
   getNetwork,
   consensusMedianAggregation,
+  decodeJson,
 } from "@chainlink/cre-sdk"
-import { encodeAbiParameters, parseAbiParameters } from "viem"
 
 const configSchema = z.object({
   portfolioApiUrl: z.string().describe("Portfolio data API endpoint"),
@@ -37,7 +38,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const positions = JSON.parse(response.body)
+  const positions = decodeJson(response.body)
   const targets = JSON.parse(runtime.config.targetAllocations)
 
   // Calculate drift from target allocations

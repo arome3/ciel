@@ -10,6 +10,7 @@
 // where a workflow both polls for data and reacts to on-chain triggers.
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
@@ -19,8 +20,7 @@ import {
   getNetwork,
   bytesToHex,
   hexToBase64,
-  encodeAbiParameters,
-  parseAbiParameters,
+  decodeJson,
 } from "@chainlink/cre-sdk"
 
 const configSchema = z.object({
@@ -58,7 +58,7 @@ function writeOnchainReport(
     ]
   )
 
-  const report = runtime.report({
+  const creReport = runtime.report({
     encodedPayload: reportData,
     encoderName: "EVM",
     signingAlgo: "SECP256K1",
@@ -67,7 +67,7 @@ function writeOnchainReport(
 
   evmClient.writeReport(runtime, {
     receiver: runtime.config.consumerContract,
-    report: report.report,
+    report: creReport,
     gasConfig: { gasLimit: 500000 },
   }).result()
 }
@@ -91,7 +91,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const data = JSON.parse(resp.body) as { value?: number }
+  const data = decodeJson(resp.body) as { value?: number }
   const value = Math.round((data.value ?? 0) * 1e8)
 
   runtime.log(`Cron: fetched value ${value}`)

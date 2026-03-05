@@ -353,43 +353,35 @@ describe("buildGenerationPrompt", () => {
 // ─────────────────────────────────────────────
 
 describe("generateCode", () => {
-  // Mock OpenAI at the module level
+  // Mock OpenAI Responses API (responses.parse) at the module level
   const mockParse = mock(() =>
     Promise.resolve({
-      choices: [
-        {
-          message: {
-            parsed: {
-              thinking: "Step 1: Use CronCapability for 5-min schedule...",
-              workflow_ts: `import { z } from "zod"\nimport { Runner, Runtime, CronCapability, HTTPClient, handler, consensusMedianAggregation } from "@chainlink/cre-sdk"\n\nconst configSchema = z.object({ apiUrl: z.string() })\ntype Config = z.infer<typeof configSchema>\nconst runner = Runner.newRunner<Config>({ configSchema })\nfunction initWorkflow(runtime: Runtime<Config>) {\n  const trigger = new CronCapability().trigger({ cronSchedule: "0 */5 * * * *" })\n  const http = new HTTPClient()\n  handler(trigger, (rt) => {\n    const res = http.fetch(rt.config.apiUrl).result()\n    return JSON.parse(res.body)\n  })\n}\nexport function main() { runner.run(initWorkflow) }`,
-              config_json: '{"apiUrl":"https://api.example.com/price"}',
-              consumer_sol: null,
-              self_review: {
-                no_async_in_handlers: true,
-                imports_valid: true,
-                uses_runner_pattern: true,
-                uses_cre_handler: true,
-                config_via_runtime: true,
-                no_nondeterminism: true,
-                implements_user_request: true,
-                issues_found: "",
-              },
-              explanation: "Monitors ETH price every 5 minutes using a CRE cron workflow.",
-            },
-            refusal: null,
-          },
+      output: [{ type: "message", content: [] }],
+      output_parsed: {
+        thinking: "Step 1: Use CronCapability for 5-min schedule...",
+        workflow_ts: `import { z } from "zod"\nimport { Runner, Runtime, CronCapability, HTTPClient, handler, consensusMedianAggregation } from "@chainlink/cre-sdk"\n\nconst configSchema = z.object({ apiUrl: z.string() })\ntype Config = z.infer<typeof configSchema>\nconst runner = Runner.newRunner<Config>({ configSchema })\nfunction initWorkflow(runtime: Runtime<Config>) {\n  const trigger = new CronCapability().trigger({ cronSchedule: "0 */5 * * * *" })\n  const http = new HTTPClient()\n  handler(trigger, (rt) => {\n    const res = http.fetch(rt.config.apiUrl).result()\n    return JSON.parse(res.body)\n  })\n}\nexport function main() { runner.run(initWorkflow) }`,
+        config_json: '{"apiUrl":"https://api.example.com/price"}',
+        consumer_sol: null,
+        self_review: {
+          no_async_in_handlers: true,
+          imports_valid: true,
+          uses_runner_pattern: true,
+          uses_cre_handler: true,
+          config_via_runtime: true,
+          no_nondeterminism: true,
+          implements_user_request: true,
+          issues_found: "",
         },
-      ],
+        explanation: "Monitors ETH price every 5 minutes using a CRE cron workflow.",
+      },
     }),
   )
 
   // We need to mock the OpenAI module before importing generateCode
   mock.module("openai", () => ({
     default: class MockOpenAI {
-      chat = {
-        completions: {
-          parse: mockParse,
-        },
+      responses = {
+        parse: mockParse,
       }
     },
   }))
@@ -468,36 +460,30 @@ describe("generateCode", () => {
     // Temporarily override mock to return empty workflow
     const emptyMock = mock(() =>
       Promise.resolve({
-        choices: [
-          {
-            message: {
-              parsed: {
-                thinking: "...",
-                workflow_ts: "",
-                config_json: "{}",
-                consumer_sol: null,
-                self_review: {
-                  no_async_in_handlers: true,
-                  imports_valid: true,
-                  uses_runner_pattern: false,
-                  uses_cre_handler: false,
-                  config_via_runtime: false,
-                  no_nondeterminism: true,
-                  implements_user_request: false,
-                  issues_found: "No code generated",
-                },
-                explanation: "Empty",
-              },
-              refusal: null,
-            },
+        output: [{ type: "message", content: [] }],
+        output_parsed: {
+          thinking: "...",
+          workflow_ts: "",
+          config_json: "{}",
+          consumer_sol: null,
+          self_review: {
+            no_async_in_handlers: true,
+            imports_valid: true,
+            uses_runner_pattern: false,
+            uses_cre_handler: false,
+            config_via_runtime: false,
+            no_nondeterminism: true,
+            implements_user_request: false,
+            issues_found: "No code generated",
           },
-        ],
+          explanation: "Empty",
+        },
       }),
     )
 
     mock.module("openai", () => ({
       default: class MockOpenAI {
-        chat = { completions: { parse: emptyMock } }
+        responses = { parse: emptyMock }
       },
     }))
 
@@ -521,20 +507,17 @@ describe("generateCode", () => {
   test("handles model refusal with AppError", async () => {
     const refusalMock = mock(() =>
       Promise.resolve({
-        choices: [
-          {
-            message: {
-              parsed: null,
-              refusal: "I cannot generate this code due to policy restrictions.",
-            },
-          },
-        ],
+        output: [{
+          type: "message",
+          content: [{ type: "refusal", refusal: "I cannot generate this code due to policy restrictions." }],
+        }],
+        output_parsed: null,
       }),
     )
 
     mock.module("openai", () => ({
       default: class MockOpenAI {
-        chat = { completions: { parse: refusalMock } }
+        responses = { parse: refusalMock }
       },
     }))
 

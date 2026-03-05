@@ -5,6 +5,7 @@
 // Reuses T4's compliance check pattern and T15's viem ABI encoding
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
@@ -13,10 +14,12 @@ import {
   encodeCallMsg,
   bytesToHex,
   LAST_FINALIZED_BLOCK_NUMBER,
-  encodeAbiParameters,
-  parseAbiParameters,
+  decodeJson,
 } from "@chainlink/cre-sdk"
-import { encodeFunctionData, decodeFunctionResult, parseAbi } from "viem"
+
+// Function selectors (keccak256 of signature, first 4 bytes)
+const BALANCE_OF_SELECTOR = "0x70a08231" // balanceOf(address)
+const BURN_SELECTOR = "0x42966c68"       // burn(uint256)
 
 const configSchema = z.object({
   chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
@@ -29,10 +32,6 @@ const configSchema = z.object({
 
 type Config = z.infer<typeof configSchema>
 
-const erc20Abi = parseAbi([
-  "function balanceOf(address account) view returns (uint256)",
-  "function burn(uint256 amount) returns (bool)",
-])
 
 const onHttpTrigger = (runtime: Runtime<Config>, payload: Record<string, unknown>): string => {
   runtime.log("Starting stablecoin redemption/burn workflow...")
@@ -49,7 +48,7 @@ const onHttpTrigger = (runtime: Runtime<Config>, payload: Record<string, unknown
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const compliance = JSON.parse(complianceResp.body) as { approved: boolean }
+  const compliance = decodeJson(complianceResp.body) as { approved: boolean }
   if (!compliance.approved) {
     runtime.log("Compliance check failed — redemption blocked")
     return JSON.stringify({ executed: false, reason: "compliance_failed" })
@@ -59,22 +58,17 @@ const onHttpTrigger = (runtime: Runtime<Config>, payload: Record<string, unknown
   const network = getNetwork({ chainFamily: "evm", chainSelectorName: runtime.config.chainSelectorName, isTestnet: true })
   const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
 
-  const balanceData = encodeFunctionData({
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: [redeemer as `0x${string}`],
-  })
+  const balanceCallData = BALANCE_OF_SELECTOR + encodeAbiParameters(
+    parseAbiParameters("address"),
+    [redeemer as `0x${string}`]
+  ).slice(2)
 
   const balanceResp = evmClient.callContract(runtime, {
-    call: encodeCallMsg({ from: "0x0", to: runtime.config.tokenAddress, data: balanceData }),
+    call: encodeCallMsg({ from: "0x0", to: runtime.config.tokenAddress, data: balanceCallData }),
     blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
   }).result()
 
-  const balance = decodeFunctionResult({
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    data: bytesToHex(balanceResp.data as unknown as Uint8Array),
-  }) as bigint
+  const balance = BigInt(bytesToHex(balanceResp.data as unknown as Uint8Array))
 
   runtime.log(`Token balance: ${balance.toString()}, burn amount: ${burnAmount.toString()}`)
 
@@ -83,31 +77,26 @@ const onHttpTrigger = (runtime: Runtime<Config>, payload: Record<string, unknown
     return JSON.stringify({ executed: false, reason: "insufficient_balance", balance: balance.toString() })
   }
 
-  // Step 3: Execute burn
-  runtime.log("Executing token burn...")
-  const burnData = encodeFunctionData({
-    abi: erc20Abi,
-    functionName: "burn",
-    args: [burnAmount],
-  })
+  // Step 3: Encode burn intent and report onchain via writeReport
+  // Consumer contract (IReceiver.onReport) decodes and executes the burn
+  runtime.log("Encoding burn intent and writing report...")
+  const burnData = BURN_SELECTOR + encodeAbiParameters(
+    parseAbiParameters("uint256"),
+    [burnAmount]
+  ).slice(2)
 
-  const burnResult = evmClient.sendTransaction(runtime, {
-    to: runtime.config.tokenAddress,
-    data: burnData,
-  }).result()
-
-  if (!burnResult || !burnResult.success) {
-    runtime.log("Burn transaction failed")
-    return JSON.stringify({ executed: false, reason: "burn_tx_failed" })
-  }
-
-  // Step 4: Report burn onchain
   const reportData = encodeAbiParameters(
-    parseAbiParameters("address redeemer, uint256 amount, uint256 timestamp"),
-    [redeemer as `0x${string}`, burnAmount, BigInt(Math.floor(runtime.now().getTime() / 1000))]
+    parseAbiParameters("address redeemer, address target, bytes callData, uint256 amount, uint256 timestamp"),
+    [
+      redeemer as `0x${string}`,
+      runtime.config.tokenAddress as `0x${string}`,
+      burnData as `0x${string}`,
+      burnAmount,
+      BigInt(Math.floor(runtime.now().getTime() / 1000)),
+    ]
   )
 
-  const report = runtime.report({
+  const creReport = runtime.report({
     encodedPayload: reportData,
     encoderName: "EVM",
     signingAlgo: "SECP256K1",
@@ -116,7 +105,7 @@ const onHttpTrigger = (runtime: Runtime<Config>, payload: Record<string, unknown
 
   evmClient.writeReport(runtime, {
     receiver: runtime.config.consumerContract,
-    report: report.report,
+    report: creReport,
     gasConfig: { gasLimit: 500000 },
   }).result()
 

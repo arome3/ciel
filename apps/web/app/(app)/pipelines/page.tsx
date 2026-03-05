@@ -1,12 +1,12 @@
 "use client"
 
+import { useAccount } from "wagmi"
 import { WorkflowPalette } from "@/components/pipelines/WorkflowPalette"
 import { PipelineCanvas } from "@/components/pipelines/PipelineCanvas"
 import { PipelineSummary } from "@/components/pipelines/PipelineSummary"
 
 export default function PipelinesPage() {
-  // TODO: wire wallet provider (e.g. wagmi useAccount) to get real address
-  const ownerAddress: string | undefined = undefined
+  const { address } = useAccount()
 
   return (
     <>
@@ -25,7 +25,7 @@ export default function PipelinesPage() {
           <WorkflowPalette />
           <PipelineCanvas />
         </div>
-        <PipelineSummary ownerAddress={ownerAddress} />
+        <PipelineSummary ownerAddress={address} />
       </div>
     </>
   )

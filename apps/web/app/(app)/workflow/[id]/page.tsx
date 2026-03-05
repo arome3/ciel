@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useWorkflowStore } from "@/lib/store"
+import { useAccount, useSignMessage } from "wagmi"
 import { getCategoryVariant, getCategoryLabel, CHAIN_COLORS } from "@/lib/design-tokens"
 import { api, type WorkflowDetail } from "@/lib/api"
 
@@ -100,7 +100,8 @@ function DetailSkeleton() {
 
 export default function WorkflowDetailPage() {
   const params = useParams<{ id: string }>()
-  const walletAddress = useWorkflowStore((s) => s.walletAddress)
+  const { address } = useAccount()
+  const { signMessageAsync } = useSignMessage()
 
   const [workflow, setWorkflow] = useState<WorkflowDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -134,9 +135,9 @@ export default function WorkflowDetailPage() {
   }, [params.id])
 
   const isOwner =
-    walletAddress !== null &&
+    address !== undefined &&
     workflow !== null &&
-    walletAddress.toLowerCase() === workflow.ownerAddress.toLowerCase()
+    address.toLowerCase() === workflow.ownerAddress.toLowerCase()
 
   const handleExecute = useCallback(async () => {
     if (!workflow || executing) return
@@ -146,14 +147,24 @@ export default function WorkflowDetailPage() {
     setExecError(null)
 
     try {
-      const result = await api.executeWorkflow(workflow.id)
+      let ownerAuth: { address: string; signature: string } | undefined
+      if (isOwner && address) {
+        try {
+          const signature = await signMessageAsync({ message: workflow.id })
+          ownerAuth = { address, signature }
+        } catch {
+          // User rejected signing — fall through to paid execution
+        }
+      }
+
+      const result = await api.executeWorkflow(workflow.id, ownerAuth)
       setExecResult(result)
     } catch (err) {
       setExecError(err instanceof Error ? err.message : "Execution failed")
     } finally {
       setExecuting(false)
     }
-  }, [workflow, executing])
+  }, [workflow, executing, isOwner, address, signMessageAsync])
 
   if (loading) return <DetailSkeleton />
 

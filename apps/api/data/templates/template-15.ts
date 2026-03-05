@@ -1,5 +1,5 @@
 // Template 15: Cross-Chain CCIP Token Transfer
-// Trigger: CronCapability | Capabilities: EVMClient (callContract, sendTransaction), writeReport
+// Trigger: CronCapability | Capabilities: EVMClient (callContract, writeReport)
 
 import { z } from "zod"
 import {
@@ -14,7 +14,11 @@ import {
   encodeAbiParameters,
   parseAbiParameters,
 } from "@chainlink/cre-sdk"
-import { encodeFunctionData, decodeFunctionResult, parseAbi } from "viem"
+
+// Function selectors (keccak256 of signature, first 4 bytes)
+const BALANCE_OF_SELECTOR = "0x70a08231"  // balanceOf(address)
+const APPROVE_SELECTOR = "0x095ea7b3"     // approve(address,uint256)
+const CCIP_SEND_SELECTOR = "0x96f4e9f9"   // ccipSend(uint64,(bytes,bytes,(address,uint256)[],address,bytes))
 
 const configSchema = z.object({
   schedule: z.string().default("0 0 * * * *").describe("Transfer check frequency"),
@@ -31,10 +35,6 @@ const configSchema = z.object({
 
 type Config = z.infer<typeof configSchema>
 
-const erc20Abi = parseAbi([
-  "function approve(address spender, uint256 amount) returns (bool)",
-  "function balanceOf(address account) view returns (uint256)",
-])
 
 const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
   runtime.log("Starting CCIP cross-chain transfer workflow...")
@@ -54,26 +54,21 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
   const transferAmount = BigInt(runtime.config.transferAmount)
 
   // Step 1: Check sender's token balance (contract's own balance)
-  const balanceData = encodeFunctionData({
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: [runtime.config.consumerContract as `0x${string}`],
-  })
+  const balanceCallData = BALANCE_OF_SELECTOR + encodeAbiParameters(
+    parseAbiParameters("address"),
+    [runtime.config.consumerContract as `0x${string}`]
+  ).slice(2)
 
   const balanceResp = evmClient.callContract(runtime, {
     call: encodeCallMsg({
       from: "0x0",
       to: runtime.config.tokenAddress,
-      data: balanceData,
+      data: balanceCallData,
     }),
     blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
   }).result()
 
-  const balance = decodeFunctionResult({
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    data: bytesToHex(balanceResp.data as unknown as Uint8Array),
-  }) as bigint
+  const balance = BigInt(bytesToHex(balanceResp.data as unknown as Uint8Array))
 
   runtime.log(`Token balance: ${balance.toString()}`)
 
@@ -82,74 +77,49 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     return JSON.stringify({ executed: false, reason: "insufficient_balance", balance: balance.toString() })
   }
 
-  // Step 2: Approve Router to spend tokens
-  runtime.log("Approving CCIP Router for token spend...")
-  const approveData = encodeFunctionData({
-    abi: erc20Abi,
-    functionName: "approve",
-    args: [runtime.config.ccipRouterAddress as `0x${string}`, transferAmount],
-  })
-
-  evmClient.sendTransaction(runtime, {
-    to: runtime.config.tokenAddress,
-    data: approveData,
-  }).result()
-
-  // Step 3: Build CCIP message and send
+  // Step 2: Build CCIP message
   const receiverBytes = encodeAbiParameters(
     parseAbiParameters("address"),
     [runtime.config.receiverAddress as `0x${string}`]
   )
 
-  const ccipMessage = encodeAbiParameters(
-    parseAbiParameters("bytes receiver, bytes data, (address token, uint256 amount)[] tokenAmounts, address feeToken, bytes extraArgs"),
-    [
-      receiverBytes as `0x${string}`,
-      "0x" as `0x${string}`,
-      [{ token: runtime.config.tokenAddress as `0x${string}`, amount: transferAmount }],
-      runtime.config.feeTokenAddress as `0x${string}`,
-      "0x" as `0x${string}`,
-    ]
-  )
-
-  // Send CCIP message
-  runtime.log("Sending CCIP transfer...")
   const destSelector = BigInt(destNetwork.chainSelector.selector)
 
-  const ccipRouterAbi = parseAbi([
-    "function ccipSend(uint64 destinationChainSelector, (bytes receiver, bytes data, (address token, uint256 amount)[] tokenAmounts, address feeToken, bytes extraArgs) message) payable returns (bytes32)",
-  ])
+  // Encode approve calldata
+  const approveData = APPROVE_SELECTOR + encodeAbiParameters(
+    parseAbiParameters("address, uint256"),
+    [runtime.config.ccipRouterAddress as `0x${string}`, transferAmount]
+  ).slice(2)
 
-  const ccipSendData = encodeFunctionData({
-    abi: ccipRouterAbi,
-    functionName: "ccipSend",
-    args: [
-      destSelector,
-      {
-        receiver: receiverBytes as `0x${string}`,
-        data: "0x" as `0x${string}`,
-        tokenAmounts: [{ token: runtime.config.tokenAddress as `0x${string}`, amount: transferAmount }],
-        feeToken: runtime.config.feeTokenAddress as `0x${string}`,
-        extraArgs: "0x" as `0x${string}`,
-      },
-    ],
-  })
-
-  const txResult = evmClient.sendTransaction(runtime, {
-    to: runtime.config.ccipRouterAddress,
-    data: ccipSendData,
-    value: runtime.config.feeTokenAddress === "0x0000000000000000000000000000000000000000" ? "100000000000000" : "0",
-  }).result()
-
-  if (!txResult || !txResult.success) {
-    runtime.log("CCIP transfer transaction failed")
-    return JSON.stringify({ executed: false, reason: "ccip_tx_failed" })
-  }
-
-  // Step 4: Report transfer onchain
-  const reportData = encodeAbiParameters(
-    parseAbiParameters("uint256 amount, uint64 destChain, uint256 timestamp"),
+  // Encode ccipSend calldata
+  const ccipSendData = CCIP_SEND_SELECTOR + encodeAbiParameters(
+    parseAbiParameters("uint64, (bytes, bytes, (address, uint256)[], address, bytes)"),
     [
+      destSelector,
+      [
+        receiverBytes as `0x${string}`,
+        "0x" as `0x${string}`,
+        [[runtime.config.tokenAddress as `0x${string}`, transferAmount]],
+        runtime.config.feeTokenAddress as `0x${string}`,
+        "0x" as `0x${string}`,
+      ],
+    ]
+  ).slice(2)
+
+  // Step 3: Pack both operations (approve + ccipSend) into single report payload
+  runtime.log("Encoding CCIP transfer intent and writing report...")
+  const feeValue = runtime.config.feeTokenAddress === "0x0000000000000000000000000000000000000000"
+    ? BigInt("100000000000000")
+    : BigInt(0)
+
+  const reportData = encodeAbiParameters(
+    parseAbiParameters("address tokenAddr, bytes approveData, address routerAddr, bytes ccipSendData, uint256 feeValue, uint256 amount, uint64 destChain, uint256 timestamp"),
+    [
+      runtime.config.tokenAddress as `0x${string}`,
+      approveData as `0x${string}`,
+      runtime.config.ccipRouterAddress as `0x${string}`,
+      ccipSendData as `0x${string}`,
+      feeValue,
       transferAmount,
       destSelector,
       BigInt(Math.floor(runtime.now().getTime() / 1000)),

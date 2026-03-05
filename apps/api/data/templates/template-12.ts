@@ -226,13 +226,31 @@ const onEvmLogTrigger = (runtime: Runtime<Config>, log: EVMLog): string => {
       ]
     )
 
-    runtime.log("Executing reactive swap")
+    runtime.log("Executing reactive swap via writeReport")
 
-    evmClient.sendTransaction(runtime, {
-      to: runtime.config.swapRouterAddress,
-      data: swapCalldata,
-      value: runtime.config.tokenIn === "0x0000000000000000000000000000000000000000" ? runtime.config.swapAmountWei : "0",
-    })
+    const swapValue = runtime.config.tokenIn === "0x0000000000000000000000000000000000000000"
+      ? BigInt(runtime.config.swapAmountWei)
+      : BigInt(0)
+    const swapReportData = encodeAbiParameters(
+      parseAbiParameters("address target, bytes callData, uint256 value, uint256 timestamp"),
+      [
+        runtime.config.swapRouterAddress as `0x${string}`,
+        swapCalldata as `0x${string}`,
+        swapValue,
+        BigInt(Math.floor(runtime.now().getTime() / 1000)),
+      ]
+    )
+    const swapReport = runtime.report({
+      encodedPayload: swapReportData,
+      encoderName: "EVM",
+      signingAlgo: "SECP256K1",
+      hashingAlgo: "KECCAK256",
+    }).result()
+    evmClient.writeReport(runtime, {
+      receiver: runtime.config.consumerContract,
+      report: swapReport.report,
+      gasConfig: { gasLimit: 500000 },
+    }).result()
   }
 
   return JSON.stringify({

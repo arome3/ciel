@@ -14,6 +14,7 @@
 // topics/data and uses bytesToHex()/hexToBase64() for encoding.
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
@@ -22,8 +23,8 @@ import {
   getNetwork,
   hexToBase64,
   bytesToHex,
+  decodeJson,
 } from "@chainlink/cre-sdk"
-import { encodeAbiParameters, parseAbiParameters } from "viem"
 
 const configSchema = z.object({
   chainSelectorName: z.string().default("base-sepolia").describe("Chain to monitor for Transfer events"),
@@ -127,7 +128,7 @@ const onEvmLogTrigger = (runtime: Runtime<Config>, log: EVMLog): string => {
         },
         body: JSON.stringify({ address: counterparty }),
       }).result()
-      const enrichData = JSON.parse(enrichResp.body) as { label?: string }
+      const enrichData = decodeJson(enrichResp.body) as { label?: string }
       counterpartyLabel = enrichData.label || ""
     } catch {
       // Enrichment failure is non-fatal
@@ -209,10 +210,29 @@ const onEvmLogTrigger = (runtime: Runtime<Config>, log: EVMLog): string => {
       ]
     )
 
-    evmClient.sendTransaction(runtime, {
-      to: runtime.config.swapRouterAddress,
-      data: swapCalldata,
-      value: runtime.config.tokenIn === "0x0000000000000000000000000000000000000000" ? runtime.config.swapAmountWei : "0",
+    // Encode swap intent into report payload → writeReport to consumer
+    const swapValue = runtime.config.tokenIn === "0x0000000000000000000000000000000000000000"
+      ? BigInt(runtime.config.swapAmountWei)
+      : BigInt(0)
+    const swapReportData = encodeAbiParameters(
+      parseAbiParameters("address target, bytes callData, uint256 value, uint256 timestamp"),
+      [
+        runtime.config.swapRouterAddress as `0x${string}`,
+        swapCalldata as `0x${string}`,
+        swapValue,
+        BigInt(Math.floor(runtime.now().getTime() / 1000)),
+      ]
+    )
+    const swapReport = runtime.report({
+      encodedPayload: swapReportData,
+      encoderName: "EVM",
+      signingAlgo: "SECP256K1",
+      hashingAlgo: "KECCAK256",
+    }).result()
+    evmClient.writeReport(runtime, {
+      receiver: runtime.config.consumerContract,
+      report: swapReport.report,
+      gasConfig: { gasLimit: 500000 },
     }).result()
   }
 

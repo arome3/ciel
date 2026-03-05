@@ -69,7 +69,7 @@ interface PipelineBuilderState {
   setName: (name: string) => void
   setDescription: (description: string) => void
   savePipeline: (ownerAddress: string) => Promise<string | null>
-  executePipeline: (pipelineId: string, triggerInput?: Record<string, unknown>) => Promise<unknown>
+  executePipeline: (pipelineId: string, triggerInput?: Record<string, unknown>, ownerAuth?: { address: string; signature: string; timestamp: string }) => Promise<unknown>
   reset: () => void
 
   // Computed
@@ -480,10 +480,10 @@ export const usePipelineBuilderStore = create<PipelineBuilderState>(
       }
     },
 
-    executePipeline: async (pipelineId, triggerInput) => {
+    executePipeline: async (pipelineId, triggerInput, ownerAuth) => {
       set({ isExecuting: true })
       try {
-        const result = await api.executePipeline(pipelineId, triggerInput)
+        const result = await api.executePipeline(pipelineId, triggerInput, ownerAuth)
         return result
       } finally {
         set({ isExecuting: false })

@@ -2,6 +2,7 @@
 // Trigger: CronCapability | Capabilities: HTTPClient reserve, callContract, writeReport
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
@@ -9,8 +10,11 @@ import {
   type CronPayload,
   getNetwork,
   consensusMedianAggregation,
+  decodeJson,
 } from "@chainlink/cre-sdk"
-import { encodeFunctionData, parseAbi, decodeFunctionResult, encodeAbiParameters, parseAbiParameters } from "viem"
+
+// Function selectors (keccak256 of signature, first 4 bytes)
+const TOTAL_SUPPLY_SELECTOR = "0x18160ddd" // totalSupply()
 
 const configSchema = z.object({
   reserveApiUrl: z.string().describe("Reserve holdings API endpoint"),
@@ -37,18 +41,17 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const reserves = JSON.parse(reserveResp.body)
+  const reserves = decodeJson(reserveResp.body)
   const totalReserves = reserves.totalValue
 
   // Read on-chain token supply
-  const abi = parseAbi(["function totalSupply() view returns (uint256)"])
   const supplyResult = evmClient.callContract({
     contractAddress: runtime.config.tokenContract,
     chainSelector: network.chainSelector.selector,
-    callData: encodeFunctionData({ abi, functionName: "totalSupply" }),
+    callData: TOTAL_SUPPLY_SELECTOR,
   }).result()
 
-  const totalSupply = Number(decodeFunctionResult({ abi, functionName: "totalSupply", data: supplyResult }))
+  const totalSupply = Number(BigInt(supplyResult))
   const ratio = totalReserves / (totalSupply / 1e18)
 
   // Alert if ratio drops below threshold

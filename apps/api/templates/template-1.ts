@@ -8,6 +8,7 @@ import {
   type Runtime,
   type CronPayload,
   consensusMedianAggregation,
+  decodeJson,
 } from "@chainlink/cre-sdk"
 
 const configSchema = z.object({
@@ -33,7 +34,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const priceData = JSON.parse(priceResponse.body)
+  const priceData = decodeJson(priceResponse.body)
   const currentPrice = priceData[runtime.config.assetId]?.usd ?? 0
 
   const shouldAlert =

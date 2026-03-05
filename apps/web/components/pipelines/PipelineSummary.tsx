@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { useSignMessage } from "wagmi"
 import { usePipelineBuilderStore } from "@/lib/pipeline-builder-store"
 import { toastSuccess, toastInfo, toastError } from "@/lib/toast"
 
@@ -22,6 +23,7 @@ export function PipelineSummary({ ownerAddress }: PipelineSummaryProps) {
   const executePipelineAction = usePipelineBuilderStore((s) => s.executePipeline)
   const isSaving = usePipelineBuilderStore((s) => s.isSaving)
   const isExecuting = usePipelineBuilderStore((s) => s.isExecuting)
+  const { signMessageAsync } = useSignMessage()
 
   const [savedPipelineId, setSavedPipelineId] = useState<string | null>(null)
 
@@ -48,7 +50,20 @@ export function PipelineSummary({ ownerAddress }: PipelineSummaryProps) {
     }
 
     try {
-      const result = await executePipelineAction(savedPipelineId)
+      let ownerAuth: { address: string; signature: string; timestamp: string } | undefined
+      if (ownerAddress) {
+        try {
+          const timestamp = String(Date.now())
+          const signature = await signMessageAsync({
+            message: `${savedPipelineId}:${timestamp}`,
+          })
+          ownerAuth = { address: ownerAddress, signature, timestamp }
+        } catch {
+          // User rejected signing — proceed without auth
+        }
+      }
+
+      const result = await executePipelineAction(savedPipelineId, undefined, ownerAuth)
       const status = (result as any)?.status
       if (status === "completed") {
         toastSuccess("Pipeline completed", "All steps executed successfully")

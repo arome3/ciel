@@ -12,16 +12,20 @@ class ApiError extends Error {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
   })
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`
     try {
       const body = await res.json()
-      if (body.message) message = body.message
-      else if (body.error) message = body.error
+      if (body.error?.message) message = body.error.message
+      else if (body.message) message = body.message
+      else if (typeof body.error === "string") message = body.error
     } catch {
       // use default message
     }
@@ -119,11 +123,13 @@ export interface Simulation {
   success: boolean
 }
 
-export interface PublishResponse {
+export interface ConfirmPublishResponse {
   workflowId: string
   onchainWorkflowId: string
   publishTxHash: string
   x402Endpoint: string
+  deployStatus: "pending" | "deployed" | "failed"
+  donWorkflowId: string | null
 }
 
 export interface WorkflowListItem {
@@ -172,10 +178,17 @@ export const api = {
   async generate(
     prompt: string,
     templateHint?: number,
+    signal?: AbortSignal,
   ): Promise<GeneratedWorkflow> {
+    const timeoutSignal = AbortSignal.timeout(660_000) // 11min — backend pipeline is 10min max
+    const combinedSignal = signal
+      ? AbortSignal.any([signal, timeoutSignal])
+      : timeoutSignal
+
     const raw = await request<RawGenerateResponse>("/api/generate", {
       method: "POST",
       body: JSON.stringify({ prompt, templateHint }),
+      signal: combinedSignal,
     })
 
     let config: Record<string, unknown> = {}
@@ -222,15 +235,26 @@ export const api = {
     }
   },
 
-  async publish(
+  async confirmPublish(
     workflowId: string,
+    txHash: string,
+    onchainWorkflowId: string,
     name: string,
     description: string,
     priceUsdc: number,
-  ): Promise<PublishResponse> {
-    return request<PublishResponse>("/api/publish", {
+    ownerAddress: string,
+  ): Promise<ConfirmPublishResponse> {
+    return request<ConfirmPublishResponse>("/api/publish/confirm", {
       method: "POST",
-      body: JSON.stringify({ workflowId, name, description, priceUsdc }),
+      headers: { "X-Owner-Address": ownerAddress },
+      body: JSON.stringify({
+        workflowId,
+        txHash,
+        onchainWorkflowId,
+        name,
+        description,
+        priceUsdc,
+      }),
     })
   },
 

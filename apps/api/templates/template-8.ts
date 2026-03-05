@@ -2,6 +2,7 @@
 // Trigger: CronCapability | Capabilities: HTTPClient KYC/AML, conditional evmWrite
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
@@ -9,8 +10,8 @@ import {
   type CronPayload,
   getNetwork,
   consensusIdenticalAggregation,
+  decodeJson,
 } from "@chainlink/cre-sdk"
-import { encodeAbiParameters, parseAbiParameters } from "viem"
 
 const configSchema = z.object({
   complianceApiUrl: z.string().describe("KYC/AML compliance API endpoint"),
@@ -38,7 +39,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const kyc = JSON.parse(kycResp.body)
+  const kyc = decodeJson(kycResp.body)
   if (!kyc.verified) {
     runtime.log("KYC check failed")
     return JSON.stringify({ status: "rejected", reason: "kyc_failed" })
@@ -51,7 +52,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const sanctions = JSON.parse(sanctionsResp.body)
+  const sanctions = decodeJson(sanctionsResp.body)
   if (sanctions.flagged) {
     runtime.log("Sanctions screening flagged")
     return JSON.stringify({ status: "rejected", reason: "sanctions_flagged" })

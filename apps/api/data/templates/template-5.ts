@@ -13,8 +13,10 @@ import {
   type Runtime,
   type CronPayload,
 } from "@chainlink/cre-sdk"
-import { encodeFunctionData, parseAbi, decodeFunctionResult } from "viem"
 import { z } from "zod"
+
+// Function selectors (keccak256 of signature, first 4 bytes)
+const TOTAL_SUPPLY_SELECTOR = "0x18160ddd" // totalSupply()
 
 const configSchema = z.object({
   reserveApiUrl: z.string().describe("Reserve holdings API endpoint"),
@@ -55,13 +57,12 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
   })
   const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
 
-  const abi = parseAbi(["function totalSupply() view returns (uint256)"])
   const supplyResp = evmClient.callContract(runtime, {
-    call: encodeCallMsg({ from: "0x0", to: runtime.config.tokenContract, data: encodeFunctionData({ abi, functionName: "totalSupply" }) }),
+    call: encodeCallMsg({ from: "0x0", to: runtime.config.tokenContract, data: TOTAL_SUPPLY_SELECTOR }),
     blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
   }).result()
 
-  const totalSupply = Number(decodeFunctionResult({ abi, functionName: "totalSupply", data: bytesToHex(supplyResp.data as unknown as Uint8Array) }))
+  const totalSupply = Number(BigInt(bytesToHex(supplyResp.data as unknown as Uint8Array)))
   const ratio = totalReserves / (totalSupply / 1e18)
 
   runtime.log("Reserve ratio: " + ratio + " (threshold: " + runtime.config.minCollateralRatio + ")")

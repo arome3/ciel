@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { Inter, JetBrains_Mono } from "next/font/google"
 import { Toaster } from "@/components/ui/sonner"
+import { Web3Provider } from "@/components/providers/Web3Provider"
 import "./globals.css"
 
 const inter = Inter({
@@ -28,8 +29,10 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
-        {children}
-        <Toaster position="bottom-right" richColors />
+        <Web3Provider>
+          {children}
+          <Toaster position="bottom-right" richColors />
+        </Web3Provider>
       </body>
     </html>
   )

@@ -10,14 +10,15 @@
 //   Base Mainnet: 0x2626664c2603336E57B271c5C0b26F421741e481
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
   type Runtime,
   type CronPayload,
   getNetwork,
+  decodeJson,
 } from "@chainlink/cre-sdk"
-import { encodeAbiParameters, parseAbiParameters } from "viem"
 
 const configSchema = z.object({
   schedule: z.string().default("0 */5 * * * *").describe("Price check frequency (6-field cron)"),
@@ -63,7 +64,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
 
   let priceData: Record<string, { usd: number }>
   try {
-    priceData = JSON.parse(priceResp.body) as Record<string, { usd: number }>
+    priceData = decodeJson(priceResp.body) as Record<string, { usd: number }>
   } catch {
     runtime.log("Failed to parse price response")
     return JSON.stringify({ executed: false, reason: "price_parse_error" })
@@ -114,46 +115,37 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
   // Combine selector + encoded params
   const calldata = EXACT_INPUT_SINGLE_SELECTOR + encodedParams.slice(2)
 
-  // Step 5: Execute swap via sendTransaction
+  // Step 5: Encode swap intent into report payload → writeReport to consumer
+  // Consumer contract (IReceiver.onReport) decodes and executes the swap via SwapRouter
   const isNativeETH = runtime.config.useNativeETH
+  const swapValue = isNativeETH ? BigInt(runtime.config.swapAmountWei) : BigInt(0)
 
-  runtime.log("Executing swap transaction...")
-  const txResult = evmClient.sendTransaction(runtime, {
-    to: runtime.config.swapRouterAddress,
-    data: calldata,
-    ...(isNativeETH ? { value: runtime.config.swapAmountWei } : {}),
-  }).result()
-
-  // Only report onchain if swap succeeded
-  if (!txResult || !txResult.success) {
-    runtime.log("Swap transaction failed")
-    return JSON.stringify({ executed: false, reason: "swap_tx_failed", price: currentPrice })
-  }
-
-  // Step 6: Report execution onchain
+  runtime.log("Encoding swap intent and writing report...")
   const reportData = encodeAbiParameters(
-    parseAbiParameters("uint256 price, uint256 amountIn, uint256 timestamp"),
+    parseAbiParameters("address target, bytes callData, uint256 value, uint256 price, uint256 timestamp"),
     [
+      runtime.config.swapRouterAddress as `0x${string}`,
+      calldata as `0x${string}`,
+      swapValue,
       BigInt(Math.round(currentPrice * 1e8)),
-      amountIn,
       BigInt(Math.floor(runtime.now().getTime() / 1000)),
     ],
   )
 
-  const report = runtime.report({
+  const creReport = runtime.report({
     encodedPayload: reportData,
-    encoderName: "evm",
-    signingAlgo: "evm",
-    hashingAlgo: "keccak256",
+    encoderName: "EVM",
+    signingAlgo: "SECP256K1",
+    hashingAlgo: "KECCAK256",
   }).result()
 
   evmClient.writeReport(runtime, {
     receiver: runtime.config.consumerContract,
-    report,
+    report: creReport,
     gasConfig: { gasLimit: 500000 },
   }).result()
 
-  runtime.log("Swap executed and reported onchain")
+  runtime.log("Swap intent reported onchain")
   return JSON.stringify({ executed: true, price: currentPrice, amountIn: runtime.config.swapAmountWei })
 }
 

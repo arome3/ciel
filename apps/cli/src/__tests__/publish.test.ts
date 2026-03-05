@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test"
 import { CielClient } from "../client"
-import { requireAuth, workflowAuthHeaders } from "../auth"
+import { requireAuth } from "../auth"
 import type { CliConfig } from "../config"
 
 function makeConfig(overrides?: Partial<CliConfig>): CliConfig {
@@ -48,7 +48,7 @@ describe("publish command", () => {
     expect(() => requireAuth(makeConfig())).toThrow("authentication")
   })
 
-  it("sends auth headers with publish request", async () => {
+  it("sends X-Owner-Address header with confirmPublish request", async () => {
     mockFetch(200, {
       workflowId: "wf-123",
       onchainWorkflowId: "0x456",
@@ -60,22 +60,26 @@ describe("publish command", () => {
 
     const config = makeConfig({ privateKey: TEST_KEY })
     const auth = requireAuth(config)
-    const headers = await workflowAuthHeaders(auth, "wf-123")
     const client = new CielClient(config)
 
-    const data = await client.publish("wf-123", "My Workflow", "A great workflow", 10000, headers)
+    const data = await client.confirmPublish(
+      "wf-123", "0xabc", "0x456",
+      "My Workflow", "A great workflow", 10000,
+      auth.address,
+    )
 
     expect(data.workflowId).toBe("wf-123")
     expect(data.deployStatus).toBe("pending")
 
+    const url = fetchCalls()[0][0] as string
+    expect(url).toContain("/api/publish/confirm")
+
     const opts = fetchCalls()[0][1] as RequestInit
     const sentHeaders = opts.headers as Record<string, string>
-    expect(sentHeaders["X-Owner-Address"]).toBeDefined()
-    expect(sentHeaders["X-Owner-Signature"]).toBeDefined()
-    expect(sentHeaders["X-Owner-Signature"].startsWith("0x")).toBe(true)
+    expect(sentHeaders["X-Owner-Address"]).toBe(auth.address)
   })
 
-  it("sends correct request body", async () => {
+  it("sends txHash and onchainWorkflowId in request body", async () => {
     mockFetch(200, {
       workflowId: "wf-123",
       onchainWorkflowId: "0x456",
@@ -87,13 +91,18 @@ describe("publish command", () => {
 
     const config = makeConfig({ privateKey: TEST_KEY })
     const auth = requireAuth(config)
-    const headers = await workflowAuthHeaders(auth, "wf-123")
     const client = new CielClient(config)
 
-    await client.publish("wf-123", "Test Name", "Test Description Text", 50000, headers)
+    await client.confirmPublish(
+      "wf-123", "0xtxhash", "0xonchain",
+      "Test Name", "Test Description Text", 50000,
+      auth.address,
+    )
 
     const body = JSON.parse((fetchCalls()[0][1] as RequestInit).body as string)
     expect(body.workflowId).toBe("wf-123")
+    expect(body.txHash).toBe("0xtxhash")
+    expect(body.onchainWorkflowId).toBe("0xonchain")
     expect(body.name).toBe("Test Name")
     expect(body.description).toBe("Test Description Text")
     expect(body.priceUsdc).toBe(50000)
@@ -106,11 +115,14 @@ describe("publish command", () => {
 
     const config = makeConfig({ privateKey: TEST_KEY })
     const auth = requireAuth(config)
-    const headers = await workflowAuthHeaders(auth, "wf-wrong")
     const client = new CielClient(config)
 
     try {
-      await client.publish("wf-wrong", "X", "XXXXXXXXXXXX", 10000, headers)
+      await client.confirmPublish(
+        "wf-wrong", "0xabc", "0x456",
+        "X", "XXXXXXXXXXXX", 10000,
+        auth.address,
+      )
       expect(true).toBe(false)
     } catch (err: unknown) {
       expect((err as Error).message).toContain("Not authorized")

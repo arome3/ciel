@@ -12,9 +12,14 @@ const PACKAGE_JSON = JSON.stringify(
   {
     name: "ciel-dep-cache",
     private: true,
+    scripts: {
+      "cre-compile": "cre-compile",
+    },
     dependencies: {
-      "@chainlink/cre-sdk": "^1.0.7",
+      "@chainlink/cre-sdk": "^1.1.3",
       zod: "^3.22.0",
+      viem: "^2.0.0",
+      "@noble/hashes": "^1.4.0",
     },
   },
   null,
@@ -45,6 +50,21 @@ export async function warmDependencyCache(): Promise<void> {
       // Reset promise so next call retries
       cachePromise = null
       return
+    }
+
+    // Step 2: Initialize Javy WASM plugin (required for JS→WASM compilation)
+    log.info("Initializing Javy plugin...")
+    const setupProc = Bun.spawn(["bun", "x", "cre-setup"], {
+      cwd: dir,
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+
+    const setupExit = await setupProc.exited
+    if (setupExit !== 0) {
+      const setupStderr = await new Response(setupProc.stderr).text()
+      log.warn(`Javy plugin init failed (exit ${setupExit}): ${setupStderr.slice(0, 300)}`)
+      // Non-fatal: TS→JS compilation still works, WASM step will fail with clear error
     }
 
     cacheDir = dir

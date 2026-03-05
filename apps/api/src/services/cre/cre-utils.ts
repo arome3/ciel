@@ -1,7 +1,7 @@
 // apps/api/src/services/cre/cre-utils.ts
 // Shared utilities for CRE CLI operations (compiler + deployer).
 
-import { mkdtemp, writeFile, rm } from "node:fs/promises"
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { randomUUID } from "node:crypto"
@@ -32,8 +32,11 @@ export function buildPackageJson(prefix: string): string {
     {
       name: `${prefix}-${randomUUID().slice(0, 8)}`,
       private: true,
+      scripts: {
+        "cre-compile": "cre-compile",
+      },
       dependencies: {
-        "@chainlink/cre-sdk": "^1.1.2",
+        "@chainlink/cre-sdk": "^1.1.3",
         zod: "^3.22.0",
         viem: "^2.0.0",
         "@noble/hashes": "^1.4.0",
@@ -95,6 +98,9 @@ export async function runCommand(
     `${label} finished — exit: ${exitCode}, ` +
     `stdout: ${stdout.length} chars, stderr: ${stderr.length} chars`,
   )
+  if (exitCode !== 0) {
+    log.info(`${label} failed (exit ${exitCode}): ${(stdout + stderr).slice(0, 500)}`)
+  }
 
   return { stdout, stderr, exitCode, timedOut: didTimeout }
 }
@@ -121,6 +127,47 @@ export function parseDonWorkflowId(output: string): string {
   )
 }
 
+// --- CRE v1.2.0 Project Structure ---
+// The CLI expects: projectRoot/project.yaml + projectRoot/wf/workflow.yaml
+// `cre workflow simulate wf` and `cre workflow deploy wf` run from projectRoot.
+
+/** Workflow subfolder name inside the temp project root */
+export const WF_SUBDIR = "wf"
+
+function buildProjectYaml(): string {
+  const rpcUrl = config.BASE_SEPOLIA_RPC_URL
+  return `staging-settings:
+  rpcs:
+    - chain-name: ethereum-testnet-sepolia
+      url: ${rpcUrl}
+
+production-settings:
+  rpcs:
+    - chain-name: ethereum-testnet-sepolia
+      url: ${rpcUrl}
+`
+}
+
+function buildWorkflowYaml(hasSecrets: boolean): string {
+  const secretsLine = hasSecrets ? `    secrets-path: "../secrets.yaml"` : `    secrets-path: ""`
+  return `staging-settings:
+  user-workflow:
+    workflow-name: "ciel-staging"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.json"
+${secretsLine}
+
+production-settings:
+  user-workflow:
+    workflow-name: "ciel-production"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.json"
+${secretsLine}
+`
+}
+
 // --- Shared CRE Workspace Lifecycle ---
 
 export interface WorkspaceOptions {
@@ -132,47 +179,71 @@ export interface WorkspaceOptions {
   bunInstallTimeout?: number      // default 30_000
 }
 
+/**
+ * Creates a CRE v1.2.0-compatible project workspace and invokes the callback.
+ *
+ * Layout:
+ *   tempDir/              ← project root (cwd for CLI commands)
+ *     project.yaml        ← RPC config per target
+ *     secrets.yaml        ← optional
+ *     wf/                 ← workflow subfolder
+ *       main.ts           ← workflow code
+ *       config.json       ← workflow config
+ *       workflow.yaml     ← artifact paths per target
+ *       package.json      ← dependencies
+ *       node_modules/     ← linked or installed
+ *
+ * Callback receives (projectRoot, env). Callers use WF_SUBDIR ("wf")
+ * as the folder argument to CRE CLI commands.
+ */
 export async function withCREWorkspace<T>(
   options: WorkspaceOptions,
-  callback: (cwd: string, env: Record<string, string | undefined>) => Promise<T>,
+  callback: (projectRoot: string, env: Record<string, string | undefined>) => Promise<T>,
 ): Promise<T> {
   if (options.semaphore) await options.semaphore.acquire()
 
   let tempDir: string | null = null
 
   try {
-    // Step 1: Create temp directory
+    // Step 1: Create project root + workflow subfolder
     tempDir = await mkdtemp(join(tmpdir(), `${options.prefix}-`))
-    log.debug(`Created temp dir: ${tempDir}`)
+    const wfDir = join(tempDir, WF_SUBDIR)
+    await mkdir(wfDir)
+    log.debug(`Created workspace: ${tempDir}/${WF_SUBDIR}`)
 
-    // Step 2: Write workflow files
-    await writeFile(join(tempDir, "workflow.ts"), options.code, "utf-8")
-    await writeFile(
-      join(tempDir, "config.json"),
-      JSON.stringify(options.configJson, null, 2),
-      "utf-8",
-    )
+    // Step 2: Write project-level files
+    await writeFile(join(tempDir, "project.yaml"), buildProjectYaml(), "utf-8")
 
-    // Step 2b: Write secrets.yaml if provided
     if (options.secretsYaml) {
       await writeFile(join(tempDir, "secrets.yaml"), options.secretsYaml, "utf-8")
     }
 
-    // Step 3: Write package.json
+    // Step 3: Write workflow files into wf/ subfolder
+    await writeFile(join(wfDir, "main.ts"), options.code, "utf-8")
     await writeFile(
-      join(tempDir, "package.json"),
+      join(wfDir, "config.json"),
+      JSON.stringify(options.configJson, null, 2),
+      "utf-8",
+    )
+    await writeFile(
+      join(wfDir, "workflow.yaml"),
+      buildWorkflowYaml(!!options.secretsYaml),
+      "utf-8",
+    )
+    await writeFile(
+      join(wfDir, "package.json"),
       buildPackageJson(options.prefix),
       "utf-8",
     )
 
     // Step 4: Try cached deps first, fall back to fresh install
     const env = buildCREEnv()
-    const linked = await linkCachedDeps(tempDir)
+    const linked = await linkCachedDeps(wfDir)
 
     if (!linked) {
       const installResult = await runCommand(
         ["bun", "install"],
-        tempDir,
+        wfDir,
         env,
         options.bunInstallTimeout ?? BUN_INSTALL_TIMEOUT_DEFAULT,
         "bun install",
@@ -188,7 +259,7 @@ export async function withCREWorkspace<T>(
       }
     }
 
-    // Step 5: Execute callback (simulate or deploy)
+    // Step 5: Execute callback (simulate or deploy) — cwd is project root
     return await callback(tempDir, env)
   } finally {
     // Step 6: Cleanup temp directory

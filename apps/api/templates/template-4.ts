@@ -2,6 +2,7 @@
 // Trigger: CronCapability | Capabilities: HTTPClient compliance + reserve, evmWrite
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
@@ -9,8 +10,8 @@ import {
   type CronPayload,
   getNetwork,
   consensusIdenticalAggregation,
+  decodeJson,
 } from "@chainlink/cre-sdk"
-import { encodeAbiParameters, parseAbiParameters } from "viem"
 
 const configSchema = z.object({
   complianceApiUrl: z.string().describe("Compliance verification API endpoint"),
@@ -38,7 +39,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const compliance = JSON.parse(complianceResp.body)
+  const compliance = decodeJson(complianceResp.body)
   if (!compliance.approved) {
     runtime.log("Compliance check failed")
     return JSON.stringify({ status: "rejected", reason: "compliance_failed" })
@@ -51,7 +52,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const reserve = JSON.parse(reserveResp.body)
+  const reserve = decodeJson(reserveResp.body)
   if (reserve.ratio < runtime.config.minReserveRatio) {
     runtime.log("Insufficient reserves")
     return JSON.stringify({ status: "rejected", reason: "insufficient_reserves" })

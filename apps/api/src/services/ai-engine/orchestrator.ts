@@ -54,7 +54,7 @@ export interface GenerateResult {
 warmEmbeddingCache().catch(() => { /* graceful degradation — keyword-only mode */ })
 
 const MAX_RETRIES = 2 // Up to 3 total attempts (1 initial + 2 retries)
-const PIPELINE_TIMEOUT_MS = 90_000 // 90s aggregate timeout for entire pipeline
+const PIPELINE_TIMEOUT_MS = 600_000 // 10min aggregate — GPT-5.3-Codex reasoning can take 60-120s per call
 const MAX_CONCURRENT = 3 // Max simultaneous generation pipelines
 
 // ─────────────────────────────────────────────
@@ -338,7 +338,7 @@ async function runPipeline(
         `## Validation Failures (Fix ALL before responding)\n${structuredErrors}`
 
       log.info(
-        `Validation failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}): ${validation.errors.length} errors`,
+        `Validation failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}): ${validation.errors.join(" | ")}`,
       )
     } catch (err) {
       // Generation itself threw — capture for retry context

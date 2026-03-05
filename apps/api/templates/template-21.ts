@@ -6,15 +6,17 @@
 // Combines compliance gating (T8) with registry read/write
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
   type Runtime,
   getNetwork,
-  encodeAbiParameters,
-  parseAbiParameters,
+  decodeJson,
 } from "@chainlink/cre-sdk"
-import { encodeFunctionData, parseAbi } from "viem"
+
+// Function selectors (keccak256 of signature, first 4 bytes)
+const REGISTER_TRANSFER_SELECTOR = "0x22855ef9" // registerTransfer(address,address,uint256)
 
 const configSchema = z.object({
   chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
@@ -26,10 +28,6 @@ const configSchema = z.object({
 
 type Config = z.infer<typeof configSchema>
 
-const registryAbi = parseAbi([
-  "function registerTransfer(address from, address to, uint256 shares) returns (bool)",
-  "function getShares(address holder) view returns (uint256)",
-])
 
 const onHttpTrigger = (runtime: Runtime<Config>, payload: Record<string, unknown>): string => {
   runtime.log("Starting shareholder registry update workflow...")
@@ -49,7 +47,7 @@ const onHttpTrigger = (runtime: Runtime<Config>, payload: Record<string, unknown
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const holderData = JSON.parse(registryResp.body) as { registered: boolean; currentShares: string }
+  const holderData = decodeJson(registryResp.body) as { registered: boolean; currentShares: string }
 
   if (!holderData.registered) {
     runtime.log("Transfer sender not registered in shareholder registry")
@@ -69,7 +67,7 @@ const onHttpTrigger = (runtime: Runtime<Config>, payload: Record<string, unknown
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const compliance = JSON.parse(complianceResp.body) as { approved: boolean }
+  const compliance = decodeJson(complianceResp.body) as { approved: boolean }
   if (!compliance.approved) {
     runtime.log("Recipient failed compliance check — transfer blocked")
     return JSON.stringify({ executed: false, reason: "compliance_failed" })
@@ -79,30 +77,27 @@ const onHttpTrigger = (runtime: Runtime<Config>, payload: Record<string, unknown
   const network = getNetwork({ chainFamily: "evm", chainSelectorName: runtime.config.chainSelectorName, isTestnet: true })
   const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
 
-  runtime.log("Registering share transfer on-chain...")
-  const transferData = encodeFunctionData({
-    abi: registryAbi,
-    functionName: "registerTransfer",
-    args: [transferFrom as `0x${string}`, transferTo as `0x${string}`, shareCount],
-  })
+  // Step 4: Encode registry transfer and report onchain via writeReport
+  // Consumer contract (IReceiver.onReport) decodes and calls registerTransfer
+  runtime.log("Encoding share transfer and writing report...")
+  const transferData = REGISTER_TRANSFER_SELECTOR + encodeAbiParameters(
+    parseAbiParameters("address, address, uint256"),
+    [transferFrom as `0x${string}`, transferTo as `0x${string}`, shareCount]
+  ).slice(2)
 
-  const txResult = evmClient.sendTransaction(runtime, {
-    to: runtime.config.registryContractAddress,
-    data: transferData,
-  }).result()
-
-  if (!txResult || !txResult.success) {
-    runtime.log("Registry transfer transaction failed")
-    return JSON.stringify({ executed: false, reason: "registry_tx_failed" })
-  }
-
-  // Step 4: Report transfer onchain
   const reportData = encodeAbiParameters(
-    parseAbiParameters("address from, address to, uint256 shares, uint256 timestamp"),
-    [transferFrom as `0x${string}`, transferTo as `0x${string}`, shareCount, BigInt(Math.floor(runtime.now().getTime() / 1000))]
+    parseAbiParameters("address from, address to, uint256 shares, address target, bytes callData, uint256 timestamp"),
+    [
+      transferFrom as `0x${string}`,
+      transferTo as `0x${string}`,
+      shareCount,
+      runtime.config.registryContractAddress as `0x${string}`,
+      transferData as `0x${string}`,
+      BigInt(Math.floor(runtime.now().getTime() / 1000)),
+    ]
   )
 
-  const report = runtime.report({
+  const creReport = runtime.report({
     encodedPayload: reportData,
     encoderName: "EVM",
     signingAlgo: "SECP256K1",
@@ -111,7 +106,7 @@ const onHttpTrigger = (runtime: Runtime<Config>, payload: Record<string, unknown
 
   evmClient.writeReport(runtime, {
     receiver: runtime.config.consumerContract,
-    report: report.report,
+    report: creReport,
     gasConfig: { gasLimit: 500000 },
   }).result()
 

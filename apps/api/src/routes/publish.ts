@@ -1,11 +1,9 @@
 import { Router } from "express"
 import { eq } from "drizzle-orm"
-import { verifyMessage } from "viem"
 import { PublishRequestSchema } from "../types/api"
 import { AppError, ErrorCodes } from "../types/errors"
 import { db } from "../db"
 import { workflows } from "../db/schema"
-import { publishToRegistry } from "../services/blockchain/registry"
 import { deployWorkflow, handleDeployResult } from "../services/cre/deployer"
 import { emitEvent } from "../services/events/emitter"
 import { publishLimiter } from "../middleware/rate-limiter"
@@ -15,10 +13,21 @@ import { createLogger } from "../lib/logger"
 const log = createLogger("Publish")
 const router = Router()
 
-router.post("/publish", publishLimiter, async (req, res, next) => {
+router.post("/publish/confirm", publishLimiter, async (req, res, next) => {
   try {
-    const { workflowId, name, description, priceUsdc } =
+    const { workflowId, txHash, onchainWorkflowId, name, description, priceUsdc } =
       PublishRequestSchema.parse(req.body)
+
+    // ── Ownership check (address must match workflow creator) ──
+    const ownerAddress = req.headers["x-owner-address"] as string | undefined
+
+    if (!ownerAddress) {
+      throw new AppError(
+        ErrorCodes.PUBLISH_FAILED,
+        403,
+        "Missing X-Owner-Address header",
+      )
+    }
 
     // ── Fetch workflow from DB ──
     const workflow = await db
@@ -35,35 +44,13 @@ router.post("/publish", publishLimiter, async (req, res, next) => {
       )
     }
 
-    // ── Ownership verification (EIP-191) ──
-    const ownerAddress = req.headers["x-owner-address"] as string | undefined
-    const ownerSignature = req.headers["x-owner-signature"] as string | undefined
-
-    if (!ownerAddress || !ownerSignature) {
+    const isUnclaimed = workflow.ownerAddress === "0x0000000000000000000000000000000000000000"
+    if (!isUnclaimed && workflow.ownerAddress.toLowerCase() !== ownerAddress.toLowerCase()) {
       throw new AppError(
         ErrorCodes.PUBLISH_FAILED,
         403,
-        "Missing ownership headers: x-owner-address and x-owner-signature required",
+        "Not authorized to publish this workflow",
       )
-    }
-
-    let verified = false
-    try {
-      verified = await verifyMessage({
-        address: ownerAddress as `0x${string}`,
-        message: workflowId,
-        signature: ownerSignature as `0x${string}`,
-      })
-    } catch {
-      throw new AppError(ErrorCodes.PUBLISH_FAILED, 403, "Invalid signature format")
-    }
-
-    if (!verified) {
-      throw new AppError(ErrorCodes.PUBLISH_FAILED, 403, "Signature verification failed")
-    }
-
-    if (workflow.ownerAddress.toLowerCase() !== ownerAddress.toLowerCase()) {
-      throw new AppError(ErrorCodes.PUBLISH_FAILED, 403, "Not authorized to publish this workflow")
     }
 
     if (workflow.published) {
@@ -77,57 +64,32 @@ router.post("/publish", publishLimiter, async (req, res, next) => {
     // ── Build x402 endpoint ──
     const x402Endpoint = `${config.NEXT_PUBLIC_API_URL}/api/workflows/${workflowId}/execute`
 
-    // ── Parse capabilities and chains from JSON strings ──
-    let capabilities: string[] = []
-    let chains: string[] = []
-    try {
-      capabilities = JSON.parse(workflow.capabilities)
-    } catch {
-      log.warn(`Invalid capabilities JSON for ${workflowId}`)
-    }
-    try {
-      chains = JSON.parse(workflow.chains)
-    } catch {
-      log.warn(`Invalid chains JSON for ${workflowId}`)
-    }
-
-    // ── Publish to on-chain registry ──
-    const { workflowId: onchainWorkflowId, txHash: publishTxHash } =
-      await publishToRegistry({
-        name,
-        description,
-        category: workflow.category,
-        supportedChains: [10344971235874465080n],
-        capabilities,
-        x402Endpoint,
-        pricePerExecution: BigInt(priceUsdc),
-      })
-
     // ── Update DB ──
     await db
       .update(workflows)
       .set({
         published: true,
         onchainWorkflowId,
-        publishTxHash,
+        publishTxHash: txHash,
         x402Endpoint,
         priceUsdc,
         name,
         description,
         deployStatus: "pending",
+        ownerAddress: ownerAddress,
         updatedAt: new Date().toISOString(),
       })
       .where(eq(workflows.id, workflowId))
 
     log.info(
-      `Published ${workflowId} — onchain: ${onchainWorkflowId}, tx: ${publishTxHash}`,
+      `Confirmed publish ${workflowId} — onchain: ${onchainWorkflowId}, tx: ${txHash}`,
     )
 
     // Response returned immediately — DON deployment is async
     res.json({
       workflowId,
       onchainWorkflowId,
-      publishTxHash,
+      publishTxHash: txHash,
       x402Endpoint,
       deployStatus: "pending",
       donWorkflowId: null,
@@ -140,7 +102,7 @@ router.post("/publish", publishLimiter, async (req, res, next) => {
         workflowId,
         name,
         category: workflow.category,
-        txHash: publishTxHash,
+        txHash,
         timestamp: Date.now(),
       },
     })

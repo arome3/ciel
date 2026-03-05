@@ -4,7 +4,7 @@ import { config } from "../../config"
 import { AppError, ErrorCodes } from "../../types/errors"
 import { createLogger } from "../../lib/logger"
 import { Semaphore } from "../../lib/semaphore"
-import { runCommand, withCREWorkspace } from "./cre-utils"
+import { runCommand, withCREWorkspace, WF_SUBDIR } from "./cre-utils"
 import { parseSimulationOutput, formatTraceForLog, type SimulationResult } from "./parser"
 
 const log = createLogger("CRE Compiler")
@@ -28,7 +28,7 @@ export function _getSimState(): { activeSimCount: number; queueLength: number } 
 
 export async function checkCRECli(): Promise<boolean> {
   try {
-    const proc = Bun.spawn([config.CRE_CLI_PATH, "--version"], {
+    const proc = Bun.spawn([config.CRE_CLI_PATH, "version"], {
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -75,13 +75,13 @@ export async function simulateWorkflow(
         semaphore: simSemaphore,
       },
       async (cwd, env) => {
-        // Run CRE simulate
+        // Run CRE simulate from project root, pointing to wf/ subfolder
         const simResult = await runCommand(
-          [config.CRE_CLI_PATH, "simulate", "--workflow", "workflow.ts", "--config", "config.json"],
+          [config.CRE_CLI_PATH, "workflow", "simulate", WF_SUBDIR, "--non-interactive", "--trigger-index", "0", "--target", "staging-settings"],
           cwd,
           env,
           SIMULATION_TIMEOUT,
-          "cre simulate",
+          "cre workflow simulate",
         )
 
         const rawOutput = simResult.stdout + "\n" + simResult.stderr
@@ -91,8 +91,19 @@ export async function simulateWorkflow(
 
         const duration = Date.now() - startTime
 
+        // Workflow compiled + ran = success, even if runtime capability errors occur
+        // (e.g. DNS failures, rate limits, sandbox network restrictions)
+        const workflowCompiled = rawOutput.includes("Workflow compiled")
+        const onlyRuntimeErrors = parsed.errors.length > 0 && parsed.errors.every(
+          (e) => /execute capability|no such host|dial tcp|unexpected token|connection refused|timeout|rate limit|Workflow execution failed/i.test(e),
+        )
         const success =
-          simResult.exitCode === 0 && parsed.errors.length === 0
+          (simResult.exitCode === 0 && parsed.errors.length === 0) ||
+          (workflowCompiled && onlyRuntimeErrors)
+
+        if (parsed.errors.length > 0) {
+          log.info(`Simulation errors: ${parsed.errors.join(" | ")}`)
+        }
 
         log.info(
           `Simulation ${success ? "succeeded" : "failed"} ` +

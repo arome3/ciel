@@ -18,7 +18,9 @@ import {
   encodeAbiParameters,
   parseAbiParameters,
 } from "@chainlink/cre-sdk"
-import { encodeFunctionData, decodeFunctionResult, parseAbi } from "viem"
+
+// Function selectors (keccak256 of signature, first 4 bytes)
+const GET_TOTAL_SETTLED_SELECTOR = "0x5862a614" // getTotalSettled()
 
 const configSchema = z.object({
   schedule: z.string().default("0 0 0 * * *").describe("Reconciliation frequency (daily)"),
@@ -32,10 +34,6 @@ const configSchema = z.object({
 
 type Config = z.infer<typeof configSchema>
 
-const ledgerAbi = parseAbi([
-  "function getSettledAmount(bytes32 settlementId) view returns (uint256)",
-  "function getTotalSettled() view returns (uint256)",
-])
 
 const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
   runtime.log("Starting settlement reconciliation...")
@@ -60,22 +58,12 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
 
   // Step 2: Fetch on-chain settlement total
   runtime.log("Reading on-chain settlement total...")
-  const totalData = encodeFunctionData({
-    abi: ledgerAbi,
-    functionName: "getTotalSettled",
-    args: [],
-  })
-
   const totalResp = evmClient.callContract(runtime, {
-    call: encodeCallMsg({ from: "0x0", to: runtime.config.settlementContractAddress, data: totalData }),
+    call: encodeCallMsg({ from: "0x0", to: runtime.config.settlementContractAddress, data: GET_TOTAL_SETTLED_SELECTOR }),
     blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
   }).result()
 
-  const onchainTotal = decodeFunctionResult({
-    abi: ledgerAbi,
-    functionName: "getTotalSettled",
-    data: bytesToHex(totalResp.data as unknown as Uint8Array),
-  }) as bigint
+  const onchainTotal = BigInt(bytesToHex(totalResp.data as unknown as Uint8Array))
 
   // Step 3: Compare and reconcile
   const offchainTotal = BigInt(offchainData.totalSettled)

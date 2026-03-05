@@ -7,13 +7,12 @@ import {
   ConsensusAggregationByFields,
   consensusIdenticalAggregation,
   consensusMedianAggregation,
-  encodeAbiParameters,
-  parseAbiParameters,
   type Runtime,
   type NodeRuntime,
 } from "@chainlink/cre-sdk"
 import { http } from "@chainlink/cre-sdk/triggers"
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 
 // ─── Configuration Schema ────────────────────────────────────────────────
 

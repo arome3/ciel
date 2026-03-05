@@ -140,6 +140,65 @@
   transform: translateY(0);
 }
 
+/* Generate button breathing glow */
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px hsl(var(--primary) / 0.3), 0 0 20px hsl(var(--primary) / 0.1);
+  }
+  50% {
+    box-shadow: 0 0 16px hsl(var(--primary) / 0.5), 0 0 40px hsl(var(--primary) / 0.2);
+  }
+}
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Simulation panel border glow */
+@keyframes border-glow {
+  0%, 100% {
+    border-color: hsl(var(--primary) / 0.3);
+    box-shadow: inset 0 0 12px hsl(var(--primary) / 0.05);
+  }
+  50% {
+    border-color: hsl(var(--primary) / 0.6);
+    box-shadow: inset 0 0 20px hsl(var(--primary) / 0.1);
+  }
+}
+.animate-border-glow {
+  animation: border-glow 2s ease-in-out infinite;
+}
+
+/* Shimmer sweep for code skeleton */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 25%,
+    hsl(var(--muted-foreground) / 0.08) 50%,
+    hsl(var(--muted)) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Hide scrollbar — template horizontal scroll */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Fade mask on right edge of scroll container */
+.gradient-mask-r {
+  -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
+  mask-image: linear-gradient(to right, black 85%, transparent 100%);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

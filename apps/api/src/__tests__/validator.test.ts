@@ -13,38 +13,37 @@ import { getTemplateById } from "../services/ai-engine/template-matcher"
 const VALID_CODE = `
 import { z } from "zod"
 import {
+  cre,
   Runner,
   Runtime,
   CronCapability,
   HTTPClient,
-  handler,
   consensusMedianAggregation,
+  decodeJson,
 } from "@chainlink/cre-sdk"
 
 const configSchema = z.object({
   apiUrl: z.string(),
   threshold: z.number(),
-  cronSchedule: z.string().default("0 */5 * * * *"),
+  schedule: z.string().default("0 */5 * * * *"),
 })
 
 type Config = z.infer<typeof configSchema>
 
-const runner = Runner.newRunner<Config>({ configSchema })
-
-function initWorkflow(runtime: Runtime<Config>) {
+function initWorkflow(config: Config) {
   const cronTrigger = new CronCapability().trigger({
-    cronSchedule: runtime.config.cronSchedule,
+    schedule: config.schedule,
   })
 
   const httpClient = new HTTPClient()
 
-  handler(cronTrigger, (rt) => {
+  cre.handler(cronTrigger, (rt) => {
     const resp = httpClient.fetch(rt.config.apiUrl, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
     }).result()
 
-    const data = JSON.parse(resp.body)
+    const data = decodeJson(resp.body)
     const price: number = data.price
 
     return { price: Math.round(price * 1e8), alert: price < rt.config.threshold }
@@ -54,17 +53,21 @@ function initWorkflow(runtime: Runtime<Config>) {
     fields: ["price"],
     reportId: "test_monitor",
   })
+
+  return []
 }
 
 export async function main() {
-  runner.run(initWorkflow)
+  const runner = await Runner.newRunner<Config>({ configSchema })
+  await runner.run(initWorkflow)
 }
+main()
 `
 
 const VALID_CONFIG = JSON.stringify({
   apiUrl: "https://api.coingecko.com/api/v3/simple/price",
   threshold: 3000,
-  cronSchedule: "0 */5 * * * *",
+  schedule: "0 */5 * * * *",
 })
 
 // ─────────────────────────────────────────────
@@ -108,7 +111,7 @@ describe("Check (a): import whitelist", () => {
   test("allowed imports pass (cre-sdk, zod, viem)", async () => {
     const code = VALID_CODE.replace(
       'import { z } from "zod"',
-      'import { z } from "zod"\nimport { parseAbi } from "viem"',
+      'import { z } from "zod"\nimport { encodeAbiParameters } from "viem"',
     )
     const result = await validateWorkflow(code, VALID_CONFIG)
     const importErrors = result.errors.filter((e) => e.startsWith("[IMPORT]"))
@@ -247,7 +250,7 @@ describe("Check (f): config JSON validity", () => {
   })
 
   test("HTTPClient usage without URL config caught", async () => {
-    const configNoUrl = JSON.stringify({ threshold: 3000, cronSchedule: "0 */5 * * * *" })
+    const configNoUrl = JSON.stringify({ threshold: 3000, schedule: "0 */5 * * * *" })
     const result = await validateWorkflow(VALID_CODE, configNoUrl)
     expect(result.errors.some((e) => e.startsWith("[CONFIG]") && e.includes("URL"))).toBe(true)
   })
@@ -376,7 +379,7 @@ describe("Check (g): State Patterns", () => {
   const KV_CONFIG = JSON.stringify({
     apiUrl: "https://api.coingecko.com/api/v3/simple/price",
     threshold: 3000,
-    cronSchedule: "0 */5 * * * *",
+    schedule: "0 */5 * * * *",
     kvStoreUrl: "https://your-kv-store.upstash.io",
     kvApiKey: "kv-api-key-placeholder",
     stateKey: "ciel-history-data",
@@ -402,7 +405,7 @@ describe("Check (g): State Patterns", () => {
     const emptyKvConfig = JSON.stringify({
       apiUrl: "https://api.coingecko.com/api/v3/simple/price",
       threshold: 3000,
-      cronSchedule: "0 */5 * * * *",
+      schedule: "0 */5 * * * *",
       kvStoreUrl: "",
       kvApiKey: "",
       stateKey: "",
@@ -428,8 +431,8 @@ describe("Check (g): State Patterns", () => {
 
   test("ConfidentialHTTPClient imported but not instantiated produces [STATE] error", async () => {
     const code = VALID_CODE.replace(
-      'import {\n  Runner,\n  Runtime,\n  CronCapability,\n  HTTPClient,\n  handler,\n  consensusMedianAggregation,\n} from "@chainlink/cre-sdk"',
-      'import {\n  Runner,\n  Runtime,\n  CronCapability,\n  HTTPClient,\n  ConfidentialHTTPClient,\n  handler,\n  consensusMedianAggregation,\n} from "@chainlink/cre-sdk"',
+      'import {\n  cre,\n  Runner,\n  Runtime,\n  CronCapability,\n  HTTPClient,\n  consensusMedianAggregation,\n  decodeJson,\n} from "@chainlink/cre-sdk"',
+      'import {\n  cre,\n  Runner,\n  Runtime,\n  CronCapability,\n  HTTPClient,\n  ConfidentialHTTPClient,\n  consensusMedianAggregation,\n  decodeJson,\n} from "@chainlink/cre-sdk"',
     )
     const result = await validateWorkflow(code, KV_CONFIG)
     expect(result.valid).toBe(false)
@@ -467,6 +470,7 @@ import {
   type Runtime,
   type CronPayload,
   getNetwork,
+  decodeJson,
 } from "@chainlink/cre-sdk"
 
 const configSchema = z.object({
@@ -487,7 +491,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     method: "GET",
     headers: { "Content-Type": "application/json" },
   }).result()
-  const data = JSON.parse(resp.body)
+  const data = decodeJson(resp.body)
   const price: number = data.price
   return JSON.stringify({ price: Math.round(price * 1e8), alert: price < runtime.config.threshold })
 }

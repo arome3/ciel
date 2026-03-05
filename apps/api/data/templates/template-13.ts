@@ -15,7 +15,10 @@ import {
   parseAbiParameters,
   consensusMedianAggregation,
 } from "@chainlink/cre-sdk"
-import { encodeFunctionData, decodeFunctionResult, parseAbi } from "viem"
+
+// Function selectors (keccak256 of signature, first 4 bytes)
+const DECIMALS_SELECTOR = "0x313ce567"      // decimals()
+const LATEST_ANSWER_SELECTOR = "0x50d25bcd" // latestAnswer()
 
 const configSchema = z.object({
   feedAddress: z.string().describe("Chainlink Data Feed proxy contract address"),
@@ -25,12 +28,6 @@ const configSchema = z.object({
 })
 
 type Config = z.infer<typeof configSchema>
-
-const feedAbi = parseAbi([
-  "function decimals() view returns (uint8)",
-  "function latestAnswer() view returns (int256)",
-  "function latestRoundData() view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)",
-])
 
 const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
   runtime.log("Reading Chainlink Data Feed...")
@@ -43,36 +40,19 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
   const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
 
   // Read decimals
-  const decimalsData = encodeFunctionData({
-    abi: feedAbi,
-    functionName: "decimals",
-    args: [],
-  })
   const decimalsResp = evmClient.callContract(runtime, {
-    call: encodeCallMsg({ from: "0x0", to: runtime.config.feedAddress, data: decimalsData }),
+    call: encodeCallMsg({ from: "0x0", to: runtime.config.feedAddress, data: DECIMALS_SELECTOR }),
     blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
   }).result()
-  const decimals = decodeFunctionResult({
-    abi: feedAbi,
-    functionName: "decimals",
-    data: bytesToHex(decimalsResp.data as unknown as Uint8Array),
-  }) as number
+  const rawDecimalsHex = bytesToHex(decimalsResp.data as unknown as Uint8Array)
+  const decimals = Number(BigInt(rawDecimalsHex))
 
   // Read latestAnswer
-  const answerData = encodeFunctionData({
-    abi: feedAbi,
-    functionName: "latestAnswer",
-    args: [],
-  })
   const answerResp = evmClient.callContract(runtime, {
-    call: encodeCallMsg({ from: "0x0", to: runtime.config.feedAddress, data: answerData }),
+    call: encodeCallMsg({ from: "0x0", to: runtime.config.feedAddress, data: LATEST_ANSWER_SELECTOR }),
     blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
   }).result()
-  const latestAnswer = decodeFunctionResult({
-    abi: feedAbi,
-    functionName: "latestAnswer",
-    data: bytesToHex(answerResp.data as unknown as Uint8Array),
-  }) as bigint
+  const latestAnswer = BigInt(bytesToHex(answerResp.data as unknown as Uint8Array))
 
   const price = Number(latestAnswer) / Math.pow(10, decimals)
   runtime.log(`Feed price: ${price} (${decimals} decimals)`)

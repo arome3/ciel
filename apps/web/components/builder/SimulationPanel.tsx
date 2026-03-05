@@ -72,9 +72,10 @@ export function SimulationPanel() {
     setIsSimulating(true)
 
     try {
+      const editedConfig = useWorkflowStore.getState().editedConfig
       const result = await api.simulate(
         generatedWorkflow.id,
-        generatedWorkflow.config,
+        editedConfig ?? generatedWorkflow.config,
       )
       setSimulation(result)
     } catch (err) {
@@ -93,17 +94,19 @@ export function SimulationPanel() {
     setError,
   ])
 
+  const isCodeGenerating = useWorkflowStore((s) => s.isGenerating)
+
   if (!generatedWorkflow) {
-    return (
-      <div className="flex h-[400px] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card">
-        <span className="mb-2 font-mono text-lg text-muted-foreground/30">
-          {"▶"}
-        </span>
-        <p className="text-sm text-muted-foreground">
-          Generate a workflow first to run simulations
-        </p>
-      </div>
-    )
+    if (isCodeGenerating) {
+      return (
+        <div className="flex h-full min-h-[200px] items-center justify-center rounded-xl border border-dashed border-border/50 bg-card/30">
+          <p className="font-mono text-xs text-muted-foreground/40">
+            awaiting code generation...
+          </p>
+        </div>
+      )
+    }
+    return null
   }
 
   return (
@@ -138,7 +141,7 @@ export function SimulationPanel() {
       )}
 
       {simulation && (
-        <div className="rounded-xl border border-border bg-card p-4">
+        <div className={`rounded-xl border border-border bg-card p-4 ${isSimulating ? "animate-border-glow" : ""}`}>
           {/* Vertical stepper */}
           <div className="space-y-0" aria-live="polite">
             {simulation.steps.map((step, i) => (

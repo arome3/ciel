@@ -2,14 +2,15 @@
 // Trigger: CronCapability | Capabilities: Multi-source HTTPClient, weighted avg, writeReport
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
   type Runtime,
   type CronPayload,
   getNetwork,
+  decodeJson,
 } from "@chainlink/cre-sdk"
-import { encodeAbiParameters, parseAbiParameters } from "viem"
 
 const configSchema = z.object({
   dataSources: z.string().describe("JSON array of data source configs: [{url, weight, path}]"),
@@ -44,7 +45,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
       headers: { "Content-Type": "application/json" },
     }).result()
 
-    const data = JSON.parse(resp.body)
+    const data = decodeJson(resp.body)
     // Navigate JSON path to extract value
     const value = source.path.split(".").reduce(
       (obj: Record<string, unknown>, key: string) => (obj as Record<string, unknown>)[key] as Record<string, unknown>,

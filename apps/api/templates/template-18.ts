@@ -6,14 +6,14 @@
 // Uses KV store pattern from T14 for idempotency tracking
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
   type Runtime,
   type CronPayload,
   getNetwork,
-  encodeAbiParameters,
-  parseAbiParameters,
+  decodeJson,
 } from "@chainlink/cre-sdk"
 
 const configSchema = z.object({
@@ -50,7 +50,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const pendingPayments = JSON.parse(paymentResp.body) as PendingPayment[]
+  const pendingPayments = decodeJson(paymentResp.body) as PendingPayment[]
   runtime.log(`Found ${pendingPayments.length} pending payments`)
 
   if (pendingPayments.length === 0) {
@@ -75,7 +75,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
         "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
       },
     }).result()
-    processedIds = JSON.parse(stateResp.body) as string[]
+    processedIds = decodeJson(stateResp.body) as string[]
   } catch {
     runtime.log("No prior idempotency state — first run")
   }
@@ -110,7 +110,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
       }),
     }).result()
 
-    const initResult = JSON.parse(initResp.body) as { success: boolean; confirmationId?: string }
+    const initResult = decodeJson(initResp.body) as { success: boolean; confirmationId?: string }
     if (initResult.success) {
       processedSet.add(payment.id)
       initiated++
@@ -134,7 +134,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     [BigInt(initiated), BigInt(Math.floor(runtime.now().getTime() / 1000))]
   )
 
-  const report = runtime.report({
+  const creReport = runtime.report({
     encodedPayload: reportData,
     encoderName: "EVM",
     signingAlgo: "SECP256K1",
@@ -143,7 +143,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
 
   evmClient.writeReport(runtime, {
     receiver: runtime.config.consumerContract,
-    report: report.report,
+    report: creReport,
     gasConfig: { gasLimit: 500000 },
   }).result()
 

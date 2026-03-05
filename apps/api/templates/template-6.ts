@@ -2,6 +2,7 @@
 // Trigger: CronCapability | Capabilities: HTTPClient NAV + compliance, mint/burn
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
@@ -9,8 +10,8 @@ import {
   type CronPayload,
   getNetwork,
   consensusMedianAggregation,
+  decodeJson,
 } from "@chainlink/cre-sdk"
-import { encodeAbiParameters, parseAbiParameters } from "viem"
 
 const configSchema = z.object({
   navApiUrl: z.string().describe("NAV calculation API endpoint"),
@@ -38,7 +39,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const nav = JSON.parse(navResp.body)
+  const nav = decodeJson(navResp.body)
   const unitPrice = nav.navPerShare
 
   // Verify investor compliance
@@ -48,7 +49,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const compliance = JSON.parse(compResp.body)
+  const compliance = decodeJson(compResp.body)
   if (!compliance.approved) {
     runtime.log("Investor compliance check failed")
     return JSON.stringify({ status: "rejected", reason: "compliance_failed", nav: Math.round(unitPrice * 1e8) })

@@ -7,17 +7,18 @@
 
 import OpenAI from "openai"
 import { z } from "zod"
-import { zodResponseFormat } from "openai/helpers/zod"
+import { zodTextFormat } from "openai/helpers/zod"
 import { config } from "../../config"
 import { AppError, ErrorCodes } from "../../types/errors"
 import type { ParsedIntent } from "./types"
 import { getTemplateById, type TemplateDefinition } from "./template-matcher"
-import { getContext7CREDocs } from "./context7-client"
-import { retrieveRelevantDocs } from "./doc-retriever"
 import { buildFewShotContext } from "./context-builder"
-import { buildSystemPrompt } from "./prompts/system"
+import { buildStaticBase, buildTemplateContext } from "./prompts/system"
 import { buildGenerationPrompt, type GenerationPromptInput } from "./prompts/generation"
 import { detectStateKeyword } from "./file-manager"
+import { createLogger } from "../../lib/logger"
+
+const log = createLogger("CodeGen")
 
 // ─────────────────────────────────────────────
 // Response Schema (Structured Outputs)
@@ -94,8 +95,8 @@ function getOpenAIClient(): OpenAI {
   if (!openaiClient) {
     openaiClient = new OpenAI({
       apiKey: config.OPENAI_API_KEY,
-      timeout: 30_000,   // 30s per-request timeout — prevents hanging on GPT-5.3-Codex stalls
-      maxRetries: 2,     // OpenAI SDK auto-retries on 429/500/503
+      timeout: 300_000,  // 5min per-request — reasoning models need 60-120s for complex prompts
+      maxRetries: 1,     // 1 retry on transient failures (429/500/503), not more
     })
   }
   return openaiClient
@@ -124,12 +125,12 @@ type SelfReview = z.infer<typeof SelfReviewSchema>
 /**
  * Generates CRE workflow code using GPT-5.3-Codex with Structured Outputs.
  *
- * Pipeline:
+ * Layered prompt architecture for optimal latency and cost:
  * 1. Load template definition
- * 2. Assemble context: few-shot examples + SDK docs + Context7
- * 3. Build system prompt (static constraints + dynamic context)
+ * 2. Build Layer 1 (static base) — identical every request, maximizes prompt caching
+ * 3. Build Layer 2 (template context) — only relevant patterns + few-shot examples
  * 4. Build user prompt (intent + template + retry context)
- * 5. Call GPT-5.3-Codex with zodResponseFormat + CoT + self-review
+ * 5. Call GPT-5.3-Codex with zodTextFormat + CoT + self-review
  * 6. Validate response, auto-retry on self-review red flags
  * 7. Parse config JSON, return GeneratedCode
  *
@@ -148,18 +149,15 @@ export async function generateCode(input: GenerateCodeInput): Promise<GeneratedC
     )
   }
 
-  // ── Compute state detection for conditional prompt/docs ──
+  // ── Build layered prompt ──
   const needsState = detectStateKeyword(input.intent.keywords) !== null
-
-  // ── Assemble context (parallel where possible) ──
-  const [context7Docs, fewShotContext, relevantDocs] = await Promise.all([
-    getContext7CREDocs(),
-    Promise.resolve(buildFewShotContext(input.templateId)),
-    Promise.resolve(retrieveRelevantDocs(template, input.intent)),
-  ])
-
-  // ── Build system prompt ──
-  const systemPrompt = buildSystemPrompt(fewShotContext, relevantDocs, context7Docs, needsState, template.requiredCapabilities)
+  const fewShotContext = buildFewShotContext(input.templateId)
+  const staticBase = buildStaticBase()
+  const templateContext = buildTemplateContext(
+    template.requiredCapabilities,
+    needsState,
+    fewShotContext,
+  )
 
   // ── Retry loop ──
   const maxRetries = input.maxInternalRetries ?? MAX_RETRIES
@@ -169,7 +167,8 @@ export async function generateCode(input: GenerateCodeInput): Promise<GeneratedC
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const result = await callGPT52(
-        systemPrompt,
+        staticBase,
+        templateContext,
         input,
         template,
         attempt,
@@ -224,11 +223,12 @@ export async function generateCode(input: GenerateCodeInput): Promise<GeneratedC
 }
 
 // ─────────────────────────────────────────────
-// GPT-5.3-Codex API Call
+// GPT-5.3-Codex API Call (Responses API)
 // ─────────────────────────────────────────────
 
 async function callGPT52(
-  systemPrompt: string,
+  staticBase: string,
+  templateContext: string,
   input: GenerateCodeInput,
   template: TemplateDefinition,
   attempt: number,
@@ -247,34 +247,49 @@ async function callGPT52(
   }
   const userPrompt = buildGenerationPrompt(promptInput)
 
-  // GPT-5.3-Codex: reasoning_effort replaces temperature
   // "medium" for first attempt (balanced), "high" for retries (deeper reasoning)
   const reasoningEffort = attempt === 1 ? "medium" : "high"
 
-  const completion = await openai.chat.completions.parse({
+  // Layered instructions: static base (cached by OpenAI) + template-specific context
+  const instructions = templateContext
+    ? `${staticBase}\n\n${templateContext}`
+    : staticBase
+
+  const instrLen = Math.round(instructions.length / 1024)
+  const baseLen = Math.round(staticBase.length / 1024)
+  const ctxLen = Math.round(templateContext.length / 1024)
+  const inputLen = Math.round(userPrompt.length / 1024)
+  log.info(`Attempt ${attempt}: base=${baseLen}KB ctx=${ctxLen}KB total=${instrLen}KB input=${inputLen}KB effort=${reasoningEffort}`)
+
+  const t0 = Date.now()
+  const response = await openai.responses.parse({
     model: MODEL,
-    reasoning_effort: reasoningEffort as "medium" | "high",
-    max_completion_tokens: MAX_COMPLETION_TOKENS,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    response_format: zodResponseFormat(CREWorkflowResponseSchema, "cre_workflow"),
+    reasoning: { effort: reasoningEffort as "medium" | "high" },
+    max_output_tokens: MAX_COMPLETION_TOKENS,
+    instructions,
+    input: userPrompt,
+    text: {
+      format: zodTextFormat(CREWorkflowResponseSchema, "cre_workflow"),
+    },
   })
 
-  const message = completion.choices[0]?.message
+  log.info(`Response received in ${Date.now() - t0}ms`)
 
   // ── Handle refusal ──
-  if (message?.refusal) {
-    throw new AppError(
-      ErrorCodes.AI_SERVICE_ERROR,
-      502,
-      `Model refused to generate code: ${message.refusal}`,
-    )
+  const outputMessage = response.output.find((o) => o.type === "message")
+  if (outputMessage && "content" in outputMessage) {
+    const refusal = outputMessage.content.find((c) => c.type === "refusal")
+    if (refusal && "refusal" in refusal) {
+      throw new AppError(
+        ErrorCodes.AI_SERVICE_ERROR,
+        502,
+        `Model refused to generate code: ${refusal.refusal}`,
+      )
+    }
   }
 
   // ── Extract parsed response ──
-  const parsed = message?.parsed
+  const parsed = response.output_parsed
   if (!parsed) {
     throw new AppError(
       ErrorCodes.AI_SERVICE_ERROR,

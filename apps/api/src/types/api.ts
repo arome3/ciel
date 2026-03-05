@@ -25,6 +25,8 @@ export const SimulateRequestSchema = z.discriminatedUnion("mode", [
 
 export const PublishRequestSchema = z.object({
   workflowId: z.string().uuid(),
+  txHash: z.string().startsWith("0x"),
+  onchainWorkflowId: z.string().startsWith("0x"),
   name: z.string().min(3).max(100),
   description: z.string().min(10).max(500),
   priceUsdc: z.number().int().min(1000).max(10_000_000),

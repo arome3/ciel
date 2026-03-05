@@ -8,7 +8,7 @@ import { Semaphore } from "../../lib/semaphore"
 import { db } from "../../db"
 import { workflows } from "../../db/schema"
 import { emitEvent } from "../events/emitter"
-import { runCommand, withCREWorkspace, parseDonWorkflowId } from "./cre-utils"
+import { runCommand, withCREWorkspace, parseDonWorkflowId, WF_SUBDIR } from "./cre-utils"
 
 const log = createLogger("CRE Deployer")
 
@@ -61,11 +61,11 @@ export async function deployWorkflow(input: DeployInput): Promise<DeployResult> 
         configJson: mergedConfig,
         semaphore: deploySemaphore,
       },
-      async (cwd, env) => {
-        // Run CRE workflow deploy
+      async (projectRoot, env) => {
+        // Run CRE workflow deploy from project root, pointing to wf/ subfolder
         const deployResult = await runCommand(
-          [config.CRE_CLI_PATH, "workflow", "deploy", ".", "--target", "production"],
-          cwd,
+          [config.CRE_CLI_PATH, "workflow", "deploy", WF_SUBDIR, "--target", "production-settings"],
+          projectRoot,
           env,
           DEPLOY_TIMEOUT,
           "cre workflow deploy",

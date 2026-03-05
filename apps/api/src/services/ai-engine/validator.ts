@@ -199,6 +199,80 @@ export function quickFix(code: string): { code: string; fixes: string[] } {
     }
   }
 
+  // 8. Replace JSON.parse(*.body) → decodeJson(*.body) (response.body is raw bytes in CRE v1.2.0)
+  const jsonParseBodyPattern = /JSON\.parse\((\w+(?:\.\w+)*\.body)\)/g
+  if (jsonParseBodyPattern.test(fixed)) {
+    jsonParseBodyPattern.lastIndex = 0
+    const before = fixed
+    fixed = fixed.replace(jsonParseBodyPattern, "decodeJson($1)")
+    if (fixed !== before) {
+      fixes.push("Replaced JSON.parse(*.body) with decodeJson(*.body) — response.body is raw bytes")
+      // Ensure decodeJson is imported
+      if (!/\bdecodeJson\b/.test(fixed.split("\n").find(l => l.includes("from \"@chainlink/cre-sdk\"")) || "")) {
+        fixed = fixed.replace(
+          /(import\s*\{[^}]*)(}\s*from\s*["']@chainlink\/cre-sdk["'])/,
+          "$1  decodeJson,\n$2",
+        )
+        fixes.push("Added decodeJson to @chainlink/cre-sdk import")
+      }
+    }
+  }
+
+  // 9. Replace evmClient.sendTransaction() → writeReport pattern (sendTransaction does not exist in CRE SDK)
+  if (/\.sendTransaction\s*\(/.test(fixed)) {
+    const ranges = findHandlerBlockRanges(fixed)
+    if (ranges.length > 0) {
+      let result = fixed
+      let offset = 0
+      for (const range of ranges) {
+        const block = result.slice(range.start + offset, range.end + offset)
+        // Match: evmClient.sendTransaction(runtime, { to: X, data: Y [, value: V] }).result()
+        const sendTxPattern = /(\w+)\.sendTransaction\s*\(\s*(\w+)\s*,\s*\{[^}]*\bto\s*:\s*([^,}]+)[^}]*\bdata\s*:\s*([^,}]+)[^}]*\}\s*\)\.result\(\)/g
+        const replaced = block.replace(sendTxPattern, (_m, client, rt, to, data) => {
+          const cleanTo = to.trim()
+          const cleanData = data.trim()
+          return `const __opReport = ${rt}.report({
+    encodedPayload: encodeAbiParameters(parseAbiParameters("address target, bytes callData"), [${cleanTo} as \`0x\${string}\`, ${cleanData} as \`0x\${string}\`]),
+    encoderName: "EVM",
+    signingAlgo: "SECP256K1",
+    hashingAlgo: "KECCAK256",
+  }).result()
+  ${client}.writeReport(${rt}, {
+    receiver: ${rt}.config.consumerContract,
+    report: __opReport.report,
+    gasConfig: { gasLimit: 500000 },
+  }).result()`
+        })
+        if (replaced !== block) {
+          result = result.slice(0, range.start + offset) + replaced + result.slice(range.end + offset)
+          offset += replaced.length - block.length
+        }
+      }
+      if (result !== fixed) {
+        fixed = result
+        fixes.push("Replaced sendTransaction() with writeReport pattern — sendTransaction does not exist in CRE SDK")
+      }
+    }
+  }
+
+  // 10. Fix report.report → pass full Report object to writeReport
+  // The CRE SDK's writeReport internally calls report.x_generatedCodeOnly_unwrap().
+  // Passing report.report extracts the raw protobuf which lacks that method → "not a function".
+  {
+    // Match patterns like: report: report.report or report: someVar.report
+    // where the variable was assigned from runtime.report().result()
+    const reportReportRe = /report:\s*(\w+)\.report\b/g
+    let match: RegExpExecArray | null
+    while ((match = reportReportRe.exec(fixed)) !== null) {
+      const varName = match[1]
+      // Only fix if it's referencing a report variable (not some unrelated .report access)
+      if (/report/i.test(varName)) {
+        fixed = fixed.replace(match[0], `report: ${varName}`)
+        fixes.push(`Fixed report: ${varName}.report → report: ${varName} — pass full Report object, not inner protobuf`)
+      }
+    }
+  }
+
   return { code: fixed, fixes }
 }
 
@@ -289,6 +363,29 @@ function checkImports(code: string): string[] {
     )
   }
 
+  return errors
+}
+
+/**
+ * (a2) WASM-incompatible viem functions — encodeFunctionData, decodeFunctionResult, parseAbi
+ *      crash in Javy WASM runtime. Use manual selector + encodeAbiParameters instead.
+ */
+function checkWasmIncompatibleViem(code: string): string[] {
+  const errors: string[] = []
+  const banned = ["encodeFunctionData", "decodeFunctionResult", "parseAbi"]
+  for (const fn of banned) {
+    // Check for import and usage (but not parseAbiParameters which is fine)
+    const usagePattern = fn === "parseAbi"
+      ? /\bparseAbi\s*\(/g  // only match parseAbi( not parseAbiParameters(
+      : new RegExp(`\\b${fn}\\s*\\(`, "g")
+    if (usagePattern.test(code)) {
+      errors.push(
+        `[VIEM] \`${fn}()\` crashes in CRE WASM runtime. ` +
+        `REPLACE with manual function selector (hex constant) + encodeAbiParameters(parseAbiParameters("type1,type2"), [args]). ` +
+        `See constraint #14.`,
+      )
+    }
+  }
   return errors
 }
 
@@ -404,7 +501,7 @@ function checkConfigJson(code: string, configJson: string): string[] {
   const configValues = Object.values(obj).map(String)
 
   // EVM operations need chain config
-  if (/[eE][vV][mM]Client\.(?:callContract|writeReport|sendTransaction)|evmWrite/.test(code)) {
+  if (/[eE][vV][mM]Client\.(?:callContract|writeReport)|evmWrite/.test(code)) {
     const hasChainConfig = configKeys.some((k) =>
       /chain|evm|consumer/i.test(k),
     )
@@ -565,7 +662,7 @@ function checkIntentAlignment(
   // Action alignment — check that key actions from the intent appear in code
   const actionPatterns: Record<string, RegExp> = {
     dexSwap: /swap|exactInput|exactOutput|uniswap|routerAddr/i,
-    evmWrite: /writeReport|sendTransaction|evmClient/i,
+    evmWrite: /writeReport|evmClient/i,
     alert: /alert|webhook|notify|slack|telegram/i,
     transfer: /transfer|send|ERC20/i,
     mint: /mint/i,
@@ -661,7 +758,7 @@ declare module "@chainlink/cre-sdk" {
   }
 
   interface HTTPResponse {
-    body: string;
+    body: Uint8Array;
     statusCode: number;
     headers: Record<string, string>;
   }
@@ -669,6 +766,10 @@ declare module "@chainlink/cre-sdk" {
   interface EVMResponse {
     data: string;
     success: boolean;
+    status: string;
+    txHash: string;
+    blockNumber: string;
+    gasUsed: string;
   }
 
   /** CronPayload — payload passed to cron handler callbacks */
@@ -783,7 +884,6 @@ declare module "@chainlink/cre-sdk" {
   /** The Runner bootstraps workflow registration */
   export class Runner {
     static newRunner<T>(opts: { configSchema: import("zod").ZodType }): Runner & PromiseLike<Runner>;
-    run(fn: (runtime: Runtime<any>) => void): void | PromiseLike<void>;
     run(fn: (config: any) => any[]): void | PromiseLike<void>;
   }
 
@@ -822,14 +922,18 @@ declare module "@chainlink/cre-sdk" {
     trigger(opts: { addresses?: string[]; topics?: string[]; contractAddress?: string; eventSignature?: string; chainSelector?: string }): EVMLogTrigger;
   }
 
-  /** HTTPClient — synchronous .result() unwrapping (legacy pattern) */
+  /** HTTPClient — synchronous .result() unwrapping */
   export class HTTPClient {
     fetch(url: string, opts?: FetchOpts): CREResponse<HTTPResponse>;
+    sendRequest(runtime: Runtime<any> | NodeRuntime<any>, opts: { url: string; method?: string; headers?: Record<string, string>; body?: string }): CREResponse<HTTPResponse>;
+    sendRequest(runtime: Runtime<any> | NodeRuntime<any>, fetchFn: (...args: any[]) => any, consensusFn?: (...args: any[]) => any): (...args: any[]) => CREResponse<any>;
   }
 
   /** ConfidentialHTTPClient — same interface, secrets-safe */
   export class ConfidentialHTTPClient {
     fetch(url: string, opts?: FetchOpts): CREResponse<HTTPResponse>;
+    sendRequest(runtime: Runtime<any> | NodeRuntime<any>, opts: { url: string; method?: string; headers?: Record<string, string>; body?: string }): CREResponse<HTTPResponse>;
+    sendRequest(runtime: Runtime<any> | NodeRuntime<any>, fetchFn: (...args: any[]) => any, consensusFn?: (...args: any[]) => any): (...args: any[]) => CREResponse<any>;
   }
 
   /** Resolves a chain name to a chain selector string (legacy) */
@@ -857,18 +961,16 @@ declare module "@chainlink/cre-sdk" {
     constructor(chainSelector?: string);
     static callContract(opts: EVMCallContractOpts): CREResponse<EVMResponse>;
     static writeReport(opts: EVMWriteReportOpts): CREResponse<EVMResponse>;
-    static sendTransaction(opts: EVMCallContractOpts): CREResponse<EVMResponse>;
     callContract(opts: EVMCallContractOpts): CREResponse<EVMResponse>;
     callContract(runtime: Runtime<any>, opts: EVMCallContractOpts): CREResponse<EVMResponse>;
     writeReport(opts: EVMWriteReportOpts): CREResponse<EVMResponse>;
     writeReport(runtime: Runtime<any>, opts: WriteReportOpts): CREResponse<EVMResponse>;
-    sendTransaction(opts: { contractAddress?: string; chainSelector?: string; data?: string; value?: string; to?: string }): CREResponse<EVMResponse>;
     balanceAt(runtime: Runtime<any>, opts: { address: string; blockNumber?: string | ConfidenceLevel }): CREResponse<EVMResponse>;
     filterLogs(runtime: Runtime<any>, opts: { addresses?: string[]; topics?: string[][]; fromBlock?: string; toBlock?: string }): CREResponse<EVMResponse>;
     getTransactionByHash(runtime: Runtime<any>, opts: { txHash: string }): CREResponse<EVMResponse>;
     getTransactionReceipt(runtime: Runtime<any>, opts: { txHash: string }): CREResponse<EVMResponse>;
     headerByNumber(runtime: Runtime<any>, opts: { blockNumber?: string | ConfidenceLevel }): CREResponse<EVMResponse>;
-    estimateGas(runtime: Runtime<any>, opts: { to?: string; data?: string; value?: string }): CREResponse<EVMResponse>;
+    estimateGas(runtime: Runtime<any>, opts: { to?: string; data?: string; value?: string | bigint }): CREResponse<EVMResponse>;
     logTrigger(opts: { addresses?: string[]; topics?: string[] }): EVMLogTrigger;
   }
 
@@ -898,13 +1000,12 @@ declare module "@chainlink/cre-sdk" {
         constructor(chainSelector?: string);
         callContract(runtime: Runtime<any>, opts: EVMCallContractOpts): CREResponse<EVMResponse>;
         writeReport(runtime: Runtime<any>, opts: WriteReportOpts | EVMWriteReportOpts): CREResponse<EVMResponse>;
-        sendTransaction(runtime: Runtime<any>, opts: { contractAddress?: string; chainSelector?: string; data?: string; value?: string; to?: string }): CREResponse<EVMResponse>;
         balanceAt(runtime: Runtime<any>, opts: { address: string; blockNumber?: string | ConfidenceLevel }): CREResponse<EVMResponse>;
         filterLogs(runtime: Runtime<any>, opts: { addresses?: string[]; topics?: string[][]; fromBlock?: string; toBlock?: string }): CREResponse<EVMResponse>;
         getTransactionByHash(runtime: Runtime<any>, opts: { txHash: string }): CREResponse<EVMResponse>;
         getTransactionReceipt(runtime: Runtime<any>, opts: { txHash: string }): CREResponse<EVMResponse>;
         headerByNumber(runtime: Runtime<any>, opts: { blockNumber?: string | ConfidenceLevel }): CREResponse<EVMResponse>;
-        estimateGas(runtime: Runtime<any>, opts: { to?: string; data?: string; value?: string }): CREResponse<EVMResponse>;
+        estimateGas(runtime: Runtime<any>, opts: { to?: string; data?: string; value?: string | bigint }): CREResponse<EVMResponse>;
         logTrigger(opts: { addresses?: string[]; topics?: string[] }): EVMLogTrigger;
       }
     }
@@ -951,9 +1052,6 @@ declare module "@chainlink/cre-sdk" {
   };
 
   export type InferOutput<T> = T extends (...args: any[]) => infer R ? R : never;
-
-  export function encodeAbiParameters(types: unknown, values: unknown[]): string;
-  export function parseAbiParameters(params: string): unknown;
 }
 
 declare module "@chainlink/cre-sdk/triggers" {
@@ -1153,6 +1251,7 @@ export async function validateWorkflow(
 
   // Phase 1: Fast checks (instant, no I/O)
   errors.push(...checkImports(code))
+  errors.push(...checkWasmIncompatibleViem(code))
   errors.push(...checkNoAsyncCallbacks(code))
   errors.push(...checkMainExport(code))
   errors.push(...checkZodSchema(code))

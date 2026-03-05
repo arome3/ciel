@@ -128,7 +128,7 @@ describe("CielClient", () => {
     expect(url).toContain("category=oracle")
   })
 
-  it("passes auth headers for publish", async () => {
+  it("passes X-Owner-Address header for confirmPublish", async () => {
     mockFetch(200, {
       workflowId: "abc",
       onchainWorkflowId: "0x123",
@@ -138,16 +138,15 @@ describe("CielClient", () => {
       donWorkflowId: null,
     })
     const client = new CielClient(makeConfig())
-    const authHeaders = {
-      "X-Owner-Address": "0xaddr",
-      "X-Owner-Signature": "0xsig",
-    }
-    await client.publish("abc", "Test", "Description here", 10000, authHeaders)
+    await client.confirmPublish(
+      "abc", "0xabc", "0x123",
+      "Test", "Description here", 10000,
+      "0xaddr",
+    )
 
     const opts = fetchCalls()[0][1] as RequestInit
     const headers = opts.headers as Record<string, string>
     expect(headers["X-Owner-Address"]).toBe("0xaddr")
-    expect(headers["X-Owner-Signature"]).toBe("0xsig")
   })
 
   it("handles simulate with stored mode", async () => {

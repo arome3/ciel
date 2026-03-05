@@ -10,21 +10,26 @@
 // Static Sections
 // ─────────────────────────────────────────────
 
+const CONSUMER_ADDRESS = process.env.CONSUMER_CONTRACT_ADDRESS || "0x0000000000000000000000000000000000000000"
+
 const ROLE_DEFINITION = `You are a CRE (Chainlink Runtime Environment) workflow code generator.
-You produce complete, compilable TypeScript workflow code using the @chainlink/cre-sdk v1.1.2.
+You produce complete, compilable TypeScript workflow code using the @chainlink/cre-sdk v1.1.3.
 
 SCOPE DISCIPLINE: Implement EXACTLY what's requested. No extra features, no added utilities beyond scope.
 Do not add helper functions, extra error handling, or abstractions not specified in the request.
-Generate the simplest correct implementation that satisfies the requirements.`
+Generate the simplest correct implementation that satisfies the requirements.
 
-const CRITICAL_CONSTRAINTS = `## 11 CRITICAL CONSTRAINTS — VIOLATION = INVALID CODE
+## Deployed Contract Addresses (Base Sepolia)
+- **consumerContract**: \`${CONSUMER_ADDRESS}\` — Use this as the default value for \`consumerContract\` in your Zod configSchema and config_json output. Do NOT use placeholder addresses like 0x111...111 or 0x000...000.`
+
+const CRITICAL_CONSTRAINTS = `## 14 CRITICAL CONSTRAINTS — VIOLATION = INVALID CODE
 
 1. **NO async/await in handler callbacks**: Handler callbacks passed to \`cre.handler()\` must be synchronous. Use \`.result()\` to synchronously unwrap capability responses. NEVER use async/await inside handler callbacks.
 
 2. **ONLY FOUR IMPORT SOURCES**: You may ONLY import from these packages:
-   - \`@chainlink/cre-sdk\` — cre, Runner, Runtime, capabilities, getNetwork, consensus, bytesToHex, hexToBase64, TxStatus, LAST_FINALIZED_BLOCK_NUMBER, encodeCallMsg
+   - \`@chainlink/cre-sdk\` — cre, Runner, Runtime, capabilities, getNetwork, consensus, bytesToHex, hexToBase64, TxStatus, LAST_FINALIZED_BLOCK_NUMBER, encodeCallMsg, decodeJson
    - \`zod\` — Config schema definition (z.object, z.string, z.number, etc.)
-   - \`viem\` — ABI encoding/decoding (encodeFunctionData, decodeFunctionResult, parseAbi, encodeAbiParameters, parseAbiParameters)
+   - \`viem\` — ONLY \`encodeAbiParameters\` and \`parseAbiParameters\` (see constraint #14)
    - \`@noble/hashes/*\` — Cryptographic hashing (sha256, hmac) for SigV4 signing
    No other imports are allowed. No \`node:fs\`, no \`axios\`, no \`ethers\`, no \`@chainlink/cre-sdk/triggers\`.
 
@@ -41,9 +46,9 @@ const CRITICAL_CONSTRAINTS = `## 11 CRITICAL CONSTRAINTS — VIOLATION = INVALID
    main()
    \`\`\`
 
-6. **Wire triggers with cre.handler()**: Use \`cre.handler(trigger, namedFunction)\` to wire triggers to named handler functions. Handler functions have signature \`(runtime: Runtime<Config>, payload: CronPayload | EVMLog) => string\`. Return \`JSON.stringify(result)\`. Do NOT use bare \`handler()\`.
+6. **Wire triggers with cre.handler()**: Use \`cre.handler(trigger, namedFunction)\` to wire triggers to named handler functions. Handler functions have signature \`(runtime: Runtime<Config>, payload: CronPayload | EVMLog) => string\`. Return \`JSON.stringify(result)\`. Do NOT use bare \`handler()\`. Do NOT access capabilities via \`runtime.capabilities.*\` or \`cre.triggers.*\` — these do not exist. Capabilities are classes instantiated from \`cre.capabilities\` namespace.
 
-7. **Onchain writes (two-step report)**: Use \`runtime.report({encodedPayload, encoderName, signingAlgo, hashingAlgo})\` to create a report, then \`evmClient.writeReport(runtime, {receiver, report, gasConfig})\` to write onchain. Check \`TxStatus\` for the result.
+7. **Onchain writes (two-step report)**: Use \`runtime.report({encodedPayload, encoderName, signingAlgo, hashingAlgo}).result()\` to create a Report object, then pass it DIRECTLY to \`evmClient.writeReport(runtime, {receiver, report: creReport, gasConfig})\`. NEVER access \`.report\` on the Report object — that extracts the raw protobuf and crashes.
 
 8. **Logging**: Use \`runtime.log('message')\` for workflow-level logging inside handlers. This is the only way to log in CRE workflows.
 
@@ -56,11 +61,23 @@ const CRITICAL_CONSTRAINTS = `## 11 CRITICAL CONSTRAINTS — VIOLATION = INVALID
    - \`Math.random()\` → forbidden; use deterministic logic
    - \`Promise.race()\`, \`Promise.any()\` → use \`Promise.all()\` or sequential calls
    - \`setTimeout()\`, \`setInterval()\` → not available in CRE runtime
-   - Unsorted \`Object.keys()\`/Map iteration → sort before encoding if order matters`
+   - Unsorted \`Object.keys()\`/Map iteration → sort before encoding if order matters
+
+12. **HTTP response body decoding**: \`response.body\` from \`httpClient.sendRequest()\` returns raw bytes (Uint8Array), NOT a string. NEVER use \`JSON.parse(response.body)\`. ALWAYS use \`decodeJson(response.body)\` from \`@chainlink/cre-sdk\` to parse HTTP response bodies.
+
+13. **NO sendTransaction**: \`evmClient.sendTransaction()\` does NOT exist in the CRE SDK. For ANY on-chain write operation (swap, burn, transfer, escrow, etc.), encode the operation intent into the report payload and use the two-step \`runtime.report()\` → \`evmClient.writeReport()\` pattern. The consumer contract (\`IReceiver.onReport\`) decodes the payload and executes the intended operation.
+
+14. **NO encodeFunctionData/decodeFunctionResult/parseAbi from viem**: These complex viem functions crash in the CRE Javy WASM runtime. From \`"viem"\`, ONLY import \`encodeAbiParameters\` and \`parseAbiParameters\` — these two work in WASM. To encode a contract call, manually concatenate the 4-byte function selector (hex constant) with \`encodeAbiParameters(...).slice(2)\`. Example:
+   \`\`\`typescript
+   // Function selector for exactInputSingle: keccak256("exactInputSingle(...)") first 4 bytes
+   const SELECTOR = "0x414bf389"
+   const params = encodeAbiParameters(parseAbiParameters("address,address,uint24,address,uint256,uint256,uint160"), [...args])
+   const calldata = SELECTOR + params.slice(2)
+   \`\`\``
 
 const COMMON_MISTAKES = `## COMMON MISTAKES — DO NOT / DO Pairs
 
-These are the top 5 LLM failure modes. Study each pair carefully.
+These are the top 6 LLM failure modes. Study each pair carefully.
 
 ### 1. Handler callbacks MUST be synchronous
 \`\`\`typescript
@@ -118,7 +135,7 @@ const now = runtime.now()
 evmClient.writeReport(runtime, { data: payload })
 
 // ✅ DO — step 1: create report, step 2: write onchain
-const report = runtime.report({
+const creReport = runtime.report({
   encodedPayload: encodeAbiParameters(types, values),
   encoderName: "EVM",
   signingAlgo: "SECP256K1",
@@ -126,12 +143,90 @@ const report = runtime.report({
 }).result()
 evmClient.writeReport(runtime, {
   receiver: config.consumerContract,
-  report: report.report,
+  report: creReport,
   gasConfig: { gasLimit: 500000 },
 }).result()
+\`\`\`
+
+IMPORTANT: Pass the FULL Report object from \`runtime.report().result()\` to \`writeReport\` — do NOT access \`.report\` on it.
+
+### 6. Capabilities are classes from cre.capabilities, NOT runtime or trigger properties
+\`\`\`typescript
+// ❌ DON'T — cre.triggers doesn't exist
+const trigger = cre.triggers.cronTrigger({ schedule })
+
+// ❌ DON'T — runtime.capabilities doesn't exist
+const http = runtime.capabilities.HTTPClient
+const resp = http.sendRequest(opts)
+
+// ❌ DON'T — runtime.capabilities.* doesn't exist
+const client = runtime.capabilities.ConfidentialHTTPClient
+
+// ✅ DO — instantiate from cre.capabilities namespace
+const cron = new cre.capabilities.CronCapability()
+const trigger = cron.trigger({ schedule: config.schedule })
+const httpClient = new cre.capabilities.HTTPClient()
+const resp = httpClient.sendRequest(runtime, opts).result()
+\`\`\`
+
+### 7. HTTP response body: decodeJson(), NOT JSON.parse()
+\`\`\`typescript
+// ❌ DON'T — response.body is raw bytes (Uint8Array), not a string
+const data = JSON.parse(response.body)
+
+// ✅ DO — use decodeJson() to decode bytes → JSON
+const data = decodeJson(response.body)
+\`\`\`
+
+### 8. On-chain writes: writeReport(), NOT sendTransaction()
+\`\`\`typescript
+// ❌ DON'T — sendTransaction() does not exist in CRE SDK
+evmClient.sendTransaction(runtime, { to: contractAddr, data: calldata }).result()
+
+// ✅ DO — encode operation intent in report payload, writeReport to consumer
+const reportData = encodeAbiParameters(
+  parseAbiParameters("address target, bytes callData, uint256 value"),
+  [contractAddr as \\\`0x\${string}\\\`, calldata as \\\`0x\${string}\\\`, BigInt(0)]
+)
+const creReport = runtime.report({
+  encodedPayload: reportData,
+  encoderName: "EVM", signingAlgo: "SECP256K1", hashingAlgo: "KECCAK256",
+}).result()
+evmClient.writeReport(runtime, {
+  receiver: runtime.config.consumerContract,
+  report: creReport,
+  gasConfig: { gasLimit: 500000 },
+}).result()
+\`\`\`
+
+### 9. ABI encoding: manual selector + encodeAbiParameters, NOT encodeFunctionData
+\`\`\`typescript
+// ❌ DON'T — encodeFunctionData/parseAbi crash in CRE WASM runtime; standalone viem import fails
+import { encodeFunctionData, parseAbi } from "viem"
+const calldata = encodeFunctionData({
+  abi: parseAbi(["function transfer(address,uint256)"]),
+  functionName: "transfer", args: [to, amount]
+})
+
+// ✅ DO — encodeAbiParameters + parseAbiParameters work fine from viem
+import { encodeAbiParameters, parseAbiParameters } from "viem"
+const TRANSFER_SELECTOR = "0xa9059cbb"
+const params = encodeAbiParameters(parseAbiParameters("address,uint256"), [to, amount])
+const calldata = TRANSFER_SELECTOR + params.slice(2)
+\`\`\`
+
+### 10. writeReport: pass the FULL Report object, NOT .report
+\`\`\`typescript
+// ❌ DON'T — report.report extracts raw protobuf → crashes with "not a function"
+const report = runtime.report({ encodedPayload, encoderName: "EVM", signingAlgo: "SECP256K1", hashingAlgo: "KECCAK256" }).result()
+evmClient.writeReport(runtime, { receiver: addr, report: report.report, gasConfig: { gasLimit: 500000 } }).result()
+
+// ✅ DO — pass the full Report object directly
+const creReport = runtime.report({ encodedPayload, encoderName: "EVM", signingAlgo: "SECP256K1", hashingAlgo: "KECCAK256" }).result()
+evmClient.writeReport(runtime, { receiver: addr, report: creReport, gasConfig: { gasLimit: 500000 } }).result()
 \`\`\``
 
-const API_REFERENCE = `## CRE SDK API Reference (@chainlink/cre-sdk v1.1.2 — Official Pattern)
+const API_REFERENCE = `## CRE SDK API Reference (@chainlink/cre-sdk v1.1.3 — Official Pattern)
 
 ### Imports
 \`\`\`typescript
@@ -148,14 +243,14 @@ import {
   TxStatus,                              // Transaction status enum
   LAST_FINALIZED_BLOCK_NUMBER,           // Block number constant for reads
   encodeCallMsg,                         // Encode contract call messages
-  encodeAbiParameters,                   // ABI encoding
-  parseAbiParameters,                    // ABI parameter parsing
   ConsensusAggregationByFields,          // Per-field consensus
   consensusMedianAggregation,            // Numeric median
   consensusIdenticalAggregation,         // Exact match
+  type HTTPPayload,                      // HTTP trigger payload type
+  decodeJson,                            // Decode Uint8Array → JSON (HTTP response bodies + HTTP trigger payloads)
 } from "@chainlink/cre-sdk"
 import { z } from "zod"
-import { encodeFunctionData, decodeFunctionResult, parseAbi } from "viem"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 \`\`\`
 
 ### Workflow Structure (Official Pattern)
@@ -199,7 +294,7 @@ const response = httpClient.sendRequest(runtime, {
   method: "GET",
   headers: { "Content-Type": "application/json" },
 }).result()
-const data = JSON.parse(response.body)
+const data = decodeJson(response.body)
 
 // Higher-order pattern (sendRequest with fetch + consensus functions)
 const fetchFn = (url: string) => ({ method: "GET" as const, url })
@@ -207,43 +302,54 @@ const consensusFn = consensusMedianAggregation
 const result = httpClient.sendRequest(runtime, fetchFn, consensusFn)(apiUrl).result()
 \`\`\`
 
-### Contract Reads (Official Pattern)
+### Contract Reads (Official Pattern — Manual Selector)
 \`\`\`typescript
 const network = getNetwork({ chainFamily: "evm", chainSelectorName: "ethereum-testnet-sepolia", isTestnet: true })
 const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
 
-const callData = encodeFunctionData({
-  abi: parseAbi(["function latestAnswer() view returns (int256)"]),
-  functionName: "latestAnswer",
-  args: [],
-})
+// Manual function selector: keccak256("latestAnswer()") first 4 bytes
+const LATEST_ANSWER_SELECTOR = "0x50d25bcd"
+// No params → calldata is just the selector
+const callData = LATEST_ANSWER_SELECTOR
 
 const response = evmClient.callContract(runtime, {
   call: encodeCallMsg({ from: "0x0", to: config.feedAddress, data: callData }),
   blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
 }).result()
 
-const answer = decodeFunctionResult({
-  abi: parseAbi(["function latestAnswer() view returns (int256)"]),
-  functionName: "latestAnswer",
-  data: bytesToHex(response.data as unknown as Uint8Array),
-})
+// Decode int256 return value using encodeAbiParameters
+const rawHex = bytesToHex(response.data as unknown as Uint8Array)
+const answer = BigInt(rawHex)
 \`\`\`
+
+IMPORTANT: Do NOT use \`encodeFunctionData\`, \`decodeFunctionResult\`, or \`parseAbi\` from viem — they crash in the CRE WASM runtime. Instead:
+- **Encode calls**: Use a hex function selector constant + \`encodeAbiParameters(parseAbiParameters("type1,type2,..."), [arg1, arg2, ...])\`
+- **Decode results**: Use \`BigInt(bytesToHex(response.data))\` for single values, or parse manually for tuples
+
+Common function selectors:
+- \`latestAnswer()\`: \`0x50d25bcd\`
+- \`decimals()\`: \`0x313ce567\`
+- \`balanceOf(address)\`: \`0x70a08231\`
+- \`totalSupply()\`: \`0x18160ddd\`
+- \`transfer(address,uint256)\`: \`0xa9059cbb\`
+- \`approve(address,uint256)\`: \`0x095ea7b3\`
+- \`burn(uint256)\`: \`0x42966c68\`
+- \`exactInputSingle(tuple)\`: \`0x414bf389\`
 
 ### Report Writing (Official Two-Step Pattern)
 \`\`\`typescript
-// Step 1: Create report
-const report = runtime.report({
+// Step 1: Create report — returns a Report object (do NOT access .report on it)
+const creReport = runtime.report({
   encodedPayload: encodeAbiParameters(parseAbiParameters("uint256,string"), [BigInt(value), label]),
   encoderName: "EVM",
   signingAlgo: "SECP256K1",
   hashingAlgo: "KECCAK256",
 }).result()
 
-// Step 2: Write onchain
+// Step 2: Write onchain — pass the FULL Report object, NOT creReport.report
 const txResult = evmClient.writeReport(runtime, {
   receiver: config.consumerContract,
-  report: report.report,
+  report: creReport,
   gasConfig: { gasLimit: 500000 },
 }).result()
 
@@ -251,6 +357,8 @@ if (txResult.success) {
   runtime.log("Report written successfully")
 }
 \`\`\`
+
+CRITICAL: \`runtime.report().result()\` returns a Report class object. Pass it DIRECTLY to \`writeReport({ report: creReport })\`. NEVER access \`.report\` on it — that extracts the raw protobuf which crashes with "not a function".
 
 ### Chain Selectors
 \`\`\`typescript
@@ -272,7 +380,7 @@ const result = runtime.runInNodeMode(
     const apiKey = nodeRuntime.getSecret("API_KEY")
     const httpClient = new cre.capabilities.HTTPClient()
     const resp = httpClient.sendRequest(nodeRuntime, { url, method: "POST", headers: { Authorization: apiKey }, body }).result()
-    return JSON.parse(resp.body)
+    return decodeJson(resp.body)
   },
   ConsensusAggregationByFields({ value: consensusMedianAggregation() })
 )().result()
@@ -361,12 +469,13 @@ These APIs are available via \`cre.capabilities.HTTPClient\` or \`cre.capabiliti
 
 const DEX_SWAP_PATTERN = `## DEX Swap Pattern (Uniswap V3)
 
-CRE workflows can execute DEX swaps using \`evmClient.sendTransaction()\`. The pattern:
+CRE workflows execute DEX swaps by encoding the swap intent into a report payload and using \`writeReport\` to deliver it to a consumer contract (\`IReceiver\`). The consumer decodes and calls the SwapRouter.
 
 1. Fetch price from API (cre.capabilities.HTTPClient)
 2. Check threshold condition
-3. Encode Uniswap V3 \`exactInputSingle\` call using viem's \`encodeFunctionData\`
-4. Execute via \`evmClient.sendTransaction(runtime, { contractAddress: routerAddr, data: calldata })\`
+3. Encode Uniswap V3 \`exactInputSingle\` calldata using viem
+4. Pack swap intent (router address, calldata, value) into report payload
+5. \`runtime.report()\` → \`evmClient.writeReport()\` to consumer contract
 
 Key Uniswap V3 SwapRouter02 function selectors:
 - \`exactInputSingle(ExactInputSingleParams)\`: \`0x414bf389\`
@@ -381,9 +490,23 @@ ExactInputSingleParams struct (ABI-encoded as tuple):
 - \`uint256 amountOutMinimum\` — min output (slippage protection)
 - \`uint160 sqrtPriceLimitX96\` — price limit (0 = no limit)
 
+\`\`\`typescript
+// Encode swap calldata
+const calldata = EXACT_INPUT_SINGLE_SELECTOR + encodeAbiParameters(...).slice(2)
+
+// Pack swap intent into report payload → consumer executes the swap
+const reportData = encodeAbiParameters(
+  parseAbiParameters("address target, bytes callData, uint256 value, uint256 timestamp"),
+  [routerAddr as \\\`0x\${string}\\\`, calldata as \\\`0x\${string}\\\`, BigInt(swapAmountWei), BigInt(Math.floor(runtime.now().getTime() / 1000))]
+)
+const creReport = runtime.report({ encodedPayload: reportData, encoderName: "EVM", signingAlgo: "SECP256K1", hashingAlgo: "KECCAK256" }).result()
+evmClient.writeReport(runtime, { receiver: runtime.config.consumerContract, report: creReport, gasConfig: { gasLimit: 500000 } }).result()
+\`\`\`
+
 IMPORTANT: All amounts must be BigInt. Token addresses are chain-specific.
-The \`value\` field in sendTransaction must be set to the swap amount ONLY
-when swapping native ETH (tokenIn = address(0) or WETH).`
+The \`value\` field in the report payload must be set to the swap amount ONLY
+when swapping native ETH (tokenIn = address(0) or WETH).
+NEVER use \`evmClient.sendTransaction()\` — it does not exist in the CRE SDK.`
 
 const WALLET_MONITOR_PATTERN = `## Wallet Activity Monitor Pattern (ERC-20 Transfer Events)
 
@@ -437,39 +560,34 @@ const isExchange = exchangeSet.has(counterpartyAddress)
 
 const CONTRACT_READ_PATTERN = `## Contract Read Pattern (Chainlink Data Feeds)
 
-Read on-chain data feeds using \`encodeCallMsg\` + \`callContract\`:
+Read on-chain data feeds using manual function selectors + \`encodeCallMsg\` + \`callContract\`:
 
 \`\`\`typescript
 const network = getNetwork({ chainFamily: "evm", chainSelectorName: "ethereum-testnet-sepolia", isTestnet: true })
 const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
 
-// Read decimals
-const decimalsData = encodeFunctionData({
-  abi: parseAbi(["function decimals() view returns (uint8)"]),
-  functionName: "decimals",
-  args: [],
-})
-const decimalsResp = evmClient.callContract(runtime, {
-  call: encodeCallMsg({ from: "0x0", to: config.feedAddress, data: decimalsData }),
-  blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
-}).result()
+// Function selectors (pre-computed keccak256 first 4 bytes)
+const DECIMALS_SELECTOR = "0x313ce567"       // decimals()
+const LATEST_ANSWER_SELECTOR = "0x50d25bcd"  // latestAnswer()
 
-// Read latest answer
-const answerData = encodeFunctionData({
-  abi: parseAbi(["function latestAnswer() view returns (int256)"]),
-  functionName: "latestAnswer",
-  args: [],
-})
-const answerResp = evmClient.callContract(runtime, {
-  call: encodeCallMsg({ from: "0x0", to: config.feedAddress, data: answerData }),
+// Read decimals — no args, just the selector
+const decimalsResp = evmClient.callContract(runtime, {
+  call: encodeCallMsg({ from: "0x0", to: config.feedAddress, data: DECIMALS_SELECTOR }),
   blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
 }).result()
-const price = decodeFunctionResult({
-  abi: parseAbi(["function latestAnswer() view returns (int256)"]),
-  functionName: "latestAnswer",
-  data: bytesToHex(answerResp.data as unknown as Uint8Array),
-}) as bigint
+const rawDecimalsHex = bytesToHex(decimalsResp.data as unknown as Uint8Array)
+const decimals = Number(BigInt(rawDecimalsHex))
+
+// Read latest answer — no args, just the selector
+const answerResp = evmClient.callContract(runtime, {
+  call: encodeCallMsg({ from: "0x0", to: config.feedAddress, data: LATEST_ANSWER_SELECTOR }),
+  blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
+}).result()
+const rawAnswerHex = bytesToHex(answerResp.data as unknown as Uint8Array)
+const price = BigInt(rawAnswerHex)
 \`\`\`
+
+IMPORTANT: Do NOT use \`encodeFunctionData\`, \`decodeFunctionResult\`, or \`parseAbi\` from viem — they crash in the CRE WASM runtime. Use pre-computed hex selectors + \`encodeAbiParameters\` for args. Decode return values with \`BigInt(bytesToHex(response.data))\`.
 
 ### Confidence Levels for Block Numbers
 - \`LAST_FINALIZED_BLOCK_NUMBER\` (alias for \`"finalized"\`): ~12min delay, highest security. **Default for financial operations.**
@@ -526,7 +644,7 @@ try {
     method: "GET",
     headers: { Authorization: \`Bearer \${runtime.config.kvApiKey}\` },
   }).result()
-  state = JSON.parse(prev.body)
+  state = decodeJson(prev.body)
 } catch {
   // First run — use default empty state
 }
@@ -641,96 +759,121 @@ CRE workflows can burn tokens by calling burn() on ERC-20 contracts via evmWrite
 
 ### Burn Execution
 \`\`\`typescript
-const erc20Abi = parseAbi([
-  "function balanceOf(address account) view returns (uint256)",
-  "function burn(uint256 amount) returns (bool)",
-])
+// Function selectors (pre-computed keccak256 first 4 bytes)
+const BALANCE_OF_SELECTOR = "0x70a08231"  // balanceOf(address)
+const BURN_SELECTOR = "0x42966c68"        // burn(uint256)
 
-// Check balance
-const balanceData = encodeFunctionData({ abi: erc20Abi, functionName: "balanceOf", args: [redeemer] })
+// Check balance — encode address param
+const balanceCalldata = BALANCE_OF_SELECTOR + encodeAbiParameters(parseAbiParameters("address"), [redeemer as \\\`0x\${string}\\\`]).slice(2)
 const balanceResp = evmClient.callContract(runtime, {
-  call: encodeCallMsg({ from: "0x0", to: config.tokenAddress, data: balanceData }),
+  call: encodeCallMsg({ from: "0x0", to: config.tokenAddress, data: balanceCalldata }),
   blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
 }).result()
+const balance = BigInt(bytesToHex(balanceResp.data as unknown as Uint8Array))
 
-// Execute burn
-const burnData = encodeFunctionData({ abi: erc20Abi, functionName: "burn", args: [burnAmount] })
-evmClient.sendTransaction(runtime, { to: config.tokenAddress, data: burnData }).result()
-
-// Report burn onchain (two-step)
-const reportData = encodeAbiParameters(parseAbiParameters("address,uint256,uint256"), [redeemer, amount, timestamp])
-const report = runtime.report({ encodedPayload: reportData, encoderName: "EVM", signingAlgo: "SECP256K1", hashingAlgo: "KECCAK256" }).result()
-evmClient.writeReport(runtime, { receiver: config.consumerContract, report: report.report, gasConfig: { gasLimit: 500000 } }).result()
+// Execute burn via writeReport — encode burn intent in report payload
+const burnCalldata = BURN_SELECTOR + encodeAbiParameters(parseAbiParameters("uint256"), [burnAmount]).slice(2)
+const reportData = encodeAbiParameters(
+  parseAbiParameters("address redeemer, address target, bytes callData, uint256 amount, uint256 timestamp"),
+  [redeemer as \\\`0x\${string}\\\`, config.tokenAddress as \\\`0x\${string}\\\`, burnCalldata as \\\`0x\${string}\\\`, burnAmount, BigInt(Math.floor(runtime.now().getTime() / 1000))]
+)
+const creReport = runtime.report({ encodedPayload: reportData, encoderName: "EVM", signingAlgo: "SECP256K1", hashingAlgo: "KECCAK256" }).result()
+evmClient.writeReport(runtime, { receiver: config.consumerContract, report: creReport, gasConfig: { gasLimit: 500000 } }).result()
 \`\`\`
 
-IMPORTANT: The burn function must be on the token contract itself. Some tokens use \`burnFrom(address, amount)\` — check the ABI.`
+IMPORTANT: The burn function must be on the token contract itself. Some tokens use \`burnFrom(address, amount)\` — check the ABI.
+Do NOT use \`encodeFunctionData\` or \`parseAbi\` — use manual selectors + \`encodeAbiParameters\`.`
 
 const ESCROW_PATTERN = `## Escrow Lock/Release Pattern
 
 CRE workflows can interact with escrow contracts for DvP (Delivery vs Payment) workflows.
 
-### Escrow Contract Interface
+### Escrow Function Selectors
 \`\`\`typescript
-const escrowAbi = parseAbi([
-  "function lock(address depositor, uint256 amount) returns (bool)",
-  "function release(address beneficiary, uint256 amount) returns (bool)",
-  "function getLockedAmount(address depositor) view returns (uint256)",
-])
+// Pre-computed keccak256 first 4 bytes
+const LOCK_SELECTOR = "0xf435f5a7"             // lock(address,uint256)
+const RELEASE_SELECTOR = "0xc19d93fb"           // release(address,uint256)
+const GET_LOCKED_SELECTOR = "0x5a7bb69a"        // getLockedAmount(address)
 \`\`\`
 
 ### Condition-Based Routing
 Check settlement conditions via API, then route to lock or release:
 \`\`\`typescript
-const conditions = JSON.parse(settlementResp.body)
+const conditions = decodeJson(settlementResp.body)
+let actionCalldata: string
+let actionType: string
 if (conditions.deliveryConfirmed && conditions.paymentReceived) {
-  // Release path
-  const releaseData = encodeFunctionData({ abi: escrowAbi, functionName: "release", args: [beneficiary, amount] })
-  evmClient.sendTransaction(runtime, { to: config.escrowContract, data: releaseData }).result()
+  actionCalldata = RELEASE_SELECTOR + encodeAbiParameters(parseAbiParameters("address,uint256"), [beneficiary as \\\`0x\${string}\\\`, amount]).slice(2)
+  actionType = "release"
 } else {
-  // Lock path
-  const lockData = encodeFunctionData({ abi: escrowAbi, functionName: "lock", args: [depositor, amount] })
-  evmClient.sendTransaction(runtime, { to: config.escrowContract, data: lockData }).result()
+  actionCalldata = LOCK_SELECTOR + encodeAbiParameters(parseAbiParameters("address,uint256"), [depositor as \\\`0x\${string}\\\`, amount]).slice(2)
+  actionType = "lock"
 }
-\`\`\``
+// Encode escrow action in report payload → writeReport to consumer
+const reportData = encodeAbiParameters(
+  parseAbiParameters("address target, bytes callData, string actionType, uint256 timestamp"),
+  [config.escrowContract as \\\`0x\${string}\\\`, actionCalldata as \\\`0x\${string}\\\`, actionType, BigInt(Math.floor(runtime.now().getTime() / 1000))]
+)
+const creReport = runtime.report({ encodedPayload: reportData, encoderName: "EVM", signingAlgo: "SECP256K1", hashingAlgo: "KECCAK256" }).result()
+evmClient.writeReport(runtime, { receiver: config.consumerContract, report: creReport, gasConfig: { gasLimit: 500000 } }).result()
+\`\`\`
+
+Do NOT use \`encodeFunctionData\` or \`parseAbi\` — use manual selectors + \`encodeAbiParameters\`.`
 
 const REGISTRY_PATTERN = `## Shareholder Registry & Distribution Pattern
 
 CRE workflows can manage on-chain shareholder registries and execute dividend distributions.
 
+### Registry Function Selectors
+\`\`\`typescript
+// Pre-computed keccak256 first 4 bytes
+const REGISTER_TRANSFER_SELECTOR = "0x2c79db11"  // registerTransfer(address,address,uint256)
+const GET_SHARES_SELECTOR = "0xf04da65b"          // getShares(address)
+\`\`\`
+
 ### Registry Operations
 \`\`\`typescript
-const registryAbi = parseAbi([
-  "function registerTransfer(address from, address to, uint256 shares) returns (bool)",
-  "function getShares(address holder) view returns (uint256)",
-])
-
-// Validate and execute share transfer
-const transferData = encodeFunctionData({
-  abi: registryAbi,
-  functionName: "registerTransfer",
-  args: [fromAddress, toAddress, shareCount],
-})
-evmClient.sendTransaction(runtime, { to: config.registryContract, data: transferData }).result()
+// Validate and execute share transfer via writeReport
+const transferCalldata = REGISTER_TRANSFER_SELECTOR + encodeAbiParameters(
+  parseAbiParameters("address,address,uint256"),
+  [fromAddress as \\\`0x\${string}\\\`, toAddress as \\\`0x\${string}\\\`, shareCount]
+).slice(2)
+const reportData = encodeAbiParameters(
+  parseAbiParameters("address target, bytes callData, uint256 timestamp"),
+  [config.registryContract as \\\`0x\${string}\\\`, transferCalldata as \\\`0x\${string}\\\`, BigInt(Math.floor(runtime.now().getTime() / 1000))]
+)
+const creReport = runtime.report({ encodedPayload: reportData, encoderName: "EVM", signingAlgo: "SECP256K1", hashingAlgo: "KECCAK256" }).result()
+evmClient.writeReport(runtime, { receiver: config.consumerContract, report: creReport, gasConfig: { gasLimit: 500000 } }).result()
 \`\`\`
 
 ### Batch Distribution (Pro-Rata Dividends)
 \`\`\`typescript
 // Fetch holder list from registry API
-const holders = JSON.parse(holdersResp.body) as { address: string; shares: string }[]
+const holders = decodeJson(holdersResp.body) as { address: string; shares: string }[]
 
 // Calculate pro-rata amounts
 let totalShares = BigInt(0)
 for (const h of holders) totalShares += BigInt(h.shares)
 
+// Encode full distribution list into single report payload → consumer executes batch
+const recipients: \\\`0x\${string}\\\`[] = []
+const amounts: bigint[] = []
 for (const holder of holders) {
   const amount = (totalAmount * BigInt(holder.shares)) / totalShares
-  const txData = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [holder.address, amount] })
-  evmClient.sendTransaction(runtime, { to: config.tokenAddress, data: txData }).result()
+  recipients.push(holder.address as \\\`0x\${string}\\\`)
+  amounts.push(amount)
 }
+const reportData = encodeAbiParameters(
+  parseAbiParameters("address token, address[] recipients, uint256[] amounts, uint256 timestamp"),
+  [config.tokenAddress as \\\`0x\${string}\\\`, recipients, amounts, BigInt(Math.floor(runtime.now().getTime() / 1000))]
+)
+const creReport = runtime.report({ encodedPayload: reportData, encoderName: "EVM", signingAlgo: "SECP256K1", hashingAlgo: "KECCAK256" }).result()
+evmClient.writeReport(runtime, { receiver: config.consumerContract, report: creReport, gasConfig: { gasLimit: 500000 } }).result()
 \`\`\`
 
 ### Compliance Gating
-Always check recipient compliance before registry updates (reuse T8 pattern).`
+Always check recipient compliance before registry updates (reuse T8 pattern).
+Do NOT use \`encodeFunctionData\` or \`parseAbi\` — use manual selectors + \`encodeAbiParameters\`.`
 
 const OUTPUT_FORMAT = `## Output Instructions
 
@@ -752,17 +895,117 @@ Use the structured output fields as follows:
 - **explanation**: Brief human-readable explanation of what the workflow does and how to configure it.`
 
 // ─────────────────────────────────────────────
-// Builder
+// Layered Prompt Architecture
+// ─────────────────────────────────────────────
+// Layer 1 (Static Base): Identical for every request → maximizes
+//   OpenAI automatic prompt caching (90% cost reduction on prefix).
+// Layer 2 (Template Context): Only the patterns and examples
+//   relevant to the matched template's capabilities.
+// ─────────────────────────────────────────────
+
+/** Cached static base — computed once, reused for all requests */
+let _staticBaseCache: string | null = null
+
+/**
+ * Layer 1: Static base prompt — identical for every request.
+ *
+ * Contains: role definition, 11 critical constraints, common mistakes,
+ * full CRE SDK API reference, and output format instructions.
+ *
+ * ~15K chars (~3.7K tokens). OpenAI prompt caching applies to this
+ * entire prefix since it never changes between requests.
+ */
+export function buildStaticBase(): string {
+  if (!_staticBaseCache) {
+    _staticBaseCache = [
+      ROLE_DEFINITION,
+      CRITICAL_CONSTRAINTS,
+      COMMON_MISTAKES,
+      API_REFERENCE,
+      OUTPUT_FORMAT,
+    ].join("\n\n")
+  }
+  return _staticBaseCache
+}
+
+/**
+ * Layer 2: Template-specific context — only patterns relevant to
+ * the matched template's capabilities, plus few-shot examples.
+ *
+ * Typically ~2-9K chars (~0.5-2.2K tokens) depending on the template.
+ * Combined with the static base, total prompt is ~5-6K tokens
+ * (down from ~12K in the monolithic approach).
+ *
+ * @param capabilities - Template's requiredCapabilities array
+ * @param needsState - Whether intent involves cross-run state
+ * @param fewShotContext - Pre-built few-shot examples from context-builder
+ */
+export function buildTemplateContext(
+  capabilities: string[],
+  needsState: boolean,
+  fewShotContext?: string,
+): string {
+  const caps = new Set(capabilities)
+  const sections: string[] = []
+
+  // ── Capability-specific application patterns ──
+  // Only inject patterns the model needs for this specific template.
+
+  // Contract read pattern (Chainlink Data Feeds)
+  if (caps.has("evmRead") || caps.has("chainlink-feeds")) {
+    sections.push(CONTRACT_READ_PATTERN)
+  }
+
+  // DEX swap pattern (Uniswap V3)
+  if (caps.has("dexSwap")) {
+    sections.push(DEX_SWAP_PATTERN)
+  }
+
+  // Wallet/ERC-20 monitor pattern
+  if (caps.has("wallet-api")) {
+    sections.push(WALLET_MONITOR_PATTERN)
+  }
+
+  // State management (cross-run persistence)
+  if (needsState) {
+    sections.push(STATE_MANAGEMENT_PATTERNS)
+  }
+
+  // HTTP trigger authentication
+  const httpRelated = ["http", "webhook", "api-endpoint", "HTTPCapability"]
+  if (httpRelated.some((k) => caps.has(k)) || capabilities.some((c) => /http/i.test(c))) {
+    sections.push(HTTP_TRIGGER_AUTH_PATTERN)
+  }
+
+  // Institutional finance patterns (T17-T22)
+  if (caps.has("payment-api") || caps.has("initiatePayment")) {
+    sections.push(PAYMENT_API_PATTERN)
+  }
+  if (caps.has("burn")) {
+    sections.push(BURN_PATTERN)
+  }
+  if (caps.has("escrowLock") || caps.has("escrowRelease") || caps.has("settlement-api")) {
+    sections.push(ESCROW_PATTERN)
+  }
+  if (caps.has("registry-api") || caps.has("distribute")) {
+    sections.push(REGISTRY_PATTERN)
+  }
+
+  // ── Few-shot examples ──
+  if (fewShotContext) {
+    sections.push(fewShotContext)
+  }
+
+  return sections.join("\n\n")
+}
+
+// ─────────────────────────────────────────────
+// Legacy Builder (backward compatibility)
 // ─────────────────────────────────────────────
 
 /**
- * Builds the complete system prompt for LLM code generation.
- *
- * @param fewShotContext - Working template examples from context-builder
- * @param relevantDocs - CRE SDK documentation from doc-retriever
- * @param context7Docs - Supplementary docs from Context7 (may be empty)
- * @param needsState - Whether to include state management patterns (default: true for backward compat)
- * @returns Complete system prompt string
+ * @deprecated Use buildStaticBase() + buildTemplateContext() for layered prompts.
+ * Kept for backward compatibility with existing tests.
  */
 export function buildSystemPrompt(
   fewShotContext: string,

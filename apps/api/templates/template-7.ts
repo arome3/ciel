@@ -2,6 +2,7 @@
 // Trigger: CronCapability | Capabilities: HTTPClient weather, conditional payout
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
@@ -9,8 +10,8 @@ import {
   type CronPayload,
   getNetwork,
   consensusMedianAggregation,
+  decodeJson,
 } from "@chainlink/cre-sdk"
-import { encodeAbiParameters, parseAbiParameters } from "viem"
 
 const configSchema = z.object({
   weatherApiUrl: z.string().describe("Weather data API endpoint"),
@@ -40,7 +41,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const weather = JSON.parse(weatherResp.body)
+  const weather = decodeJson(weatherResp.body)
   const currentValue = weather[runtime.config.parameterName]
 
   // Check parametric trigger condition

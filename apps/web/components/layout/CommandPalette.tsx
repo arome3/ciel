@@ -12,13 +12,14 @@ import {
 } from "@/components/ui/command"
 import { Hammer, Store, GitBranch, Plus, Wallet } from "lucide-react"
 import { useCommandStore } from "@/lib/command-store"
-import { useWorkflowStore } from "@/lib/store"
+import { useAccount } from "wagmi"
+import { useConnectModal } from "@rainbow-me/rainbowkit"
 
 export function CommandPalette() {
   const router = useRouter()
   const { isOpen, setOpen } = useCommandStore()
-  const walletAddress = useWorkflowStore((s) => s.walletAddress)
-  const setWalletAddress = useWorkflowStore((s) => s.setWalletAddress)
+  const { address } = useAccount()
+  const { openConnectModal } = useConnectModal()
 
   // Cmd+K / Ctrl+K toggle
   useEffect(() => {
@@ -38,12 +39,8 @@ export function CommandPalette() {
   }
 
   function handleConnectWallet() {
-    if (walletAddress) return
-    const hex = Array.from({ length: 40 }, () =>
-      Math.floor(Math.random() * 16).toString(16),
-    ).join("")
-    setWalletAddress(`0x${hex}`)
     setOpen(false)
+    openConnectModal?.()
   }
 
   return (
@@ -70,7 +67,7 @@ export function CommandPalette() {
             <Plus className="mr-2 h-4 w-4" />
             New Workflow
           </CommandItem>
-          {!walletAddress && (
+          {!address && (
             <CommandItem onSelect={handleConnectWallet}>
               <Wallet className="mr-2 h-4 w-4" />
               Connect Wallet

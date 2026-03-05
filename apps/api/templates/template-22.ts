@@ -6,16 +6,15 @@
 // Uses multi-recipient pattern with batching logic
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
   type Runtime,
   type CronPayload,
   getNetwork,
-  encodeAbiParameters,
-  parseAbiParameters,
+  decodeJson,
 } from "@chainlink/cre-sdk"
-import { encodeFunctionData, parseAbi } from "viem"
 
 const configSchema = z.object({
   schedule: z.string().default("0 0 9 1 * *").describe("Distribution schedule (monthly 1st at 9am)"),
@@ -28,11 +27,6 @@ const configSchema = z.object({
 })
 
 type Config = z.infer<typeof configSchema>
-
-const erc20Abi = parseAbi([
-  "function transfer(address to, uint256 amount) returns (bool)",
-  "function balanceOf(address account) view returns (uint256)",
-])
 
 interface ShareHolder {
   address: string
@@ -54,7 +48,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     headers: { "Content-Type": "application/json" },
   }).result()
 
-  const holders = JSON.parse(holdersResp.body) as ShareHolder[]
+  const holders = decodeJson(holdersResp.body) as ShareHolder[]
   runtime.log(`Found ${holders.length} eligible shareholders`)
 
   if (holders.length === 0) {
@@ -71,41 +65,41 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
   let distributed = BigInt(0)
   let successCount = 0
 
-  // Step 3: Execute batch transfers
+  // Step 3: Calculate pro-rata amounts and encode full distribution list into single report
+  // Consumer contract (IReceiver.onReport) decodes and executes batch ERC-20 transfers
+  const recipients: `0x${string}`[] = []
+  const amounts: bigint[] = []
+
   for (const holder of holders) {
     const holderShares = BigInt(holder.shares)
     const proRataAmount = (totalAmount * holderShares) / totalShares
 
     if (proRataAmount === BigInt(0)) continue
 
-    runtime.log(`Distributing ${proRataAmount.toString()} to ${holder.address}`)
-
-    const transferData = encodeFunctionData({
-      abi: erc20Abi,
-      functionName: "transfer",
-      args: [holder.address as `0x${string}`, proRataAmount],
-    })
-
-    const txResult = evmClient.sendTransaction(runtime, {
-      to: runtime.config.distributionTokenAddress,
-      data: transferData,
-    }).result()
-
-    if (txResult?.success) {
-      distributed += proRataAmount
-      successCount++
-    } else {
-      runtime.log(`Transfer to ${holder.address} failed`)
-    }
+    runtime.log(`Allocating ${proRataAmount.toString()} to ${holder.address}`)
+    recipients.push(holder.address as `0x${string}`)
+    amounts.push(proRataAmount)
+    distributed += proRataAmount
+    successCount++
   }
 
-  // Step 4: Report distribution summary onchain
+  if (recipients.length === 0) {
+    return JSON.stringify({ executed: false, reason: "no_nonzero_allocations" })
+  }
+
+  // Step 4: Report distribution summary onchain via writeReport
   const reportData = encodeAbiParameters(
-    parseAbiParameters("uint256 totalDistributed, uint256 recipientCount, uint256 timestamp"),
-    [distributed, BigInt(successCount), BigInt(Math.floor(runtime.now().getTime() / 1000))]
+    parseAbiParameters("address token, address[] recipients, uint256[] amounts, uint256 totalDistributed, uint256 timestamp"),
+    [
+      runtime.config.distributionTokenAddress as `0x${string}`,
+      recipients,
+      amounts,
+      distributed,
+      BigInt(Math.floor(runtime.now().getTime() / 1000)),
+    ]
   )
 
-  const report = runtime.report({
+  const creReport = runtime.report({
     encodedPayload: reportData,
     encoderName: "EVM",
     signingAlgo: "SECP256K1",
@@ -114,7 +108,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
 
   evmClient.writeReport(runtime, {
     receiver: runtime.config.consumerContract,
-    report: report.report,
+    report: creReport,
     gasConfig: { gasLimit: 500000 },
   }).result()
 

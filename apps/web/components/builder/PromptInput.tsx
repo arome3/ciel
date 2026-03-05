@@ -1,58 +1,21 @@
 "use client"
 
-import { useCallback, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useWorkflowStore } from "@/lib/store"
-import { api } from "@/lib/api"
 
 const MIN_CHARS = 20
 const MAX_CHARS = 2000
 
 export function PromptInput() {
-  const {
-    prompt,
-    setPrompt,
-    isGenerating,
-    setIsGenerating,
-    setGeneratedWorkflow,
-    setSimulation,
-    setError,
-  } = useWorkflowStore()
-
-  const [localError, setLocalError] = useState<string | null>(null)
+  const prompt = useWorkflowStore((s) => s.prompt)
+  const setPrompt = useWorkflowStore((s) => s.setPrompt)
+  const isGenerating = useWorkflowStore((s) => s.isGenerating)
+  const error = useWorkflowStore((s) => s.error)
+  const generate = useWorkflowStore((s) => s.generate)
 
   const charsNeeded = MIN_CHARS - prompt.length
   const isReady = prompt.length >= MIN_CHARS && prompt.length <= MAX_CHARS
-
-  const handleGenerate = useCallback(async () => {
-    if (!isReady || isGenerating) return
-
-    setLocalError(null)
-    setError(null)
-    setIsGenerating(true)
-    setSimulation(null)
-
-    try {
-      const workflow = await api.generate(prompt)
-      setGeneratedWorkflow(workflow)
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to generate workflow"
-      setLocalError(message)
-      setError(message)
-    } finally {
-      setIsGenerating(false)
-    }
-  }, [
-    prompt,
-    isReady,
-    isGenerating,
-    setIsGenerating,
-    setGeneratedWorkflow,
-    setSimulation,
-    setError,
-  ])
 
   return (
     <div className="rounded-xl border border-border bg-card p-5 transition-colors focus-within:border-ring/40">
@@ -84,16 +47,16 @@ export function PromptInput() {
             : "Ready to generate"}
         </p>
         <Button
-          onClick={handleGenerate}
+          onClick={() => generate(prompt)}
           disabled={!isReady || isGenerating}
-          className="active:scale-[0.98]"
+          className={`active:scale-[0.98] ${isGenerating ? "animate-glow-pulse disabled:opacity-90" : ""}`}
         >
           {isGenerating ? "Generating..." : "Generate"}
         </Button>
       </div>
-      {localError && (
+      {error && (
         <p className="mt-3 text-sm text-red-400" role="alert">
-          {localError}
+          {error}
         </p>
       )}
     </div>

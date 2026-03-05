@@ -13,7 +13,10 @@ import {
   encodeAbiParameters,
   parseAbiParameters,
 } from "@chainlink/cre-sdk"
-import { encodeFunctionData, parseAbi } from "viem"
+
+// Function selectors (keccak256 of signature, first 4 bytes)
+const LOCK_SELECTOR = "0x282d3fdf"    // lock(address,uint256)
+const RELEASE_SELECTOR = "0x0357371d" // release(address,uint256)
 
 const configSchema = z.object({
   chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
@@ -25,11 +28,6 @@ const configSchema = z.object({
 
 type Config = z.infer<typeof configSchema>
 
-const escrowAbi = parseAbi([
-  "function lock(address depositor, uint256 amount) returns (bool)",
-  "function release(address beneficiary, uint256 amount) returns (bool)",
-  "function getLockedAmount(address depositor) view returns (uint256)",
-])
 
 const onHttpTrigger = (runtime: Runtime<Config>, payload: Record<string, unknown>): string => {
   runtime.log("Starting escrow lock/release workflow...")
@@ -58,48 +56,34 @@ const onHttpTrigger = (runtime: Runtime<Config>, payload: Record<string, unknown
 
   const allConditionsMet = conditions.deliveryConfirmed && conditions.paymentReceived && conditions.complianceCleared
 
-  let executed = false
   let executedAction = "none"
+  let actionCallData: `0x${string}`
 
   if (allConditionsMet || action === "release") {
     // Release path: all conditions met
     runtime.log("All conditions met — releasing escrow...")
-    const releaseData = encodeFunctionData({
-      abi: escrowAbi,
-      functionName: "release",
-      args: [depositor as `0x${string}`, amount],
-    })
-
-    const releaseResult = evmClient.sendTransaction(runtime, {
-      to: runtime.config.escrowContractAddress,
-      data: releaseData,
-    }).result()
-
-    executed = releaseResult?.success ?? false
+    actionCallData = (RELEASE_SELECTOR + encodeAbiParameters(
+      parseAbiParameters("address, uint256"),
+      [depositor as `0x${string}`, amount]
+    ).slice(2)) as `0x${string}`
     executedAction = "release"
-  } else if (action === "lock" || !allConditionsMet) {
+  } else {
     // Lock path: conditions not met, lock funds
     runtime.log("Conditions not met — locking escrow...")
-    const lockData = encodeFunctionData({
-      abi: escrowAbi,
-      functionName: "lock",
-      args: [depositor as `0x${string}`, amount],
-    })
-
-    const lockResult = evmClient.sendTransaction(runtime, {
-      to: runtime.config.escrowContractAddress,
-      data: lockData,
-    }).result()
-
-    executed = lockResult?.success ?? false
+    actionCallData = (LOCK_SELECTOR + encodeAbiParameters(
+      parseAbiParameters("address, uint256"),
+      [depositor as `0x${string}`, amount]
+    ).slice(2)) as `0x${string}`
     executedAction = "lock"
   }
 
-  // Step 3: Report onchain
+  // Step 3: Encode escrow action in report payload → writeReport to consumer
   const reportData = encodeAbiParameters(
-    parseAbiParameters("address depositor, uint256 amount, bool released, uint256 timestamp"),
+    parseAbiParameters("address depositor, address target, bytes callData, uint256 amount, bool released, uint256 timestamp"),
     [
       depositor as `0x${string}`,
+      runtime.config.escrowContractAddress as `0x${string}`,
+      actionCallData,
       amount,
       executedAction === "release",
       BigInt(Math.floor(runtime.now().getTime() / 1000)),
@@ -121,7 +105,7 @@ const onHttpTrigger = (runtime: Runtime<Config>, payload: Record<string, unknown
 
   runtime.log(`Escrow ${executedAction} completed`)
   return JSON.stringify({
-    executed,
+    executed: true,
     action: executedAction,
     depositor,
     amount: amount.toString(),

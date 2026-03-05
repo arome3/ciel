@@ -8,6 +8,7 @@
 import { readFileSync } from "fs"
 import { join } from "path"
 import type { ParsedIntent } from "./types"
+import { config as appConfig } from "../../config"
 import type { TemplateDefinition } from "./template-matcher"
 import { stemmer, buildStemmedSet } from "./nlp-utils"
 
@@ -110,8 +111,8 @@ export function buildFallbackConfig(
     config.schedule = "0 */5 * * * *" // Default: every 5 minutes
   }
 
-  // Consumer contract placeholder
-  config.consumerContract = "0x0000000000000000000000000000000000000000"
+  // Consumer contract — use deployed address from env
+  config.consumerContract = appConfig.CONSUMER_CONTRACT_ADDRESS || "0x0000000000000000000000000000000000000000"
 
   // Data source hints
   if (intent.dataSources.includes("price-feed")) {

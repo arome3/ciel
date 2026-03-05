@@ -186,17 +186,19 @@ export class CielClient {
     })
   }
 
-  async publish(
+  async confirmPublish(
     workflowId: string,
+    txHash: string,
+    onchainWorkflowId: string,
     name: string,
     description: string,
     priceUsdc: number,
-    authHeaders: Record<string, string>,
+    ownerAddress: string,
   ): Promise<PublishResponse> {
-    return this.request<PublishResponse>("/api/publish", {
+    return this.request<PublishResponse>("/api/publish/confirm", {
       method: "POST",
-      body: JSON.stringify({ workflowId, name, description, priceUsdc }),
-      headers: authHeaders,
+      body: JSON.stringify({ workflowId, txHash, onchainWorkflowId, name, description, priceUsdc }),
+      headers: { "X-Owner-Address": ownerAddress },
     })
   }
 

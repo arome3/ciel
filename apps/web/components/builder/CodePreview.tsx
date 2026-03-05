@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
 import { useWorkflowStore } from "@/lib/store"
@@ -36,8 +36,42 @@ const EDITOR_OPTIONS = {
   },
 }
 
+function CodeSkeleton() {
+  const widths = [80, 55, 90, 40, 70, 85, 45, 65]
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => setElapsed((s) => s + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border">
+      <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-3 py-1.5">
+        <span className="h-2 w-2 rounded-full bg-primary/30 animate-skeleton" />
+        <span className="font-mono text-xs text-muted-foreground/40">
+          generating...
+        </span>
+        <span className="ml-auto font-mono text-[10px] text-muted-foreground/30">
+          {elapsed}s
+        </span>
+      </div>
+      <div className="space-y-2.5 bg-[hsl(240_20%_6%)] p-4">
+        {widths.map((w, i) => (
+          <div
+            key={i}
+            className="h-3.5 rounded animate-shimmer"
+            style={{ width: `${w}%`, animationDelay: `${i * 100}ms` }}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function CodePreview() {
   const generatedWorkflow = useWorkflowStore((s) => s.generatedWorkflow)
+  const isGenerating = useWorkflowStore((s) => s.isGenerating)
   const [copied, setCopied] = useState(false)
 
   const handleCopy = useCallback(async () => {
@@ -51,17 +85,12 @@ export function CodePreview() {
     }
   }, [generatedWorkflow?.code])
 
+  if (isGenerating && !generatedWorkflow) {
+    return <CodeSkeleton />
+  }
+
   if (!generatedWorkflow) {
-    return (
-      <div className="flex h-[400px] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card">
-        <span className="mb-2 font-mono text-lg text-muted-foreground/30">
-          {"{ }"}
-        </span>
-        <p className="text-sm text-muted-foreground">
-          Generated code will appear here
-        </p>
-      </div>
-    )
+    return null
   }
 
   return (

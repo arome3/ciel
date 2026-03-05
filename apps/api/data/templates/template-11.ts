@@ -116,7 +116,7 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
   // Combine selector + encoded params
   const calldata = EXACT_INPUT_SINGLE_SELECTOR + encodedParams.slice(2)
 
-  // Step 5: Execute swap via sendTransaction
+  // Step 5: Encode swap intent into report payload → writeReport to consumer
   const network = getNetwork({
     chainFamily: "evm",
     chainSelectorName: runtime.config.chainSelectorName,
@@ -124,26 +124,16 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
   })
   const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
   const isNativeETH = runtime.config.useNativeETH
+  const swapValue = isNativeETH ? BigInt(runtime.config.swapAmountWei) : BigInt(0)
 
-  const txResult = evmClient.sendTransaction(runtime, {
-    to: runtime.config.swapRouterAddress,
-    data: calldata,
-    ...(isNativeETH ? { value: runtime.config.swapAmountWei } : {}),
-  }).result()
-
-  // Only report onchain if swap succeeded
-  if (!txResult || !txResult.success) {
-    return JSON.stringify({ executed: false, reason: "swap_tx_failed", price: currentPrice })
-  }
-
-  runtime.log("Swap executed successfully, writing report onchain")
-
-  // Step 6: Report execution onchain
+  runtime.log("Encoding swap intent and writing report...")
   const reportData = encodeAbiParameters(
-    parseAbiParameters("uint256 price, uint256 amountIn, uint256 timestamp"),
+    parseAbiParameters("address target, bytes callData, uint256 value, uint256 price, uint256 timestamp"),
     [
+      runtime.config.swapRouterAddress as `0x${string}`,
+      calldata as `0x${string}`,
+      swapValue,
       BigInt(Math.round(currentPrice * 1e8)),
-      amountIn,
       BigInt(Math.floor(runtime.now().getTime() / 1000)),
     ],
   )

@@ -15,7 +15,7 @@ Describe blockchain automations in plain English. An AI agent generates a valid 
 │              GENERATE                        │
 │  User describes intent in natural language   │
 │  → AI generates CRE TypeScript workflow      │
-│  → CRE CLI simulates it                     │
+│  → CRE CLI compiles to WASM + simulates it  │
 │  → User reviews and approves                 │
 └──────────────────┬──────────────────────────┘
                    │
@@ -24,6 +24,7 @@ Describe blockchain automations in plain English. An AI agent generates a valid 
 │              PUBLISH                         │
 │  Approved workflow is registered onchain     │
 │  with metadata, pricing, and x402 endpoint   │
+│  → Deployed to Chainlink DON via CRE CLI    │
 │  → Becomes a payable micro-service           │
 └──────────────────┬──────────────────────────┘
                    │
@@ -41,16 +42,51 @@ The flywheel: more users generating workflows → richer marketplace → more ag
 
 ---
 
-## Key Features
+## Generation Pipeline (Deep Dive)
 
-### AI Workflow Generation (4-Stage Pipeline)
+When a user types a prompt like *"Monitor ETH/USD price every 5 minutes and swap on Uniswap when it drops below $1800"*, the following happens:
 
-| Stage | What It Does |
-|-------|-------------|
-| **Intent Parser** | Deterministic NLP extracts triggers, data sources, actions, chains, and conditions from natural language |
-| **Template Matcher** | Scores the parsed intent against 10 pre-built CRE templates using IDF-weighted keyword matching |
-| **Code Generator** | GPT-4o with Structured Outputs produces valid CRE TypeScript + Zod config + optional Solidity |
-| **Validator** | 6-point check (imports, no async callbacks, main() export, Zod schema, `tsc --noEmit`, config validity) with auto-fix and retry |
+```
+  Prompt
+    │
+    ▼
+┌──────────────┐   ParsedIntent    ┌──────────────────┐   Template ID
+│ Intent Parser ├─────────────────►│ Template Matcher  ├──────────┐
+│ (deterministic│  triggers, data   │ (TF-IDF + ONNX   │          │
+│  NLP, no LLM) │  sources, actions │  embeddings)      │          │
+└──────────────┘                   └──────────────────┘          │
+                                                                  ▼
+┌──────────────┐   Valid CRE TS    ┌──────────────────┐   Raw code
+│  Validator   │◄─────────────────│ Code Generator    │◄─────────┘
+│ (8-point check│  + quickFix      │ (GPT-5.3-Codex,  │  intent +
+│  + 10 auto-  │  auto-repair     │  layered prompt)  │  template
+│  repair steps)│                  └──────────────────┘
+└──────┬───────┘
+       │ validated code
+       ▼
+┌──────────────────────────────────────────────┐
+│              CRE Simulation                   │
+│  1. Write TS + config to temp workspace       │
+│  2. Symlink pre-cached deps (cre-sdk, viem)   │
+│  3. cre-compile: TS → JS → Javy WASM          │
+│  4. cre-simulate: run WASM in sandboxed DON   │
+│     (fire trigger → execute handler → report) │
+└──────────────────────────────────────────────┘
+```
+
+### Why WASM?
+
+CRE workflows run on Chainlink DON nodes using BFT consensus. Every node must produce the **exact same output** from the exact same code. The CRE CLI compiles TypeScript → JavaScript → WASM via [Javy](https://github.com/nicovank/nickel/blob/main/nickel.cc) (QuickJS engine). QuickJS is deterministic — no `fetch`, `WebSocket`, `Date.now()`, or `process`. All external I/O goes through SDK capabilities that the DON consensus protocol mediates, ensuring identical results across nodes.
+
+### Stage Details
+
+| Stage | Component | What It Does |
+|-------|-----------|-------------|
+| **1. Intent Parser** | Deterministic NLP | Stemming (Porter), synonym expansion, entity extraction, trigger detection (`cron`/`http`/`evm_log`). No LLM — pure keyword matching with adaptive fuzzy distance. |
+| **2. Template Matcher** | TF-IDF + Embeddings | Scores intent against 22 CRE templates. Keyword signal (IDF-weighted) fused with ONNX semantic embeddings (all-MiniLM-L6-v2, 384-dim). |
+| **3. Code Generator** | GPT-5.3-Codex | Layered prompt: static base (~14K chars, OpenAI prefix-cached) + template-specific patterns. Generates complete CRE TypeScript via Responses API with Structured Outputs. |
+| **4. Validator** | 8-point check + quickFix | Import whitelist, no async in handlers, no non-determinism, correct SDK patterns. 10 auto-repair steps fix common LLM mistakes (e.g. `Date.now()` → `runtime.now()`, `JSON.parse(body)` → `decodeJson(body)`). |
+| **5. Simulation** | CRE CLI | Compiles to WASM, runs in sandboxed DON simulator. Network errors (DNS, RPC) are non-fatal — they're runtime capability errors, not code bugs. |
 
 ### Multi-AI Consensus Oracle (Flagship Template)
 
@@ -62,7 +98,7 @@ This mirrors the architecture from Chainlink's corporate actions pilot with Swif
 
 Published workflows become payable micro-services. Any AI agent can discover a workflow, pay 0.01 USDC via x402 on Base Sepolia, and receive the execution result. Workflow owners bypass payment via EIP-191 signature verification.
 
-### 10 Pre-Built CRE Templates
+### 22 Pre-Built CRE Templates
 
 | # | Template | Category |
 |---|----------|----------|
@@ -76,6 +112,18 @@ Published workflows become payable micro-services. Any AI agent can discover a w
 | 8 | Compliance-Gated DeFi Ops | Risk & Compliance |
 | 9 | Multi-AI Consensus Oracle | AI-Powered |
 | 10 | Custom Data Feed / NAV Oracle | AI-Powered |
+| 11 | DEX Swap (Uniswap V3) | Core DeFi |
+| 12 | Wallet Activity Monitor | Core DeFi |
+| 13 | Chainlink Data Feed Reader | Core DeFi |
+| 14 | Stateful KV Store (S3 + SigV4) | Infrastructure |
+| 15 | Cross-Chain CCIP Transfer | Cross-Chain |
+| 16 | Dual-Trigger Workflow | Advanced |
+| 17 | Stablecoin Redemption / Burn | Institutional |
+| 18 | Payment Initiation & Confirmation | Institutional |
+| 19 | Escrow Lock / Release | Institutional |
+| 20 | Settlement Reconciliation | Institutional |
+| 21 | Shareholder Registry | Institutional |
+| 22 | Dividend Distribution | Institutional |
 
 ---
 
@@ -103,12 +151,12 @@ ciel/
 | Backend | Express.js, Zod validation |
 | Frontend | Next.js 14, React 18, TailwindCSS, shadcn/ui, Monaco Editor, Zustand |
 | Database | SQLite via `bun:sqlite` + Drizzle ORM |
-| AI (Primary) | OpenAI GPT-4o with Structured Outputs |
+| AI (Primary) | OpenAI GPT-5.3-Codex with Structured Outputs (Responses API) |
 | AI (Fallback) | Anthropic Claude Sonnet 4 |
 | Smart Contracts | Foundry, Solidity 0.8.24, Base Sepolia (chain ID 84532) |
 | Onchain Library | Viem 2.x |
 | Payments | `@x402/express` (server), `@x402/fetch` (client) |
-| CRE SDK | `@chainlink/cre-sdk` ^1.0.7 |
+| CRE SDK | `@chainlink/cre-sdk` ^1.1.3 |
 | Real-Time | Server-Sent Events via `better-sse` |
 
 ---
@@ -191,14 +239,18 @@ All routes are prefixed with `/api`.
 
 | Method | Route | Description | Rate Limit |
 |--------|-------|-------------|------------|
-| `GET` | `/health` | Health check | Default |
+| `GET` | `/health` | Health check (DB ping, SSE clients, uptime) | Default |
 | `GET` | `/workflows` | List published workflows | Default |
 | `GET` | `/workflows/:id` | Get workflow by ID | Default |
 | `POST` | `/generate` | Generate a CRE workflow from natural language | 10 req/min |
-| `POST` | `/simulate` | Run CRE CLI simulation | Default |
-| `POST` | `/publish` | Publish workflow to onchain registry | Default |
+| `POST` | `/simulate` | Run CRE CLI simulation (stored or direct mode) | 5 req/min |
+| `POST` | `/publish` | Publish workflow to onchain registry + deploy to DON | Default |
+| `POST` | `/workflows/:id/redeploy` | Redeploy a failed DON deployment | Default |
 | `GET` | `/workflows/:id/execute` | Execute workflow (x402-gated, 0.01 USDC) | 30 req/min |
 | `GET` | `/events` | SSE stream for real-time activity | Persistent |
+| `POST` | `/pipelines` | Create a multi-workflow pipeline | 10 req/min |
+| `POST` | `/pipelines/:id/execute` | Execute a pipeline (DAG scheduler) | 10 req/min |
+| `GET` | `/pipelines/metrics` | Pipeline execution metrics | Default |
 
 ### Generate a Workflow
 
@@ -241,13 +293,15 @@ bun run deploy:contracts
 
 ## Database
 
-SQLite via Drizzle ORM with three tables:
+SQLite via Drizzle ORM:
 
 | Table | Purpose |
 |-------|---------|
-| `workflows` | Generated workflows with code, config, simulation results, publish status, x402 pricing |
+| `workflows` | Generated workflows with code, config, simulation results, publish status, DON deployment status, x402 pricing |
 | `executions` | Agent executions with payment info, results, and duration |
-| `events` | Event log for SSE broadcast (execution, publish, discovery) |
+| `events` | Event log for SSE broadcast (execution, publish, deploy, pipeline events) |
+| `pipelines` | Multi-workflow pipeline definitions with steps, pricing, and owner |
+| `pipelineExecutions` | Pipeline execution history with per-step results |
 
 ```bash
 # Push schema changes

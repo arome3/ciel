@@ -98,32 +98,38 @@ export function TemplateGrid() {
   const setPrompt = useWorkflowStore((s) => s.setPrompt)
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-      {TEMPLATES.map((template) => (
-        <button
-          key={template.id}
-          type="button"
-          onClick={() => setPrompt(template.prompt)}
-          className="group relative rounded-xl border border-border bg-card p-3 text-left transition-all hover:border-primary/50 hover:shadow-md"
-        >
-          {/* Template number */}
-          <span className="absolute right-2.5 top-2.5 font-mono text-[10px] text-muted-foreground/40">
-            {String(template.id).padStart(2, "0")}
-          </span>
+    <section className="animate-fade-up" style={{ animationDelay: "100ms" }}>
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Or start from a template
+      </h2>
+      <div className="gradient-mask-r">
+        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
+          {TEMPLATES.map((template) => (
+            <button
+              key={template.id}
+              type="button"
+              onClick={() => setPrompt(template.prompt)}
+              className="group relative min-w-[200px] max-w-[220px] flex-shrink-0 snap-start rounded-xl border border-border bg-card p-3 text-left transition-all hover:border-primary/50 hover:shadow-md"
+            >
+              <span className="absolute right-2.5 top-2.5 font-mono text-[10px] text-muted-foreground/40">
+                {String(template.id).padStart(2, "0")}
+              </span>
 
-          <span
-            className={`inline-block rounded-md px-1.5 py-0.5 text-[10px] font-medium ${getCategoryVariant(template.category)}`}
-          >
-            {template.category}
-          </span>
-          <p className="mt-2 text-sm font-semibold text-foreground transition-colors group-hover:text-primary">
-            {template.title}
-          </p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">
-            {template.description}
-          </p>
-        </button>
-      ))}
-    </div>
+              <span
+                className={`inline-block rounded-md px-1.5 py-0.5 text-[10px] font-medium ${getCategoryVariant(template.category)}`}
+              >
+                {template.category}
+              </span>
+              <p className="mt-2 text-sm font-semibold text-foreground transition-colors group-hover:text-primary">
+                {template.title}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">
+                {template.description}
+              </p>
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
   )
 }

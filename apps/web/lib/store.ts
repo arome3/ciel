@@ -25,14 +25,12 @@ interface WorkflowState {
   prompt: string
   generatedWorkflow: GeneratedWorkflow | null
   simulation: Simulation | null
+  editedConfig: Record<string, unknown> | null
 
   // Loading flags
   isGenerating: boolean
   isSimulating: boolean
   isPublishing: boolean
-
-  // User
-  walletAddress: string | null
 
   // Marketplace
   workflows: WorkflowListItem[]
@@ -57,11 +55,12 @@ interface WorkflowState {
   setIsGenerating: (v: boolean) => void
   setIsSimulating: (v: boolean) => void
   setIsPublishing: (v: boolean) => void
-  setWalletAddress: (address: string | null) => void
   setWorkflows: (workflows: WorkflowListItem[]) => void
   addAgentEvent: (event: SSEEvent) => void
   setError: (error: string | null) => void
+  updateConfigField: (key: string, value: unknown) => void
   resetBuilder: () => void
+  generate: (prompt: string) => Promise<void>
 
   // Marketplace actions
   setSearchQuery: (query: string) => void
@@ -72,14 +71,17 @@ interface WorkflowState {
 
 const MAX_AGENT_EVENTS = 50
 
+/** Active generate request controller — allows cancellation */
+let _activeGenerateController: AbortController | null = null
+
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   prompt: "",
   generatedWorkflow: null,
   simulation: null,
+  editedConfig: null,
   isGenerating: false,
   isSimulating: false,
   isPublishing: false,
-  walletAddress: null,
   workflows: [],
   searchQuery: "",
   filters: {
@@ -97,23 +99,60 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   setIsGenerating: (isGenerating) => set({ isGenerating }),
   setIsSimulating: (isSimulating) => set({ isSimulating }),
   setIsPublishing: (isPublishing) => set({ isPublishing }),
-  setWalletAddress: (walletAddress) => set({ walletAddress }),
   setWorkflows: (workflows) => set({ workflows }),
   addAgentEvent: (event) =>
     set((state) => ({
       agentEvents: [event, ...state.agentEvents].slice(0, MAX_AGENT_EVENTS),
     })),
   setError: (error) => set({ error }),
-  resetBuilder: () =>
+  updateConfigField: (key, value) =>
+    set((state) => ({
+      editedConfig: state.editedConfig
+        ? { ...state.editedConfig, [key]: value }
+        : null,
+    })),
+  resetBuilder: () => {
+    if (_activeGenerateController) {
+      _activeGenerateController.abort()
+      _activeGenerateController = null
+    }
     set({
       prompt: "",
       generatedWorkflow: null,
       simulation: null,
+      editedConfig: null,
       isGenerating: false,
       isSimulating: false,
       isPublishing: false,
       error: null,
-    }),
+    })
+  },
+
+  generate: async (prompt: string) => {
+    const state = get()
+    if (state.isGenerating) return
+
+    const controller = new AbortController()
+    _activeGenerateController = controller
+
+    set({ prompt, isGenerating: true, error: null, simulation: null, generatedWorkflow: null })
+    try {
+      const workflow = await api.generate(prompt, undefined, controller.signal)
+      if (!controller.signal.aborted) {
+        set({
+          generatedWorkflow: workflow,
+          editedConfig: workflow.config ? { ...workflow.config } : null,
+          isGenerating: false,
+        })
+      }
+    } catch (err) {
+      if (controller.signal.aborted) return // cancelled — resetBuilder already cleaned up
+      const message = err instanceof Error ? err.message : "Failed to generate workflow"
+      set({ error: message, isGenerating: false })
+    } finally {
+      _activeGenerateController = null
+    }
+  },
 
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setFilter: (key, value) =>

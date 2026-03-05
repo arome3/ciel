@@ -2,17 +2,17 @@
 
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
-import { useWorkflowStore } from "@/lib/store"
+import { useAccount } from "wagmi"
 import { getCategoryVariant, getCategoryLabel, CHAIN_COLORS } from "@/lib/design-tokens"
 import type { WorkflowListItem } from "@/lib/api"
 
 const MAX_TAGS = 4
 
 export function WorkflowCard({ workflow }: { workflow: WorkflowListItem }) {
-  const walletAddress = useWorkflowStore((s) => s.walletAddress)
+  const { address } = useAccount()
   const isOwner =
-    walletAddress !== null &&
-    walletAddress.toLowerCase() === workflow.ownerAddress.toLowerCase()
+    address !== undefined &&
+    address.toLowerCase() === workflow.ownerAddress.toLowerCase()
 
   const successRate =
     workflow.totalExecutions > 0

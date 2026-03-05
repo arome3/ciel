@@ -2,6 +2,7 @@
 // Trigger: EVMLogCapability | Capabilities: Multi-AI, consensus
 
 import { z } from "zod"
+import { encodeAbiParameters, parseAbiParameters } from "viem"
 import {
   cre,
   Runner,
@@ -10,8 +11,8 @@ import {
   getNetwork,
   hexToBase64,
   consensusIdenticalAggregation,
+  decodeJson,
 } from "@chainlink/cre-sdk"
-import { encodeAbiParameters, parseAbiParameters } from "viem"
 
 const configSchema = z.object({
   marketContract: z.string().describe("Prediction market contract address"),
@@ -51,8 +52,8 @@ const onEvmLogTrigger = (runtime: Runtime<Config>, payload: EVMLog): string => {
       body: JSON.stringify({ model: "claude-sonnet-4-20250514", messages: [{ role: "user", content: question }], max_tokens: 100 }),
     }).result()
 
-    const openaiAnswer = JSON.parse(openaiResp.body).choices[0].message.content
-    const anthropicAnswer = JSON.parse(anthropicResp.body).content[0].text
+    const openaiAnswer = decodeJson(openaiResp.body).choices[0].message.content
+    const anthropicAnswer = decodeJson(anthropicResp.body).content[0].text
 
     return { openaiAnswer, anthropicAnswer }
   })

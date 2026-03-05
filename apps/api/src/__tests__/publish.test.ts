@@ -29,6 +29,9 @@ mock.module(resolve(SRC, "lib/logger.ts"), () => ({
 // ── DB mock ──
 const TEST_ID = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
 const OWNER_ADDR = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+const TX_HASH = "0xabc123def456"
+const ONCHAIN_ID = "0xonchain789"
+
 const TEST_WORKFLOW = {
   id: TEST_ID,
   name: "Test Workflow",
@@ -46,13 +49,6 @@ const TEST_WORKFLOW = {
 }
 
 let mockSelectResult: any = TEST_WORKFLOW
-let mockInsertError = false
-
-const mockInsertValues = mock((vals: any) => {
-  if (mockInsertError) return Promise.reject(new Error("DB insert error"))
-  return Promise.resolve()
-})
-const mockInsert = mock(() => ({ values: mockInsertValues }))
 
 const mockUpdateWhere = mock(() => Promise.resolve())
 const mockUpdateSet = mock(() => ({ where: mockUpdateWhere }))
@@ -65,7 +61,6 @@ const mockSelect = mock(() => ({ from: mockSelectFrom }))
 
 const mockDb = {
   select: mockSelect,
-  insert: mockInsert,
   update: mockUpdate,
 }
 
@@ -124,32 +119,6 @@ mock.module(resolve(SRC, "middleware/rate-limiter.ts"), () => ({
   eventsSseLimiter: (_req: any, _res: any, next: any) => next(),
 }))
 
-// ── Registry mock ──
-let mockPublishError = false
-
-const mockPublishToRegistry = mock(() => {
-  if (mockPublishError) return Promise.reject(new Error("Registry tx failed"))
-  return Promise.resolve({
-    workflowId: "0xabc123",
-    txHash: "0xtx1",
-  })
-})
-
-mock.module(resolve(SRC, "services/blockchain/registry.ts"), () => ({
-  publishToRegistry: mockPublishToRegistry,
-  recordExecution: mock(() => Promise.resolve()),
-  updateWorkflow: mock(() => Promise.resolve()),
-  deactivateWorkflow: mock(() => Promise.resolve()),
-  reactivateWorkflow: mock(() => Promise.resolve()),
-  addAuthorizedSender: mock(() => Promise.resolve()),
-  removeAuthorizedSender: mock(() => Promise.resolve()),
-  getWorkflowFromRegistry: mock(() => Promise.resolve({})),
-  searchWorkflowsByCategory: mock(() => Promise.resolve({ data: [], total: 0n })),
-  searchWorkflowsByChain: mock(() => Promise.resolve({ data: [], total: 0n })),
-  getAllWorkflowIds: mock(() => Promise.resolve({ data: [], total: 0n })),
-  getCreatorWorkflows: mock(() => Promise.resolve({ data: [], total: 0n })),
-}))
-
 // ── Deployer mock ──
 let mockDeployError = false
 
@@ -181,17 +150,6 @@ mock.module(resolve(SRC, "services/blockchain/nonce-manager.ts"), () => ({
   txMutex: { withLock: (fn: any) => fn() },
 }))
 
-// ── viem mock ──
-let mockVerifyResult = true
-let mockVerifyThrows = false
-
-mock.module("viem", () => ({
-  verifyMessage: mock(async () => {
-    if (mockVerifyThrows) throw new Error("Bad signature encoding")
-    return mockVerifyResult
-  }),
-}))
-
 // ─────────────────────────────────────────────
 // Dynamic import
 // ─────────────────────────────────────────────
@@ -205,11 +163,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   mockSelectResult = { ...TEST_WORKFLOW }
-  mockInsertError = false
-  mockPublishError = false
   mockDeployError = false
-  mockVerifyResult = true
-  mockVerifyThrows = false
 })
 
 // ─────────────────────────────────────────────
@@ -226,13 +180,14 @@ async function invokeRoute(opts: {
   const req = {
     body: opts.body ?? {
       workflowId: TEST_ID,
+      txHash: TX_HASH,
+      onchainWorkflowId: ONCHAIN_ID,
       name: "Published Workflow",
       description: "A workflow being published",
       priceUsdc: 10000,
     },
     headers: opts.headers ?? {
       "x-owner-address": OWNER_ADDR,
-      "x-owner-signature": "0xvalidsig",
     },
   } as any
 
@@ -244,7 +199,7 @@ async function invokeRoute(opts: {
   const next = (err?: any) => { if (err) nextErr = err }
 
   const layer = router.stack.find(
-    (l: any) => l.route?.path === "/publish" && l.route?.methods?.post,
+    (l: any) => l.route?.path === "/publish/confirm" && l.route?.methods?.post,
   )
   expect(layer).toBeTruthy()
 
@@ -264,42 +219,20 @@ async function invokeRoute(opts: {
 // Tests
 // ─────────────────────────────────────────────
 
-describe("publish route — ownership verification", () => {
-  test("returns 403 when both ownership headers missing", async () => {
+describe("publish/confirm route — ownership check", () => {
+  test("returns 403 when X-Owner-Address header missing", async () => {
     const { error } = await invokeRoute({ headers: {} })
 
     expect(error).toBeTruthy()
     expect(error.code).toBe("PUBLISH_FAILED")
     expect(error.statusCode).toBe(403)
-    expect(error.message).toContain("ownership headers")
-  })
-
-  test("returns 403 when x-owner-signature missing", async () => {
-    const { error } = await invokeRoute({
-      headers: { "x-owner-address": OWNER_ADDR },
-    })
-
-    expect(error).toBeTruthy()
-    expect(error.code).toBe("PUBLISH_FAILED")
-    expect(error.statusCode).toBe(403)
-  })
-
-  test("returns 403 when signature verification returns false", async () => {
-    mockVerifyResult = false
-
-    const { error } = await invokeRoute()
-
-    expect(error).toBeTruthy()
-    expect(error.code).toBe("PUBLISH_FAILED")
-    expect(error.statusCode).toBe(403)
-    expect(error.message).toContain("Signature verification failed")
+    expect(error.message).toContain("X-Owner-Address")
   })
 
   test("returns 403 for wrong owner address", async () => {
     const { error } = await invokeRoute({
       headers: {
         "x-owner-address": "0x0000000000000000000000000000000000000001",
-        "x-owner-signature": "0xvalidsig",
       },
     })
 
@@ -308,20 +241,9 @@ describe("publish route — ownership verification", () => {
     expect(error.statusCode).toBe(403)
     expect(error.message).toContain("Not authorized")
   })
-
-  test("returns 403 when verifyMessage throws (bad format)", async () => {
-    mockVerifyThrows = true
-
-    const { error } = await invokeRoute()
-
-    expect(error).toBeTruthy()
-    expect(error.code).toBe("PUBLISH_FAILED")
-    expect(error.statusCode).toBe(403)
-    expect(error.message).toContain("Invalid signature format")
-  })
 })
 
-describe("publish route — workflow validation", () => {
+describe("publish/confirm route — workflow validation", () => {
   test("returns 404 for non-existent workflow", async () => {
     mockSelectResult = null
 
@@ -341,24 +263,52 @@ describe("publish route — workflow validation", () => {
     expect(error.code).toBe("PUBLISH_FAILED")
     expect(error.statusCode).toBe(409)
   })
+
+  test("returns 400 for missing txHash", async () => {
+    const { error } = await invokeRoute({
+      body: {
+        workflowId: TEST_ID,
+        onchainWorkflowId: ONCHAIN_ID,
+        name: "Test",
+        description: "A workflow test",
+        priceUsdc: 10000,
+      },
+    })
+
+    expect(error).toBeTruthy()
+  })
+
+  test("returns 400 for missing onchainWorkflowId", async () => {
+    const { error } = await invokeRoute({
+      body: {
+        workflowId: TEST_ID,
+        txHash: TX_HASH,
+        name: "Test",
+        description: "A workflow test",
+        priceUsdc: 10000,
+      },
+    })
+
+    expect(error).toBeTruthy()
+  })
 })
 
-describe("publish route — success", () => {
-  test("returns correct PublishResponse shape with deploy fields", async () => {
+describe("publish/confirm route — success", () => {
+  test("returns correct response shape with deploy fields", async () => {
     const { json, error } = await invokeRoute()
 
     expect(error).toBeNull()
     expect(json).toBeTruthy()
     expect(json.workflowId).toBe(TEST_ID)
-    expect(json.onchainWorkflowId).toBe("0xabc123")
-    expect(json.publishTxHash).toBe("0xtx1")
+    expect(json.onchainWorkflowId).toBe(ONCHAIN_ID)
+    expect(json.publishTxHash).toBe(TX_HASH)
     expect(json.x402Endpoint).toContain(`/api/workflows/${TEST_ID}/execute`)
     expect(json.deployStatus).toBe("pending")
     expect(json.donWorkflowId).toBeNull()
   })
 
-  test("still succeeds when capabilities JSON is invalid", async () => {
-    mockSelectResult = { ...TEST_WORKFLOW, capabilities: "not-json{{" }
+  test("still succeeds when config JSON is invalid", async () => {
+    mockSelectResult = { ...TEST_WORKFLOW, config: "not-json{{" }
 
     const { json, error } = await invokeRoute()
 
@@ -367,7 +317,7 @@ describe("publish route — success", () => {
     expect(json.workflowId).toBe(TEST_ID)
   })
 
-  test("deploy failure does not crash publish response", async () => {
+  test("deploy failure does not crash confirm response", async () => {
     mockDeployError = true
 
     const { json, error } = await invokeRoute()
@@ -380,15 +330,7 @@ describe("publish route — success", () => {
   })
 })
 
-describe("publish route — error propagation", () => {
-  test("publishToRegistry failure propagates as error", async () => {
-    mockPublishError = true
-
-    const { error } = await invokeRoute()
-
-    expect(error).toBeTruthy()
-  })
-
+describe("publish/confirm route — error propagation", () => {
   test("emitter failure does not block response", async () => {
     // emitEvent is fire-and-forget via the emitter module
     const { json, error } = await invokeRoute()
