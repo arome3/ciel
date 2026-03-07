@@ -4,6 +4,7 @@ export interface SSEHandlers {
   onExecution?: (data: unknown) => void
   onPublish?: (data: unknown) => void
   onDiscovery?: (data: unknown) => void
+  onDeploy?: (data: unknown) => void
   onPipelineStarted?: (data: unknown) => void
   onPipelineStepCompleted?: (data: unknown) => void
   onPipelineStepFailed?: (data: unknown) => void
@@ -56,6 +57,15 @@ export function createSSEConnection(
       try {
         const data = JSON.parse((e as MessageEvent).data)
         handlers.onDiscovery?.(data)
+      } catch {
+        // malformed event data — ignore
+      }
+    })
+
+    es.addEventListener("deploy", (e) => {
+      try {
+        const data = JSON.parse((e as MessageEvent).data)
+        handlers.onDeploy?.(data)
       } catch {
         // malformed event data — ignore
       }

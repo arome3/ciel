@@ -72,6 +72,8 @@ export interface GenerateCodeInput {
    *  When the orchestrator already handles retries, this should be 1 to avoid
    *  multiplication: 3 orchestrator × 3 code-gen = 9 LLM calls worst case. */
   maxInternalRetries?: number
+  /** Fix patterns + compiler output from error-resolver (enriches retry context) */
+  enrichedContext?: string
 }
 
 export interface GeneratedCode {
@@ -149,12 +151,17 @@ export async function generateCode(input: GenerateCodeInput): Promise<GeneratedC
     )
   }
 
+  // ── For wildcard: override trigger type from intent (more accurate than default "cron") ──
+  const effectiveTemplate = template.id === 0 && input.intent.triggerType !== "unknown"
+    ? { ...template, triggerType: input.intent.triggerType as "cron" | "http" | "evm_log" }
+    : template
+
   // ── Build layered prompt ──
   const needsState = detectStateKeyword(input.intent.keywords) !== null
   const fewShotContext = buildFewShotContext(input.templateId)
   const staticBase = buildStaticBase()
   const templateContext = buildTemplateContext(
-    template.requiredCapabilities,
+    effectiveTemplate.requiredCapabilities,
     needsState,
     fewShotContext,
   )
@@ -170,7 +177,7 @@ export async function generateCode(input: GenerateCodeInput): Promise<GeneratedC
         staticBase,
         templateContext,
         input,
-        template,
+        effectiveTemplate,
         attempt,
         lastError,
         lastSelfReview,
@@ -244,11 +251,13 @@ async function callGPT52(
     template,
     previousError,
     previousSelfReview,
+    enrichedContext: input.enrichedContext,
   }
   const userPrompt = buildGenerationPrompt(promptInput)
 
-  // "medium" for first attempt (balanced), "high" for retries (deeper reasoning)
-  const reasoningEffort = attempt === 1 ? "medium" : "high"
+  // "medium" for first attempt (balanced), "high" for retries or wildcard (deeper reasoning)
+  const isWildcard = input.templateId === 0
+  const reasoningEffort = (isWildcard || attempt > 1) ? "high" : "medium"
 
   // Layered instructions: static base (cached by OpenAI) + template-specific context
   const instructions = templateContext
@@ -262,16 +271,36 @@ async function callGPT52(
   log.info(`Attempt ${attempt}: base=${baseLen}KB ctx=${ctxLen}KB total=${instrLen}KB input=${inputLen}KB effort=${reasoningEffort}`)
 
   const t0 = Date.now()
-  const response = await openai.responses.parse({
-    model: MODEL,
-    reasoning: { effort: reasoningEffort as "medium" | "high" },
-    max_output_tokens: MAX_COMPLETION_TOKENS,
-    instructions,
-    input: userPrompt,
-    text: {
-      format: zodTextFormat(CREWorkflowResponseSchema, "cre_workflow"),
-    },
-  })
+
+  // web_search: lets the LLM search for CRE SDK docs, Chainlink documentation,
+  // and code examples during generation. Falls back to no-tools on unsupported models.
+  let response
+  try {
+    response = await openai.responses.parse({
+      model: MODEL,
+      reasoning: { effort: reasoningEffort as "medium" | "high" },
+      max_output_tokens: MAX_COMPLETION_TOKENS,
+      instructions,
+      input: userPrompt,
+      text: {
+        format: zodTextFormat(CREWorkflowResponseSchema, "cre_workflow"),
+      },
+      tools: [{ type: "web_search_preview" as const }],
+    })
+  } catch (toolErr) {
+    // web_search not supported for this model — retry without tools
+    log.info(`web_search not supported, falling back: ${(toolErr as Error).message?.slice(0, 100)}`)
+    response = await openai.responses.parse({
+      model: MODEL,
+      reasoning: { effort: reasoningEffort as "medium" | "high" },
+      max_output_tokens: MAX_COMPLETION_TOKENS,
+      instructions,
+      input: userPrompt,
+      text: {
+        format: zodTextFormat(CREWorkflowResponseSchema, "cre_workflow"),
+      },
+    })
+  }
 
   log.info(`Response received in ${Date.now() - t0}ms`)
 

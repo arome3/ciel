@@ -15,28 +15,26 @@ import { resolve } from "path"
 const SRC = resolve(import.meta.dir, "..")
 
 // ── Valid CRE workflow code that passes all validation checks ──
-// Includes alert in return value to satisfy intent alignment check
+// Uses current CRE SDK v1.1.3 patterns: cre.handler(), decodeJson(), runner.run returns handler array
 const VALID_WORKFLOW_TS = `
 import { z } from "zod"
-import { Runner, Runtime, CronCapability, HTTPClient, handler, consensusMedianAggregation } from "@chainlink/cre-sdk"
-const configSchema = z.object({ apiUrl: z.string(), cronSchedule: z.string().default("0 */5 * * * *") })
+import { cre, Runner, type Runtime, decodeJson } from "@chainlink/cre-sdk"
+const configSchema = z.object({ apiUrl: z.string(), schedule: z.string().default("0 */5 * * * *") })
 type Config = z.infer<typeof configSchema>
-const runner = Runner.newRunner<Config>({ configSchema })
-function initWorkflow(runtime: Runtime<Config>) {
-  const cron = new CronCapability().trigger({ cronSchedule: runtime.config.cronSchedule })
-  const http = new HTTPClient()
-  handler(cron, (rt) => {
-    const resp = http.fetch(rt.config.apiUrl, { method: "GET" }).result()
-    const data = JSON.parse(resp.body)
+const initWorkflow = (config: Config) => {
+  const cron = new cre.capabilities.CronCapability().trigger({ schedule: config.schedule })
+  const http = new cre.capabilities.HTTPClient()
+  return [cre.handler(cron, (runtime: Runtime<Config>) => {
+    const resp = http.sendRequest(runtime, { url: runtime.config.apiUrl, method: "GET" }).result()
+    const data = decodeJson(resp.body)
     const alert = data.price < 2000
     return { price: data.price, alert }
-  })
-  consensusMedianAggregation({ fields: ["price"], reportId: "test" })
+  })]
 }
-export async function main() { runner.run(initWorkflow) }
+export async function main() { const runner = await Runner.newRunner<Config>({ configSchema }); await runner.run(initWorkflow) }
 `
 
-const VALID_CONFIG_JSON = '{"apiUrl":"https://api.coingecko.com","cronSchedule":"0 */5 * * * *"}'
+const VALID_CONFIG_JSON = '{"apiUrl":"https://api.coingecko.com","schedule":"0 */5 * * * *"}'
 
 // ── OpenAI mock — controls what the real code-generator produces ──
 /** Structured self-review that passes all checks (matches SelfReviewSchema) */
@@ -53,35 +51,41 @@ const PASSING_SELF_REVIEW = {
 
 const mockParse = mock(() =>
   Promise.resolve({
-    choices: [
-      {
-        message: {
-          parsed: {
-            thinking: "Using CronCapability for scheduled monitoring...",
-            workflow_ts: VALID_WORKFLOW_TS,
-            config_json: VALID_CONFIG_JSON,
-            consumer_sol: null as string | null,
-            self_review: PASSING_SELF_REVIEW,
-            explanation: "Monitors price via cron trigger",
-          },
-          refusal: null as string | null,
-        },
-      },
-    ],
+    output: [],
+    output_parsed: {
+      thinking: "Using CronCapability for scheduled monitoring...",
+      workflow_ts: VALID_WORKFLOW_TS,
+      config_json: VALID_CONFIG_JSON,
+      consumer_sol: null as string | null,
+      self_review: PASSING_SELF_REVIEW,
+      explanation: "Monitors price via cron trigger",
+    },
   }),
 )
 
 mock.module("openai", () => ({
   default: class MockOpenAI {
-    chat = {
-      completions: {
-        parse: mockParse,
-      },
+    responses = {
+      parse: mockParse,
     }
   },
 }))
 
 // Context7: no mock needed — real module has bundled fallback for network failures
+
+// ── Compile feedback mock (subprocess boundary) ──
+const mockCompileCheck = mock((): Promise<{ compiled: boolean; errors: string[]; rawOutput: string }> =>
+  Promise.resolve({
+    compiled: true,
+    errors: [] as string[],
+    rawOutput: "Workflow compiled\nSimulation complete",
+  }),
+)
+
+mock.module(resolve(SRC, "services/ai-engine/compile-feedback.ts"), () => ({
+  compileCheck: mockCompileCheck,
+  _getCompileState: () => ({ activeCount: 0, queueLength: 0 }),
+}))
 
 // ── DB mock (absolute path — directory import resolution quirk) ──
 const mockValues = mock(() => Promise.resolve())
@@ -136,7 +140,7 @@ beforeAll(async () => {
 const VALID_PROMPT = "Monitor ETH price every 5 minutes and alert when below $2000"
 const OWNER = "0x1234567890abcdef1234567890abcdef12345678"
 
-// Helper: build an OpenAI response with custom workflow code
+// Helper: build an OpenAI Responses API response with custom workflow code
 function makeOpenAIResponse(overrides: {
   workflow_ts?: string
   config_json?: string
@@ -145,21 +149,15 @@ function makeOpenAIResponse(overrides: {
   explanation?: string
 } = {}) {
   return {
-    choices: [
-      {
-        message: {
-          parsed: {
-            thinking: "...",
-            workflow_ts: overrides.workflow_ts ?? VALID_WORKFLOW_TS,
-            config_json: overrides.config_json ?? VALID_CONFIG_JSON,
-            consumer_sol: (overrides.consumer_sol ?? null) as string | null,
-            self_review: overrides.self_review ?? PASSING_SELF_REVIEW,
-            explanation: overrides.explanation ?? "Monitors price via cron trigger",
-          },
-          refusal: null as string | null,
-        },
-      },
-    ],
+    output: [],
+    output_parsed: {
+      thinking: "...",
+      workflow_ts: overrides.workflow_ts ?? VALID_WORKFLOW_TS,
+      config_json: overrides.config_json ?? VALID_CONFIG_JSON,
+      consumer_sol: (overrides.consumer_sol ?? null) as string | null,
+      self_review: overrides.self_review ?? PASSING_SELF_REVIEW,
+      explanation: overrides.explanation ?? "Monitors price via cron trigger",
+    },
   }
 }
 
@@ -167,8 +165,17 @@ beforeEach(() => {
   mockParse.mockClear()
   mockInsert.mockClear()
   mockValues.mockClear()
+  mockCompileCheck.mockClear()
   // Reset to default valid response
   mockParse.mockImplementation(() => Promise.resolve(makeOpenAIResponse()))
+  // Reset to default successful compilation
+  mockCompileCheck.mockImplementation((): Promise<{ compiled: boolean; errors: string[]; rawOutput: string }> =>
+    Promise.resolve({
+      compiled: true,
+      errors: [] as string[],
+      rawOutput: "Workflow compiled\nSimulation complete",
+    }),
+  )
 })
 
 // ─────────────────────────────────────────────
@@ -205,13 +212,29 @@ describe("orchestrator — happy path", () => {
 })
 
 // ─────────────────────────────────────────────
-// Suite 2: Template Not Found
+// Suite 2: Wildcard (No Template Match)
 // ─────────────────────────────────────────────
 
-describe("orchestrator — template not found", () => {
-  test("throws TEMPLATE_NOT_FOUND for unmatchable prompt", async () => {
+describe("orchestrator — wildcard (no template match)", () => {
+  test("returns wildcard result for unmatchable prompt", async () => {
+    const result = await generateWorkflow("xyzzy foobar gibberish quxquux random", OWNER)
+    expect(result.template.templateId).toBe(0)
+    expect(result.template.templateName).toContain("Wildcard")
+    expect(result.template.confidence).toBeLessThan(0.3)
+    expect(result.fallback).toBe(false)
+  })
+
+  test("wildcard falls back to scaffold when LLM fails", async () => {
+    mockParse.mockImplementation(() => { throw new Error("boom") })
+    const result = await generateWorkflow("xyzzy foobar gibberish quxquux random", OWNER)
+    expect(result.template.templateId).toBe(0)
+    expect(result.fallback).toBe(true)
+    expect(result.code).toContain("CronCapability")
+  })
+
+  test("negated prompt still throws TEMPLATE_NOT_FOUND", async () => {
     try {
-      await generateWorkflow("xyzzy foobar gibberish quxquux random", OWNER)
+      await generateWorkflow("dont do anything with blockchain or crypto", OWNER)
       expect(true).toBe(false) // should not reach
     } catch (err: any) {
       expect(err.code).toBe("TEMPLATE_NOT_FOUND")
@@ -400,7 +423,7 @@ describe("orchestrator — DB save args", () => {
     await generateWorkflow(VALID_PROMPT, OWNER)
 
     expect(mockValues).toHaveBeenCalledTimes(1)
-    const savedObj = mockValues.mock.calls[0][0]
+    const savedObj = (mockValues.mock.calls as any[][])[0][0]
     expect(savedObj).toHaveProperty("ownerAddress", OWNER)
     expect(savedObj).toHaveProperty("templateId")
     expect(savedObj).toHaveProperty("category")
@@ -528,5 +551,114 @@ describe("orchestrator — fallback state config merge", () => {
     expect(typeof config.stateKey).toBe("string")
     expect(config.stateKey).toContain("ciel-")
     expect(config.stateKey).toContain("-data")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Suite 14: Compilation Feedback Loop
+// ─────────────────────────────────────────────
+
+describe("orchestrator — compilation feedback loop", () => {
+  test("compileCheck runs after validation passes", async () => {
+    await generateWorkflow(VALID_PROMPT, OWNER)
+    expect(mockCompileCheck).toHaveBeenCalledTimes(1)
+  })
+
+  test("compileCheck receives the fixed code (post-quickFix)", async () => {
+    await generateWorkflow(VALID_PROMPT, OWNER)
+    const calledWith = (mockCompileCheck.mock.calls as any[][])[0]
+    // First arg is the code string
+    expect(typeof calledWith[0]).toBe("string")
+    expect(calledWith[0]).toContain("handler(")
+  })
+
+  test("compile failure triggers retry with compile errors in context", async () => {
+    let callCount = 0
+    mockCompileCheck.mockImplementation((): Promise<{ compiled: boolean; errors: string[]; rawOutput: string }> => {
+      callCount++
+      if (callCount === 1) {
+        // First compile fails
+        return Promise.resolve({
+          compiled: false as boolean,
+          errors: ["Cannot find name 'HTTPClient'"] as string[],
+          rawOutput: "error TS2304: Cannot find name 'HTTPClient'",
+        })
+      }
+      // Subsequent compiles succeed
+      return Promise.resolve({
+        compiled: true as boolean,
+        errors: [] as string[],
+        rawOutput: "Workflow compiled",
+      })
+    })
+
+    const result = await generateWorkflow(VALID_PROMPT, OWNER)
+    // Should have retried: compileCheck called at least twice
+    expect(callCount).toBeGreaterThanOrEqual(2)
+    // Should eventually succeed (not fallback)
+    expect(result.fallback).toBe(false)
+  })
+
+  test("returns code when validation passes but compile fails on last attempt", async () => {
+    // All compile checks fail
+    mockCompileCheck.mockImplementation((): Promise<{ compiled: boolean; errors: string[]; rawOutput: string }> =>
+      Promise.resolve({
+        compiled: false as boolean,
+        errors: ["Persistent type error"] as string[],
+        rawOutput: "error",
+      }),
+    )
+
+    const result = await generateWorkflow(VALID_PROMPT, OWNER)
+    // On the last attempt, code that passes validation but fails compile
+    // should still be returned (better than fallback)
+    expect(result.code).toContain("handler(")
+    expect(result.fallback).toBe(false)
+  })
+
+  test("compileCheck not called when validation fails", async () => {
+    mockParse.mockImplementation(() =>
+      Promise.resolve(makeOpenAIResponse({
+        workflow_ts: "const broken = true", // fails validation
+        config_json: "{}",
+      })),
+    )
+
+    await generateWorkflow(VALID_PROMPT, OWNER)
+    // compileCheck should NOT be called since validation never passes
+    expect(mockCompileCheck).not.toHaveBeenCalled()
+  })
+})
+
+// ─────────────────────────────────────────────
+// Suite 15: Pre-Seeded Fix Patterns
+// ─────────────────────────────────────────────
+
+describe("orchestrator — pre-seeded fix patterns", () => {
+  test("HTTP-triggered template (T9) passes enrichedContext to first OpenAI call", async () => {
+    // Force T9 — it's HTTP + multi-ai + evmWrite, so should get ALIGN + TSC + ASYNC + NONDET
+    await generateWorkflow(
+      "Query multiple AI models for consensus on credit events",
+      OWNER,
+      9,
+    )
+
+    // Check the first OpenAI call's input contains pre-seeded patterns
+    expect(mockParse).toHaveBeenCalled()
+    const firstCall = (mockParse.mock.calls as any[][])[0][0]
+    // The user prompt (input field) should contain proactive guidance
+    expect(firstCall.input).toContain("Proactive Guidance")
+    expect(firstCall.input).toContain("[ALIGN]")
+    expect(firstCall.input).toContain("[TSC]")
+    expect(firstCall.input).toContain("[ASYNC]")
+  })
+
+  test("cron-triggered template (T1) does NOT get pre-seeded ALIGN pattern", async () => {
+    await generateWorkflow(VALID_PROMPT, OWNER, 1)
+
+    expect(mockParse).toHaveBeenCalled()
+    const firstCall = (mockParse.mock.calls as any[][])[0][0]
+    // T1 is cron with price-feed + alert — no ALIGN pre-seeding
+    expect(firstCall.input).not.toContain("[ALIGN]")
   })
 })

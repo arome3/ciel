@@ -6,7 +6,7 @@ import { z } from "zod"
 
 export const GenerateRequestSchema = z.object({
   prompt: z.string().min(10).max(2000),
-  templateHint: z.number().int().min(1).max(10).optional(),
+  templateHint: z.number().int().min(1).max(22).optional(),
   parameters: z.record(z.unknown()).optional(),
 })
 
@@ -48,6 +48,7 @@ export const WorkflowsListQuerySchema = z.object({
     .enum(["core-defi", "institutional", "risk-compliance", "ai-powered"])
     .optional(),
   search: z.string().optional(),
+  owner: z.string().startsWith("0x").optional(),
 })
 
 export const DiscoverQuerySchema = z.object({
@@ -67,7 +68,7 @@ export interface DiscoveredWorkflow {
   x402Endpoint: string
   totalExecutions: number
   successfulExecutions: number
-  source: "registry" | "bazaar"
+  source: "registry" | "bazaar" | "local"
   inputSchema?: unknown
   outputSchema?: unknown
 }

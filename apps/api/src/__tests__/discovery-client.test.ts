@@ -26,6 +26,27 @@ mock.module(resolve(SRC, "lib/logger.ts"), () => ({
   }),
 }))
 
+// ── DB mock ──
+const mockDbAll = mock(() => [])
+mock.module(resolve(SRC, "db/index.ts"), () => ({
+  db: {
+    select: () => ({
+      from: () => ({
+        where: () => ({ all: mockDbAll }),
+      }),
+    }),
+  },
+  sqlite: {},
+}))
+
+mock.module(resolve(SRC, "db/schema.ts"), () => ({
+  workflows: { published: "published" },
+}))
+
+mock.module("drizzle-orm", () => ({
+  eq: (col: any, val: any) => ({ col, val }),
+}))
+
 // ── Retry mock ──
 mock.module(resolve(SRC, "services/blockchain/retry.ts"), () => ({
   withRetry: (fn: any) => fn(),
@@ -107,6 +128,7 @@ let mockFetchResponse: any = {
 // ── Dynamic import ──
 let discoverWorkflows: any
 let _discoverViaRegistry: any
+let _discoverViaLocal: any
 let _discoverViaBazaar: any
 let _discoveryCache: any
 
@@ -116,6 +138,7 @@ beforeAll(async () => {
   const mod = await import("../services/discovery/client")
   discoverWorkflows = mod.discoverWorkflows
   _discoverViaRegistry = mod._discoverViaRegistry
+  _discoverViaLocal = mod._discoverViaLocal
   _discoverViaBazaar = mod._discoverViaBazaar
   _discoveryCache = mod._discoveryCache
 })
@@ -123,6 +146,9 @@ beforeAll(async () => {
 beforeEach(() => {
   // Clear cache between tests
   _discoveryCache?.clear()
+
+  // Reset DB mock
+  mockDbAll.mockImplementation(() => [])
 
   // Reset mocks
   mockGetAllWorkflowIds.mockImplementation(() =>
@@ -287,9 +313,10 @@ describe("Discovery — bazaar path", () => {
 })
 
 describe("Discovery — unified entrypoint", () => {
-  test("merges results from both sources", async () => {
+  test("merges results from all sources", async () => {
     const results = await discoverWorkflows({})
     // uuid-1 from registry + a1b2c3d4-e5f6-4890-abcd-ef1234567890 from bazaar (different endpoints)
+    // local returns [] (no published workflows in mock DB)
     expect(results.length).toBe(2)
   })
 
@@ -349,7 +376,7 @@ describe("Discovery — unified entrypoint", () => {
     expect(results[0].source).toBe("registry")
   })
 
-  test("throws DISCOVERY_FAILED when both sources fail", async () => {
+  test("returns local results when both remote sources fail", async () => {
     mockGetAllWorkflowIds.mockImplementation(() =>
       Promise.reject(new Error("RPC down")),
     )
@@ -357,13 +384,9 @@ describe("Discovery — unified entrypoint", () => {
       Promise.reject(new Error("Bazaar down")),
     )
 
-    try {
-      await discoverWorkflows({})
-      expect(true).toBe(false) // should not reach
-    } catch (err: any) {
-      expect(err.code).toBe("DISCOVERY_FAILED")
-      expect(err.statusCode).toBe(502)
-    }
+    // Local DB fallback returns empty array (no published workflows)
+    const results = await discoverWorkflows({})
+    expect(results).toEqual([])
   })
 
   test("sorts results by totalExecutions descending", async () => {

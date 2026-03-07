@@ -108,7 +108,7 @@ const FALLBACK_RESULT = {
   explanation: "Using fallback template",
 }
 
-let mockGenerateWorkflow = mock(() => Promise.resolve(DEFAULT_RESULT))
+let mockGenerateWorkflow = mock((..._args: any[]) => Promise.resolve(DEFAULT_RESULT))
 
 // ── Orchestrator mock (direct dependency of generate route) ──
 mock.module(resolve(SRC, "services/ai-engine/orchestrator.ts"), () => ({

@@ -110,6 +110,38 @@ const ERROR_PATTERN = /(?:ERROR|Error|FATAL|FAIL(?:ED)?)\s*:?\s*(.*)/i
 const WARNING_PATTERN = /WARN(?:ING)?\s*:?\s*(.*)/i
 const DURATION_PATTERN = /(?:duration|took|elapsed)\s*:?\s*(\d+(?:\.\d+)?)\s*(ms|s|seconds?|milliseconds?)/i
 
+// Runtime error patterns that don't have an ERROR: prefix but indicate real failures.
+// These are detected in the generic step handler to flag errors the CRE CLI
+// doesn't surface with standard error formatting.
+const RUNTIME_ERROR_PATTERNS: RegExp[] = [
+  // viem validation errors
+  /is invalid\b/i,
+  /is not valid\b/i,
+  /invalid (?:address|abi|signature|selector|hex|byte)/i,
+  // JS/WASM runtime errors
+  /TypeError\b/,
+  /ReferenceError\b/,
+  /SyntaxError\b/,
+  /RangeError\b/,
+  /RuntimeError\b/,
+  // Common JS runtime messages
+  /is not a function\b/i,
+  /is not defined\b/i,
+  /is undefined\b/i,
+  /cannot read propert/i,
+  /cannot (?:access|call)\b/i,
+  // WASM panics
+  /\bpanic\b/i,
+  /\bunreachable\b/,
+  /\baborted?\b/i,
+  // viem-specific codec errors
+  /ABI (?:encoding|decoding) error/i,
+  /Expected .+ but received/i,
+]
+
+// Lines that are error detail continuations (not standalone errors)
+const ERROR_DETAIL_PREFIX = /^-\s+/
+
 // --- Parser Function ---
 
 export function parseSimulationOutput(raw: string): ParsedSimulationOutput {
@@ -195,14 +227,28 @@ export function parseSimulationOutput(raw: string): ParsedSimulationOutput {
 
       const isNoise = noisePatterns.some((p) => p.test(trimmed))
       if (!isNoise) {
-        stepNumber++
-        executionTrace.push({
-          step: stepNumber,
-          action: trimmed.slice(0, 200),
-          capability: "unknown",
-          status: "success",
-          data: { raw: trimmed },
-        })
+        // Check for runtime error patterns that lack an ERROR: prefix
+        const isRuntimeError = RUNTIME_ERROR_PATTERNS.some((p) => p.test(trimmed))
+        // Lines starting with "- " after an error are detail continuations
+        const isDetail = ERROR_DETAIL_PREFIX.test(trimmed) && errors.length > 0
+
+        if (isDetail) {
+          // Append detail to the most recent error
+          errors[errors.length - 1] += ` ${trimmed.replace(ERROR_DETAIL_PREFIX, "")}`
+        } else {
+          stepNumber++
+          executionTrace.push({
+            step: stepNumber,
+            action: trimmed.slice(0, 200),
+            capability: "unknown",
+            status: isRuntimeError ? "error" : "success",
+            data: { raw: trimmed },
+          })
+
+          if (isRuntimeError) {
+            errors.push(trimmed.slice(0, 200))
+          }
+        }
       }
     }
   }

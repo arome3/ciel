@@ -12,6 +12,7 @@ mock.module(resolve(SRC, "config.ts"), () => ({
   config: {
     NEXT_PUBLIC_API_URL: "http://localhost:3001",
     CONSUMER_CONTRACT_ADDRESS: "0xTestConsumer",
+    X402_FACILITATOR_URL: "https://facilitator.test",
     NODE_ENV: "test",
   },
 }))
@@ -135,6 +136,15 @@ mock.module(resolve(SRC, "services/cre/deployer.ts"), () => ({
   handleDeployResult: mock((_id: string, p: Promise<any>) => { p.catch(() => {}) }),
 }))
 
+// ── Bazaar mock ──
+const mockRegisterWorkflowInBazaar = mock((_params: any) => Promise.resolve())
+
+mock.module(resolve(SRC, "services/x402/bazaar.ts"), () => ({
+  registerBazaarExtension: mock(),
+  getWorkflowDiscoveryExtension: mock(() => ({})),
+  registerWorkflowInBazaar: mockRegisterWorkflowInBazaar,
+}))
+
 // ── Blockchain provider (prevent import side effects) ──
 mock.module(resolve(SRC, "services/blockchain/provider.ts"), () => ({
   publicClient: {},
@@ -164,6 +174,7 @@ beforeAll(async () => {
 beforeEach(() => {
   mockSelectResult = { ...TEST_WORKFLOW }
   mockDeployError = false
+  mockRegisterWorkflowInBazaar.mockClear()
 })
 
 // ─────────────────────────────────────────────
@@ -337,5 +348,43 @@ describe("publish/confirm route — error propagation", () => {
 
     expect(error).toBeNull()
     expect(json).toBeTruthy()
+  })
+})
+
+describe("publish/confirm route — Bazaar registration", () => {
+  test("calls registerWorkflowInBazaar with correct params on success", async () => {
+    const { json, error } = await invokeRoute()
+
+    expect(error).toBeNull()
+    expect(json).toBeTruthy()
+    expect(mockRegisterWorkflowInBazaar).toHaveBeenCalledTimes(1)
+
+    const params = mockRegisterWorkflowInBazaar.mock.calls[0][0]
+    expect(params.x402Endpoint).toContain(`/api/workflows/${TEST_ID}/execute`)
+    expect(params.name).toBe("Published Workflow")
+    expect(params.description).toBe("A workflow being published")
+    expect(params.category).toBe("core-defi")
+    expect(params.priceUsdc).toBe(10000)
+    expect(params.capabilities).toEqual(["price-feed"])
+    expect(params.chains).toEqual(["base-sepolia"])
+  })
+
+  test("Bazaar registration failure does not block publish response", async () => {
+    mockRegisterWorkflowInBazaar.mockRejectedValueOnce(new Error("Bazaar down"))
+
+    const { json, error } = await invokeRoute()
+
+    expect(error).toBeNull()
+    expect(json).toBeTruthy()
+    expect(json.workflowId).toBe(TEST_ID)
+  })
+
+  test("does not call registerWorkflowInBazaar when publish validation fails", async () => {
+    mockSelectResult = null // workflow not found
+
+    const { error } = await invokeRoute()
+
+    expect(error).toBeTruthy()
+    expect(mockRegisterWorkflowInBazaar).not.toHaveBeenCalled()
   })
 })

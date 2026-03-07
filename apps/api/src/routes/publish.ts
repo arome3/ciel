@@ -6,6 +6,7 @@ import { db } from "../db"
 import { workflows } from "../db/schema"
 import { deployWorkflow, handleDeployResult } from "../services/cre/deployer"
 import { emitEvent } from "../services/events/emitter"
+import { registerWorkflowInBazaar } from "../services/x402/bazaar"
 import { publishLimiter } from "../middleware/rate-limiter"
 import { config } from "../config"
 import { createLogger } from "../lib/logger"
@@ -106,6 +107,17 @@ router.post("/publish/confirm", publishLimiter, async (req, res, next) => {
         timestamp: Date.now(),
       },
     })
+
+    // Fire-and-forget: Register in x402 Bazaar
+    registerWorkflowInBazaar({
+      x402Endpoint,
+      name,
+      description,
+      category: workflow.category,
+      priceUsdc,
+      capabilities: JSON.parse(workflow.capabilities),
+      chains: JSON.parse(workflow.chains),
+    }).catch(() => {})
 
     // Fire-and-forget: Deploy to CRE DON (after response)
     let configObj: Record<string, unknown> = {}

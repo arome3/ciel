@@ -21,6 +21,8 @@ export interface GenerationPromptInput {
   previousError?: string
   /** Optional: self-review from previous attempt (for retries) */
   previousSelfReview?: string
+  /** Optional: fix patterns + compiler output from error-resolver (for retries) */
+  enrichedContext?: string
 }
 
 /**
@@ -79,15 +81,31 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
 
   // ── Template Context ──
   const tmpl = input.template
-  const templateLines = [
-    `- **Template**: #${tmpl.id} — ${tmpl.name}`,
-    `- **Category**: ${tmpl.category}`,
-    `- **Required Capabilities**: ${tmpl.requiredCapabilities.join(", ")}`,
-    `- **Trigger Type**: ${tmpl.triggerType}`,
-    `- **Description**: ${tmpl.defaultPromptFill}`,
-  ]
+  if (tmpl.id === 0) {
+    // Wildcard mode — no pre-existing template matched
+    sections.push(
+      "## Wildcard Mode — Build From First Principles\n\n" +
+      "No pre-existing template matched this request. You have the full CRE SDK API reference " +
+      "in the system prompt. Generate a correct CRE workflow from scratch.\n\n" +
+      "Architecture checklist:\n" +
+      "1. Choose the trigger type that best fits the user's description (cron for periodic, http for on-demand, evm_log for reactive)\n" +
+      "2. Design a Zod configSchema with all necessary fields (API URLs, thresholds, addresses)\n" +
+      "3. Implement the handler function with the user's core business logic\n" +
+      "4. Use the two-step report pattern for any on-chain writes\n" +
+      "5. Follow ALL 14 critical constraints — especially: no async in handlers, no banned imports, no Date.now()\n" +
+      "6. Keep it simple — implement the minimum viable workflow",
+    )
+  } else {
+    const templateLines = [
+      `- **Template**: #${tmpl.id} — ${tmpl.name}`,
+      `- **Category**: ${tmpl.category}`,
+      `- **Required Capabilities**: ${tmpl.requiredCapabilities.join(", ")}`,
+      `- **Trigger Type**: ${tmpl.triggerType}`,
+      `- **Description**: ${tmpl.defaultPromptFill}`,
+    ]
 
-  sections.push(`## Matched Template\n\n${templateLines.join("\n")}`)
+    sections.push(`## Matched Template\n\n${templateLines.join("\n")}`)
+  }
 
   // ── Retry Context ──
   if (input.previousError || input.previousSelfReview) {
@@ -111,6 +129,11 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
       "## Retry Context (IMPORTANT — Fix These Issues)\n\n" +
       retryLines.join("\n\n"),
     )
+  }
+
+  // ── Enriched Context (compiler output + fix patterns) ──
+  if (input.enrichedContext) {
+    sections.push(input.enrichedContext)
   }
 
   return sections.join("\n\n")

@@ -10,6 +10,7 @@ const MAX_CHARS = 2000
 export function PromptInput() {
   const prompt = useWorkflowStore((s) => s.prompt)
   const setPrompt = useWorkflowStore((s) => s.setPrompt)
+  const setTemplateHint = useWorkflowStore((s) => s.setTemplateHint)
   const isGenerating = useWorkflowStore((s) => s.isGenerating)
   const error = useWorkflowStore((s) => s.error)
   const generate = useWorkflowStore((s) => s.generate)
@@ -29,7 +30,7 @@ export function PromptInput() {
         id="prompt-input"
         placeholder="e.g. Monitor ETH/USD price every 5 minutes and send an alert when it drops below $2000..."
         value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
+        onChange={(e) => { setPrompt(e.target.value); setTemplateHint(null) }}
         className="min-h-[140px] resize-none border-0 bg-transparent p-0 text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:ring-0"
         maxLength={MAX_CHARS}
         disabled={isGenerating}

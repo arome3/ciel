@@ -27,6 +27,10 @@ const envSchema = z.object({
   CRE_CLI_PATH: z.string().default("cre"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 
+  // CRE Gateway
+  CRE_GATEWAY_URL: z.string().url().optional(),
+  CRE_HTTP_TRIGGER_KEY: z.string().startsWith("0x").optional(),
+
   // Tenderly
   TENDERLY_ACCESS_KEY: z.string().optional(),
   TENDERLY_ACCOUNT_SLUG: z.string().default("me"),

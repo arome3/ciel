@@ -72,6 +72,25 @@ const EMBEDDING_WEIGHT = Number.isFinite(_rawEmbWeight) ? Math.max(0, Math.min(1
 const KEYWORD_WEIGHT = 1 - EMBEDDING_WEIGHT
 
 // ─────────────────────────────────────────────
+// Wildcard Template (standalone — NOT in TEMPLATES array)
+// ─────────────────────────────────────────────
+// Catch-all for prompts that don't match any of the 22 templates.
+// Kept outside TEMPLATES to avoid corrupting IDF weights and scoring.
+
+export const WILDCARD_TEMPLATE: TemplateDefinition = {
+  id: 0,
+  name: "Wildcard — Custom CRE Workflow",
+  category: "ai-powered",
+  keywords: [],
+  requiredCapabilities: [],
+  triggerType: "cron",
+  defaultPromptFill:
+    "Generate a CRE workflow based entirely on the user's description. " +
+    "Choose the most appropriate trigger type, data sources, and actions. " +
+    "Follow all 14 critical constraints. Use the CRE SDK API reference.",
+}
+
+// ─────────────────────────────────────────────
 // Template Definitions (22 Templates)
 // ─────────────────────────────────────────────
 
@@ -724,7 +743,14 @@ function fallbackByCapabilities(intent: ParsedIntent): TemplateMatch | null {
     return { templateId: 21, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
   }
 
-  return null
+  // No capability match — return wildcard as last resort
+  return {
+    templateId: WILDCARD_TEMPLATE.id,
+    templateName: WILDCARD_TEMPLATE.name,
+    category: WILDCARD_TEMPLATE.category,
+    confidence: 0.15,
+    matchedKeywords: ["wildcard"],
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -823,6 +849,7 @@ export async function matchTemplate(
  * Returns a template definition by ID. Used by the code generator (stage 3).
  */
 export function getTemplateById(id: number): TemplateDefinition | undefined {
+  if (id === 0) return WILDCARD_TEMPLATE
   return TEMPLATES.find((t) => t.id === id)
 }
 

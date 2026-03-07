@@ -157,6 +157,7 @@ export interface WorkflowDetail extends WorkflowListItem {
   x402Endpoint: string | null
   consumerSol: string | null
   onchainWorkflowId: string | null
+  deployStatus: string | null
   inputSchema: unknown
   outputSchema: unknown
   createdAt: string
@@ -212,6 +213,18 @@ export const api = {
     }
   },
 
+  async generateDescription(input: {
+    explanation: string
+    templateName: string
+    category: string
+    capabilities: string[]
+  }): Promise<{ description: string }> {
+    return request("/api/generate-description", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
   async simulate(
     workflowId: string,
     config?: Record<string, unknown>,
@@ -264,6 +277,7 @@ export const api = {
     category?: string
     search?: string
     sort?: string
+    owner?: string
   }): Promise<WorkflowsListResponse> {
     const query = new URLSearchParams()
     if (params?.page) query.set("page", String(params.page))
@@ -271,6 +285,7 @@ export const api = {
     if (params?.category) query.set("category", params.category)
     if (params?.search) query.set("search", params.search)
     if (params?.sort) query.set("sort", params.sort)
+    if (params?.owner) query.set("owner", params.owner)
     const qs = query.toString()
     return request<WorkflowsListResponse>(
       `/api/workflows${qs ? `?${qs}` : ""}`,
@@ -430,9 +445,41 @@ export const api = {
     return request("/api/tenderly/cleanup", { method: "DELETE" })
   },
 
+  async redeployWorkflow(
+    workflowId: string,
+    auth: { address: string; signature: string },
+  ): Promise<{ workflowId: string; deployStatus: string; message: string }> {
+    return request(`/api/workflows/${workflowId}/redeploy`, {
+      method: "POST",
+      headers: {
+        "X-Owner-Address": auth.address,
+        "X-Owner-Signature": auth.signature,
+      },
+    })
+  },
+
+  async updateWorkflowConfig(
+    workflowId: string,
+    config: Record<string, unknown>,
+    auth: { address: string; signature: string },
+  ): Promise<{ config: Record<string, unknown> }> {
+    return request<{ config: Record<string, unknown> }>(
+      `/api/workflows/${workflowId}/config`,
+      {
+        method: "PATCH",
+        headers: {
+          "X-Owner-Address": auth.address,
+          "X-Owner-Signature": auth.signature,
+        },
+        body: JSON.stringify({ config }),
+      },
+    )
+  },
+
   async executeWorkflow(
     id: string,
     ownerAuth?: { address: string; signature: string },
+    configOverrides?: Record<string, unknown>,
   ): Promise<{ success: boolean; result: unknown }> {
     const headers: Record<string, string> = {}
     if (ownerAuth) {
@@ -440,9 +487,21 @@ export const api = {
       headers["X-Owner-Signature"] = ownerAuth.signature
     }
 
-    const res = await fetch(`${API_BASE}/api/workflows/${id}/execute`, {
-      headers,
-    })
+    // POST when configOverrides provided, GET otherwise (backward compat)
+    const usePost = !!configOverrides
+    const fetchOpts: RequestInit = {
+      headers: {
+        "Content-Type": "application/json",
+        ...headers,
+      },
+    }
+
+    if (usePost) {
+      fetchOpts.method = "POST"
+      fetchOpts.body = JSON.stringify({ configOverrides })
+    }
+
+    const res = await fetch(`${API_BASE}/api/workflows/${id}/execute`, fetchOpts)
 
     if (res.status === 402) {
       const body = await res.json().catch(() => ({}))

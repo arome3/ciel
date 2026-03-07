@@ -5,6 +5,7 @@ import {
   getTemplateById,
   getAllTemplates,
   TEMPLATES,
+  WILDCARD_TEMPLATE,
 } from "../services/ai-engine/template-matcher"
 import type { ParsedIntent } from "../services/ai-engine/types"
 
@@ -163,10 +164,12 @@ describe("Template Reachability", async () => {
 // ─────────────────────────────────────────────
 
 describe("Edge Cases", async () => {
-  test("garbage input returns null", async () => {
+  test("garbage input returns wildcard", async () => {
     const intent = parseIntent("What is the meaning of life and the universe")
     const match = await matchTemplate(intent)
-    expect(match).toBeNull()
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(0)
+    expect(match!.confidence).toBe(0.15)
   })
 
   test("force override with valid ID returns confidence 1.0", async () => {
@@ -278,10 +281,12 @@ describe("Scoring Mechanics", async () => {
     expect(matchWith!.confidence).toBeGreaterThan(matchWithout!.confidence)
   })
 
-  test("threshold boundary: score just below 0.3 returns null", async () => {
+  test("threshold boundary: score just below 0.3 returns wildcard", async () => {
     const intent = parseIntent("Calculate something random unrelated to anything")
     const match = await matchTemplate(intent)
-    expect(match).toBeNull()
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(0)
+    expect(match!.confidence).toBe(0.15)
   })
 
   test("IDF weighting: unique keyword contributes more than common keyword", async () => {
@@ -296,7 +301,7 @@ describe("Scoring Mechanics", async () => {
     expect(match!.confidence).toBeGreaterThan(0.4)
   })
 
-  test("ambiguity detection: nearly equal scores on two templates returns null", async () => {
+  test("ambiguity detection: nearly equal scores on two templates returns wildcard", async () => {
     // Constructed intent that matches both T5 and T8 with close IDF-weighted scores.
     // T5 keywords: reserve, collateral, audit, attestation, proof
     // T8 keywords: compliance, kyc, aml, sanctions, gate, check
@@ -305,7 +310,9 @@ describe("Scoring Mechanics", async () => {
       keywords: ["compliance", "reserve", "audit", "check", "report", "threshold"],
     })
     const match = await matchTemplate(ambiguousIntent)
-    expect(match).toBeNull()
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(0)
+    expect(match!.confidence).toBe(0.15)
   })
 })
 
@@ -393,8 +400,11 @@ describe("getTemplateById", async () => {
     expect(template!.id).toBe(9)
   })
 
-  test("ID 0 returns undefined", async () => {
-    expect(getTemplateById(0)).toBeUndefined()
+  test("ID 0 returns wildcard template", async () => {
+    const template = getTemplateById(0)
+    expect(template).toBeDefined()
+    expect(template!.name).toContain("Wildcard")
+    expect(template!.id).toBe(0)
   })
 
   test("ID 11 returns Conditional DEX Swap", async () => {
@@ -1183,5 +1193,40 @@ describe("End-to-End Integration — Institutional Prompts", async () => {
     const match = await matchTemplate(intent)
     expect(match).not.toBeNull()
     expect(match!.templateId).toBe(22)
+  })
+})
+
+// ─────────────────────────────────────────────
+// Suite 18: Wildcard Fallback
+// ─────────────────────────────────────────────
+
+describe("Wildcard Fallback", async () => {
+  test("WILDCARD_TEMPLATE is not in TEMPLATES array", () => {
+    expect(TEMPLATES.find((t) => t.id === 0)).toBeUndefined()
+    expect(WILDCARD_TEMPLATE.id).toBe(0)
+  })
+
+  test("returns wildcard for completely unmatched prompt", async () => {
+    const intent = makeIntent({ keywords: ["zxcvbn", "qwerty", "asdfgh"] })
+    const result = await matchTemplate(intent)
+    expect(result).not.toBeNull()
+    expect(result!.templateId).toBe(0)
+    expect(result!.templateName).toContain("Wildcard")
+    expect(result!.confidence).toBe(0.15)
+    expect(result!.matchedKeywords).toContain("wildcard")
+  })
+
+  test("negated intent returns null (not wildcard)", async () => {
+    const intent = makeIntent({ keywords: ["zxcvbn"], negated: true })
+    const result = await matchTemplate(intent)
+    expect(result).toBeNull()
+  })
+
+  test("wildcard does not interfere with real template scoring", async () => {
+    const intent = parseIntent("Monitor ETH price every minute and alert when below 2000")
+    const match = await matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(1)
+    expect(match!.confidence).toBeGreaterThan(0.3)
   })
 })

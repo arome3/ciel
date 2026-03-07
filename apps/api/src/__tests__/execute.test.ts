@@ -8,13 +8,16 @@ import { resolve } from "path"
 const SRC = resolve(import.meta.dir, "..")
 
 // ── Config mock ──
+const mockConfig: Record<string, any> = {
+  WALLET_ADDRESS: "0xTestWallet",
+  X402_FACILITATOR_URL: "https://facilitator.test",
+  NODE_ENV: "test",
+  DATABASE_PATH: ":memory:",
+  CRE_GATEWAY_URL: undefined,
+}
+
 mock.module(resolve(SRC, "config.ts"), () => ({
-  config: {
-    WALLET_ADDRESS: "0xTestWallet",
-    X402_FACILITATOR_URL: "https://facilitator.test",
-    NODE_ENV: "test",
-    DATABASE_PATH: ":memory:",
-  },
+  config: mockConfig,
 }))
 
 // ── Logger mock ──
@@ -130,6 +133,22 @@ mock.module(resolve(SRC, "services/x402/middleware.ts"), () => ({
   conditionalPayment: (req: any, _res: any, next: any) => next(),
 }))
 
+// ── Gateway client mock ──
+let mockTriggerResult: any = { jsonrpc: "2.0", id: "test", result: { data: "don-output" } }
+let mockTriggerError: Error | null = null
+
+const mockTriggerWorkflow = mock(() => {
+  if (mockTriggerError) return Promise.reject(mockTriggerError)
+  return Promise.resolve(mockTriggerResult)
+})
+
+mock.module(resolve(SRC, "services/cre/gateway-client.ts"), () => ({
+  triggerWorkflow: mockTriggerWorkflow,
+  stableStringify: (obj: any) => JSON.stringify(obj),
+  sha256Hex: () => "abc",
+  createGatewayJWT: () => Promise.resolve("jwt"),
+}))
+
 // ── Compiler mock ──
 let mockSimulateError = false
 
@@ -211,6 +230,9 @@ beforeEach(() => {
   insertValues = null
   recordExecutionCalled = false
   recordExecutionArgs = []
+  mockTriggerResult = { jsonrpc: "2.0", id: "test", result: { data: "don-output" } }
+  mockTriggerError = null
+  mockConfig.CRE_GATEWAY_URL = undefined
 })
 
 // ─────────────────────────────────────────────
@@ -250,6 +272,46 @@ async function invokeRoute(opts: {
   }
 
   // Allow fire-and-forget promises to settle
+  await new Promise((r) => setTimeout(r, 10))
+
+  return { json: jsonResult, error: nextErr }
+}
+
+async function invokePostRoute(opts: {
+  id?: string
+  skipPayment?: boolean
+  ownerAddress?: string
+  body?: Record<string, unknown>
+} = {}) {
+  let nextErr: any = null
+  let jsonResult: any = null
+
+  const req = {
+    params: { id: opts.id ?? TEST_ID },
+    method: "POST",
+    body: opts.body ?? {},
+    skipPayment: opts.skipPayment,
+    ownerAddress: opts.ownerAddress,
+  } as any
+
+  const res = {
+    json: mock((data: any) => { jsonResult = data }),
+    status: mock(function(this: any) { return this }),
+  } as any
+
+  const next = (err?: any) => { if (err) nextErr = err }
+
+  const layer = router.stack.find(
+    (l: any) => l.route?.path === "/workflows/:id/execute" && l.route?.methods?.post,
+  )
+  expect(layer).toBeTruthy()
+
+  const handlers = layer.route.stack
+  for (const h of handlers) {
+    await h.handle(req, res, next)
+    if (nextErr) break
+  }
+
   await new Promise((r) => setTimeout(r, 10))
 
   return { json: jsonResult, error: nextErr }
@@ -455,5 +517,116 @@ describe("execute route — on-chain recording", () => {
     await invokeRoute()
 
     expect(recordExecutionCalled).toBe(false)
+  })
+})
+
+describe("execute route — DON execution", () => {
+  test("deployed workflow with gateway URL uses DON execution", async () => {
+    mockConfig.CRE_GATEWAY_URL = "https://gateway.test"
+    mockSelectResult = {
+      ...TEST_WORKFLOW,
+      donWorkflowId: "don-123",
+      deployStatus: "deployed",
+    }
+
+    const { json, error } = await invokeRoute()
+
+    expect(error).toBeNull()
+    expect(json.executionSource).toBe("don")
+    expect(json.result.donResponse).toBeTruthy()
+    expect(json.result.output).toEqual({ data: "don-output" })
+  })
+
+  test("deployed workflow without gateway URL falls back to simulation", async () => {
+    mockConfig.CRE_GATEWAY_URL = undefined
+    mockSelectResult = {
+      ...TEST_WORKFLOW,
+      donWorkflowId: "don-123",
+      deployStatus: "deployed",
+    }
+
+    const { json, error } = await invokeRoute()
+
+    expect(error).toBeNull()
+    expect(json.executionSource).toBe("simulation")
+  })
+
+  test("deployed workflow with gateway failure falls back to simulation", async () => {
+    mockConfig.CRE_GATEWAY_URL = "https://gateway.test"
+    mockTriggerError = new Error("Gateway unavailable")
+    mockSelectResult = {
+      ...TEST_WORKFLOW,
+      donWorkflowId: "don-123",
+      deployStatus: "deployed",
+    }
+
+    const { json, error } = await invokeRoute()
+
+    expect(error).toBeNull()
+    expect(json.executionSource).toBe("simulation")
+    expect(json.success).toBe(true)
+  })
+
+  test("undeployed workflow always uses simulation", async () => {
+    mockConfig.CRE_GATEWAY_URL = "https://gateway.test"
+    mockSelectResult = {
+      ...TEST_WORKFLOW,
+      donWorkflowId: null,
+      deployStatus: "none",
+    }
+
+    const { json, error } = await invokeRoute()
+
+    expect(error).toBeNull()
+    expect(json.executionSource).toBe("simulation")
+  })
+
+  test("response includes executionSource field", async () => {
+    const { json } = await invokeRoute()
+
+    expect(json).toHaveProperty("executionSource")
+    expect(json.executionSource).toBe("simulation")
+  })
+})
+
+describe("execute route — POST with configOverrides", () => {
+  test("POST with configOverrides merges into simulation config", async () => {
+    const overrides = { recipientAddress: "0xOverride" }
+    const { json, error } = await invokePostRoute({
+      body: { configOverrides: overrides },
+    })
+
+    expect(error).toBeNull()
+    expect(json).toBeTruthy()
+    expect(json.success).toBe(true)
+    // simulateWorkflow was called — success proves override path works
+    expect(mockSimulateWorkflow).toHaveBeenCalled()
+  })
+
+  test("POST without configOverrides behaves like GET", async () => {
+    const { json, error } = await invokePostRoute({ body: {} })
+
+    expect(error).toBeNull()
+    expect(json).toBeTruthy()
+    expect(json.success).toBe(true)
+    expect(json.executionSource).toBe("simulation")
+  })
+
+  test("GET still works (backward compat)", async () => {
+    const { json, error } = await invokeRoute()
+
+    expect(error).toBeNull()
+    expect(json).toBeTruthy()
+    expect(json.success).toBe(true)
+  })
+
+  test("POST route returns 404 for non-existent workflow", async () => {
+    mockSelectResult = null
+
+    const { error } = await invokePostRoute()
+
+    expect(error).toBeTruthy()
+    expect(error.code).toBe("WORKFLOW_NOT_FOUND")
+    expect(error.statusCode).toBe(404)
   })
 })

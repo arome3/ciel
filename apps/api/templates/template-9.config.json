@@ -4,10 +4,6 @@
   "claudeModel": "claude-sonnet-4-20250514",
   "geminiModel": "gemini-1.5-pro",
   "openaiApiEndpoint": "https://api.openai.com/v1/chat/completions",
-  "evms": [
-    {
-      "chainSelectorName": "base-sepolia",
-      "contractAddress": "0x0000000000000000000000000000000000000000"
-    }
-  ]
+  "consumerContract": "0x34DAba0F2295972547d3ceb42f12B50a18D8E392",
+  "chainSelectorName": "base-testnet-sepolia"
 }

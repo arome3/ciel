@@ -22,6 +22,8 @@ import { loadTemplateFile, loadTemplateConfig, buildFallbackConfig } from "./fil
 import { buildFewShotContext } from "./context-builder"
 import { retrieveRelevantDocs } from "./doc-retriever"
 import { getContext7CREDocs } from "./context7-client"
+import { compileCheck } from "./compile-feedback"
+import { resolveErrors, getFixPatternsForCategories, getPreSeedCategories } from "./error-resolver"
 import { AppError, ErrorCodes } from "../../types/errors"
 import { createLogger } from "../../lib/logger"
 import { db } from "../../db"
@@ -248,8 +250,27 @@ async function runPipeline(
   }
   await getContext7CREDocs()
 
+  // ── Pre-seed fix patterns based on template characteristics ──
+  // Give the LLM relevant guidance on the FIRST attempt, not just retries.
+  // HTTP triggers, evmWrite, and multi-AI patterns are the most common first-attempt failures.
+  const accumulatedFixPatterns = new Set<string>()
+  if (templateDef) {
+    const isWildcard = template.templateId === 0
+    const preSeedCats = getPreSeedCategories(templateDef.triggerType, templateDef.requiredCapabilities, isWildcard)
+    if (preSeedCats.length > 0) {
+      const preSeedPatterns = getFixPatternsForCategories(preSeedCats)
+      if (preSeedPatterns) {
+        accumulatedFixPatterns.add(preSeedPatterns)
+        log.info(`Pre-seeded fix patterns for T${template.templateId}: [${preSeedCats.join(", ")}]`)
+      }
+    }
+  }
+
   // ── Retry loop ──
   let lastError: string | undefined
+  let lastEnrichedContext: string | undefined = accumulatedFixPatterns.size > 0
+    ? [...accumulatedFixPatterns].join("\n\n")
+    : undefined
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     // Check abort signal before expensive LLM call
@@ -269,6 +290,7 @@ async function runPipeline(
         templateConfidence: template.confidence,
         previousError: lastError,
         maxInternalRetries: attempt === 0 ? undefined : 1,
+        enrichedContext: lastEnrichedContext,
       })
 
       // Check abort signal before validation
@@ -288,12 +310,66 @@ async function runPipeline(
       const validation = await validateWorkflow(fixedCode, configJsonStr, intent, templateDef ?? undefined)
 
       if (validation.valid) {
-        // Check abort signal before DB save
+        // Check abort signal before compilation check
         if (signal.aborted) {
           throw new AppError(ErrorCodes.AI_SERVICE_ERROR, 504, "Pipeline timed out")
         }
 
-        // Success — save to DB and return
+        // Compilation check — real tsc errors catch type mismatches
+        // that regex-based validation misses
+        const compileResult = await compileCheck(fixedCode, generated.configJson)
+
+        if (compileResult.compiled) {
+          // Full success — save to DB and return
+          const workflowId = crypto.randomUUID()
+
+          await saveWorkflow({
+            id: workflowId,
+            name: `${template.templateName} — ${prompt.slice(0, 30)}`,
+            description: generated.explanation.slice(0, 500),
+            prompt,
+            templateId: template.templateId,
+            templateName: template.templateName,
+            code: fixedCode,
+            config: configJsonStr,
+            consumerSol: generated.consumerSol ?? null,
+            ownerAddress,
+            category: template.category,
+            capabilities: JSON.stringify(templateDef?.requiredCapabilities ?? []),
+            chains: JSON.stringify(intent.chains.length > 0 ? intent.chains : ["base-sepolia"]),
+          })
+
+          const secretNames = extractSecretNames(fixedCode)
+          const secretsYaml = buildSecretsYaml(secretNames)
+
+          return {
+            workflowId,
+            code: fixedCode,
+            configJson: configJsonStr,
+            explanation: generated.explanation,
+            consumerSol: generated.consumerSol ?? null,
+            secretsYaml,
+            intent,
+            template,
+            validation,
+            fallback: false,
+          }
+        }
+
+        // Validation passed but compilation failed — retry with compile errors
+        if (attempt < MAX_RETRIES) {
+          const resolution = resolveErrors(compileResult.errors, compileResult)
+          lastError = resolution.compileContext || `Compilation failed: ${compileResult.errors.join(" | ")}`
+          if (resolution.fixPatterns) accumulatedFixPatterns.add(resolution.fixPatterns)
+          lastEnrichedContext = [...accumulatedFixPatterns].join("\n\n") || undefined
+          log.info(
+            `Compilation failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}): ${compileResult.errors.join(" | ")}`,
+          )
+          continue
+        }
+
+        // Last attempt — compilation failed but validation passed,
+        // return the code anyway (better than fallback)
         const workflowId = crypto.randomUUID()
 
         await saveWorkflow({
@@ -329,13 +405,16 @@ async function runPipeline(
         }
       }
 
-      // Validation failed — build structured error feedback for retry
+      // Validation failed — enrich with fix patterns (accumulated across retries)
+      const resolution = resolveErrors(validation.errors)
       const structuredErrors = validation.errors
         .map((err, i) => `${i + 1}. ${err}`)
         .join("\n")
 
       lastError =
         `## Validation Failures (Fix ALL before responding)\n${structuredErrors}`
+      if (resolution.fixPatterns) accumulatedFixPatterns.add(resolution.fixPatterns)
+      lastEnrichedContext = [...accumulatedFixPatterns].join("\n\n") || undefined
 
       log.info(
         `Validation failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}): ${validation.errors.join(" | ")}`,
@@ -350,6 +429,7 @@ async function runPipeline(
       }
 
       lastError = err instanceof Error ? err.message : String(err)
+      lastEnrichedContext = undefined
       log.info(
         `Generation error (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`,
         lastError,
@@ -390,19 +470,20 @@ export async function generateWorkflow(
   const intent = parseIntent(prompt)
   const template = await matchTemplate(intent, forceTemplateId, prompt)
 
+  // matchTemplate now always returns a result (wildcard fallback for unmatched prompts).
+  // Only null for invalid forceTemplateId or negated intent — both are correct rejections.
   if (!template) {
     throw new AppError(
       ErrorCodes.TEMPLATE_NOT_FOUND,
       400,
       "Could not match your prompt to a workflow template. Try being more specific about what you want to automate.",
-      {
-        intent,
-        suggestion:
-          "Include keywords like 'price monitor', 'rebalance portfolio', 'prediction market', " +
-          "'stablecoin mint', 'proof of reserve', 'fund NAV', 'parametric insurance', " +
-          "'KYC compliance', 'AI consensus oracle', or 'custom data feed'.",
-      },
+      { intent },
     )
+  }
+
+  const isWildcard = template.templateId === 0
+  if (isWildcard) {
+    log.info(`Wildcard mode for prompt: "${prompt.slice(0, 80)}..."`)
   }
 
   await acquireSemaphore()

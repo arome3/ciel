@@ -218,6 +218,59 @@ export function quickFix(code: string): { code: string; fixes: string[] } {
     }
   }
 
+  // 8b. Fix indirect JSON.parse in helper functions that receive .body as an argument
+  // Pattern: parseResponse(x.body) → inside parseResponse, JSON.parse(param) → decodeJson(param)
+  // The LLM often generates helper functions with `function parse(body: string)` that call
+  // JSON.parse(body) internally, but .body is Uint8Array since CRE CLI v1.2.0.
+  {
+    const callPattern = /\b(\w+)\s*\([^)]*\w+\.body\b/g
+    let callMatch
+    const functionsReceivingBody = new Set<string>()
+
+    while ((callMatch = callPattern.exec(fixed)) !== null) {
+      const name = callMatch[1]
+      if (name === "JSON" || name === "decodeJson" || name === "console") continue
+      functionsReceivingBody.add(name)
+    }
+
+    if (functionsReceivingBody.size > 0) {
+      let changed = false
+      for (const funcName of functionsReceivingBody) {
+        const funcDefRe = new RegExp(
+          `function\\s+${funcName}\\s*\\(\\s*(\\w+)\\s*:\\s*string`,
+        )
+        const defMatch = funcDefRe.exec(fixed)
+        if (!defMatch) continue
+
+        const paramName = defMatch[1]
+
+        // Replace JSON.parse(paramName) → decodeJson(paramName)
+        const parseRe = new RegExp(`JSON\\.parse\\(${paramName}\\)`, "g")
+        if (parseRe.test(fixed)) {
+          parseRe.lastIndex = 0
+          fixed = fixed.replace(parseRe, `decodeJson(${paramName})`)
+          changed = true
+        }
+
+        // Update param type: string → Uint8Array
+        fixed = fixed.replace(
+          new RegExp(`function\\s+${funcName}\\s*\\(\\s*${paramName}\\s*:\\s*string`),
+          `function ${funcName}(${paramName}: Uint8Array`,
+        )
+      }
+
+      if (changed) {
+        fixes.push("Replaced JSON.parse(param) with decodeJson(param) in functions receiving .body argument")
+        if (!/\bdecodeJson\b/.test(fixed.split("\n").find(l => l.includes("from \"@chainlink/cre-sdk\"")) || "")) {
+          fixed = fixed.replace(
+            /(import\s*\{[^}]*)(}\s*from\s*["']@chainlink\/cre-sdk["'])/,
+            "$1  decodeJson,\n$2",
+          )
+        }
+      }
+    }
+  }
+
   // 9. Replace evmClient.sendTransaction() → writeReport pattern (sendTransaction does not exist in CRE SDK)
   if (/\.sendTransaction\s*\(/.test(fixed)) {
     const ranges = findHandlerBlockRanges(fixed)

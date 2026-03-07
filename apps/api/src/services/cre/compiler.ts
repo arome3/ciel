@@ -66,6 +66,11 @@ export async function simulateWorkflow(
 ): Promise<SimulationResult> {
   const startTime = Date.now()
 
+  // Detect HTTP trigger: code uses http.trigger() from @chainlink/cre-sdk/triggers
+  const isHttpTrigger = /http\.trigger\s*\(/.test(code) ||
+    /HTTPCapability/.test(code) ||
+    /from\s+["']@chainlink\/cre-sdk\/triggers["']/.test(code)
+
   try {
     return await withCREWorkspace(
       {
@@ -75,9 +80,17 @@ export async function simulateWorkflow(
         semaphore: simSemaphore,
       },
       async (cwd, env) => {
+        // Build CRE simulate command
+        const cmd = [config.CRE_CLI_PATH, "workflow", "simulate", WF_SUBDIR, "--non-interactive", "--trigger-index", "0", "--target", "staging-settings"]
+
+        // HTTP-triggered workflows need a payload (CRE CLI requirement)
+        if (isHttpTrigger) {
+          cmd.push("--http-payload", JSON.stringify({ sender: "0x0000000000000000000000000000000000000000", body: "{}" }))
+        }
+
         // Run CRE simulate from project root, pointing to wf/ subfolder
         const simResult = await runCommand(
-          [config.CRE_CLI_PATH, "workflow", "simulate", WF_SUBDIR, "--non-interactive", "--trigger-index", "0", "--target", "staging-settings"],
+          cmd,
           cwd,
           env,
           SIMULATION_TIMEOUT,
@@ -92,10 +105,11 @@ export async function simulateWorkflow(
         const duration = Date.now() - startTime
 
         // Workflow compiled + ran = success, even if runtime capability errors occur
-        // (e.g. DNS failures, rate limits, sandbox network restrictions)
+        // (e.g. DNS failures, rate limits, sandbox network restrictions,
+        //  CRE CLI v1.2.0 HTTP trigger $typeName bug)
         const workflowCompiled = rawOutput.includes("Workflow compiled")
         const onlyRuntimeErrors = parsed.errors.length > 0 && parsed.errors.every(
-          (e) => /execute capability|no such host|dial tcp|unexpected token|connection refused|timeout|rate limit|Workflow execution failed/i.test(e),
+          (e) => /execute capability|no such host|dial tcp|unexpected token|connection refused|timeout|rate limit|Workflow execution failed|http-payload is required|secret retrieval failed|secret not found|Failed to create engine|\$typeName/i.test(e),
         )
         const success =
           (simResult.exitCode === 0 && parsed.errors.length === 0) ||

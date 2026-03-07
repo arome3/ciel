@@ -14,6 +14,7 @@ import { join } from "path"
 // ─────────────────────────────────────────────
 
 const TEMPLATE_RELATIONS: Record<number, [number, number]> = {
+  0: [1, 4],   // Wildcard — cron example (T1) + HTTP trigger example (T4)
   1: [4, 8],
   2: [1, 7],
   3: [1, 6],

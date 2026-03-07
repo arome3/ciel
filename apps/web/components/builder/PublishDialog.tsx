@@ -22,6 +22,7 @@ import {
   REGISTRY_ADDRESS,
   BASE_SEPOLIA_CHAIN_SELECTOR,
 } from "@/lib/contracts"
+import { Sparkles, Loader2 } from "lucide-react"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"
 
@@ -40,11 +41,47 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
   const [description, setDescription] = useState("")
   const [price, setPrice] = useState("0.10")
   const [publishing, setPublishing] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const [status, setStatus] = useState("")
+
+  async function handleGenerateDescription() {
+    if (!workflow || generating) return
+    setGenerating(true)
+    try {
+      const capabilities = [
+        ...(workflow.intent.dataSources ?? []),
+        ...(workflow.intent.actions ?? []),
+      ]
+      const result = await api.generateDescription({
+        explanation: workflow.explanation,
+        templateName: workflow.template.templateName,
+        category: workflow.template.category ?? "core-defi",
+        capabilities,
+      })
+      setDescription(result.description)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to generate description"
+      toastError("Generation failed", msg)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const DESC_MAX = 500
 
   async function handlePublish() {
     if (!workflow || publishing) return
     if (!name.trim()) return
+
+    const desc = description.trim()
+    if (desc.length < 10) {
+      toastError("Publish failed", "Description must be at least 10 characters")
+      return
+    }
+    if (desc.length > DESC_MAX) {
+      toastError("Publish failed", `Description must be under ${DESC_MAX} characters (currently ${desc.length})`)
+      return
+    }
 
     const priceUsdc = Math.round(Number(price) * 1_000_000)
     if (priceUsdc < 1000) {
@@ -163,16 +200,31 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="pub-desc" className="text-xs">
-              Description
-            </Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="pub-desc" className="text-xs">
+                Description
+              </Label>
+              <button
+                type="button"
+                onClick={handleGenerateDescription}
+                disabled={generating || !workflow}
+                className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                title="Auto-generate description"
+              >
+                {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              </button>
+            </div>
             <Textarea
               id="pub-desc"
               placeholder="What does this workflow do?"
               rows={3}
+              maxLength={DESC_MAX}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
+            <p className={`text-[10px] text-right ${description.length > DESC_MAX ? "text-destructive" : "text-muted-foreground"}`}>
+              {description.length}/{DESC_MAX}
+            </p>
           </div>
 
           <div className="space-y-1.5">

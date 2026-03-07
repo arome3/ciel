@@ -7,10 +7,11 @@ import {
   ConsensusAggregationByFields,
   consensusIdenticalAggregation,
   consensusMedianAggregation,
+  decodeJson,
+  getNetwork,
   type Runtime,
   type NodeRuntime,
 } from "@chainlink/cre-sdk"
-import { http } from "@chainlink/cre-sdk/triggers"
 import { z } from "zod"
 import { encodeAbiParameters, parseAbiParameters } from "viem"
 
@@ -22,12 +23,8 @@ const configSchema = z.object({
   claudeModel: z.string().default("claude-sonnet-4-20250514"),
   geminiModel: z.string().default("gemini-1.5-pro"),
   openaiApiEndpoint: z.string().default("https://api.openai.com/v1/chat/completions"),
-  evms: z.array(
-    z.object({
-      chainSelectorName: z.string(),
-      contractAddress: z.string(),
-    })
-  ),
+  consumerContract: z.string().default("0x34DAba0F2295972547d3ceb42f12B50a18D8E392"),
+  chainSelectorName: z.string().default("base-testnet-sepolia"),
 })
 
 type Config = z.infer<typeof configSchema>
@@ -66,8 +63,8 @@ Return format: {"answer": "yes|no|uncertain", "confidence": 0-100}`
  * Parse GPT-4o response (uses Structured Outputs with json_schema).
  * Response shape: { choices: [{ message: { content: string } }] }
  */
-function parseOpenAIResponse(responseBody: string): ModelResponse {
-  const parsed = JSON.parse(responseBody)
+function parseOpenAIResponse(responseBody: Uint8Array): ModelResponse {
+  const parsed = decodeJson(responseBody) as any
   const content = parsed.choices?.[0]?.message?.content || "{}"
   const data = JSON.parse(content)
 
@@ -82,8 +79,8 @@ function parseOpenAIResponse(responseBody: string): ModelResponse {
  * Parse Claude Sonnet 4 response.
  * Response shape: { content: [{ type: "text", text: string }] }
  */
-function parseClaudeResponse(responseBody: string): ModelResponse {
-  const parsed = JSON.parse(responseBody)
+function parseClaudeResponse(responseBody: Uint8Array): ModelResponse {
+  const parsed = decodeJson(responseBody) as any
   const textBlock = parsed.content?.find((b: any) => b.type === "text")
   const content = textBlock?.text || "{}"
 
@@ -102,8 +99,8 @@ function parseClaudeResponse(responseBody: string): ModelResponse {
  * Parse Gemini response.
  * Response shape: { candidates: [{ content: { parts: [{ text: string }] } }] }
  */
-function parseGeminiResponse(responseBody: string): ModelResponse {
-  const parsed = JSON.parse(responseBody)
+function parseGeminiResponse(responseBody: Uint8Array): ModelResponse {
+  const parsed = decodeJson(responseBody) as any
   const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text || "{}"
 
   // Gemini may also wrap JSON in markdown
@@ -377,22 +374,31 @@ const onHttpTrigger = (runtime: Runtime<Config>): string => {
     })
   }
 
-  // Write result onchain via EVM client
-  const config = runtime.getConfig()
-  if (config.evms && config.evms.length > 0) {
-    const evmClient = new cre.capabilities.EVMClient()
+  // Write result onchain via two-step report pattern
+  const encodedPayload = encodeAbiParameters(
+    parseAbiParameters("string,uint256,uint256"),
+    [verifiedResult.answer, BigInt(Math.round(verifiedResult.agreementRatio * 1000)), BigInt(verifiedResult.modelsAgreed)]
+  )
 
-    for (const evm of config.evms) {
-      evmClient.writeReport(runtime, {
-        chainSelectorName: evm.chainSelectorName,
-        contractAddress: evm.contractAddress,
-        data: encodeAbiParameters(
-          parseAbiParameters("string,uint256,uint256"),
-          [verifiedResult.answer, Math.round(verifiedResult.agreementRatio * 1000), verifiedResult.modelsAgreed]
-        ),
-      }).result()
-    }
-  }
+  const creReport = runtime.report({
+    encodedPayload,
+    encoderName: "EVM",
+    signingAlgo: "SECP256K1",
+    hashingAlgo: "KECCAK256",
+  }).result()
+
+  const network = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: runtime.config.chainSelectorName,
+    isTestnet: true,
+  })
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
+
+  evmClient.writeReport(runtime, {
+    receiver: runtime.config.consumerContract,
+    report: creReport,
+    gasConfig: { gasLimit: 500000 },
+  }).result()
 
   return JSON.stringify({
     success: true,
@@ -406,7 +412,8 @@ const onHttpTrigger = (runtime: Runtime<Config>): string => {
 // ─── Workflow Initialization ─────────────────────────────────────────────
 
 function initWorkflow(config: Config) {
-  return [cre.handler(http.trigger(), onHttpTrigger)]
+  const httpTrigger = new cre.capabilities.HTTPCapability().trigger()
+  return [cre.handler(httpTrigger, onHttpTrigger)]
 }
 
 export async function main() {

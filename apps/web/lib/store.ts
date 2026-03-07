@@ -23,6 +23,7 @@ export interface SSEEvent {
 interface WorkflowState {
   // Builder flow
   prompt: string
+  templateHint: number | null
   generatedWorkflow: GeneratedWorkflow | null
   simulation: Simulation | null
   editedConfig: Record<string, unknown> | null
@@ -39,6 +40,7 @@ interface WorkflowState {
     category: string | null
     chain: string | null
     sortBy: string
+    ownerAddress: string | null
   }
   isLoadingWorkflows: boolean
 
@@ -50,6 +52,7 @@ interface WorkflowState {
 
   // Builder actions
   setPrompt: (prompt: string) => void
+  setTemplateHint: (hint: number | null) => void
   setGeneratedWorkflow: (workflow: GeneratedWorkflow | null) => void
   setSimulation: (simulation: Simulation | null) => void
   setIsGenerating: (v: boolean) => void
@@ -64,7 +67,7 @@ interface WorkflowState {
 
   // Marketplace actions
   setSearchQuery: (query: string) => void
-  setFilter: (key: "category" | "chain" | "sortBy", value: string | null) => void
+  setFilter: (key: "category" | "chain" | "sortBy" | "ownerAddress", value: string | null) => void
   clearFilters: () => void
   fetchWorkflows: () => Promise<void>
 }
@@ -76,6 +79,7 @@ let _activeGenerateController: AbortController | null = null
 
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   prompt: "",
+  templateHint: null,
   generatedWorkflow: null,
   simulation: null,
   editedConfig: null,
@@ -88,12 +92,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     category: null,
     chain: null,
     sortBy: "newest",
+    ownerAddress: null,
   },
   isLoadingWorkflows: false,
   agentEvents: [],
   error: null,
 
   setPrompt: (prompt) => set({ prompt }),
+  setTemplateHint: (templateHint) => set({ templateHint }),
   setGeneratedWorkflow: (generatedWorkflow) => set({ generatedWorkflow }),
   setSimulation: (simulation) => set({ simulation }),
   setIsGenerating: (isGenerating) => set({ isGenerating }),
@@ -118,6 +124,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
     set({
       prompt: "",
+      templateHint: null,
       generatedWorkflow: null,
       simulation: null,
       editedConfig: null,
@@ -135,9 +142,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const controller = new AbortController()
     _activeGenerateController = controller
 
+    const hint = get().templateHint ?? undefined
     set({ prompt, isGenerating: true, error: null, simulation: null, generatedWorkflow: null })
     try {
-      const workflow = await api.generate(prompt, undefined, controller.signal)
+      const workflow = await api.generate(prompt, hint, controller.signal)
       if (!controller.signal.aborted) {
         set({
           generatedWorkflow: workflow,
@@ -162,7 +170,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   clearFilters: () =>
     set({
       searchQuery: "",
-      filters: { category: null, chain: null, sortBy: "newest" },
+      filters: { category: null, chain: null, sortBy: "newest", ownerAddress: null },
     }),
   fetchWorkflows: async () => {
     const { searchQuery, filters } = get()
@@ -172,6 +180,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         search: searchQuery || undefined,
         category: filters.category ?? undefined,
         sort: filters.sortBy,
+        owner: filters.ownerAddress ?? undefined,
       })
       set({ workflows: res.workflows })
     } catch {

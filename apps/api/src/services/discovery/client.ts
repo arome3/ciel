@@ -1,6 +1,9 @@
 import type { Hex } from "viem"
+import { eq } from "drizzle-orm"
 import type { DiscoveredWorkflow } from "../../types/api"
 import { AppError, ErrorCodes } from "../../types/errors"
+import { db } from "../../db"
+import { workflows } from "../../db/schema"
 import {
   getAllWorkflowIds,
   getWorkflowFromRegistry,
@@ -122,7 +125,57 @@ function normalizeRegistryWorkflow(
   }
 }
 
-// ── Path B: Bazaar directory ──
+// ── Path B: Local DB (published workflows) ──
+
+async function discoverViaLocal(
+  query: DiscoveryQuery,
+): Promise<DiscoveredWorkflow[]> {
+  let rows = db
+    .select()
+    .from(workflows)
+    .where(eq(workflows.published, true))
+    .all()
+
+  if (query.category) {
+    rows = rows.filter((r) => r.category === query.category)
+  }
+  if (query.capability) {
+    rows = rows.filter((r) => {
+      try {
+        const caps: string[] = JSON.parse(r.capabilities)
+        return caps.includes(query.capability!)
+      } catch {
+        return false
+      }
+    })
+  }
+  if (query.chain) {
+    rows = rows.filter((r) => {
+      try {
+        const chains: string[] = JSON.parse(r.chains)
+        return chains.includes(query.chain!)
+      } catch {
+        return false
+      }
+    })
+  }
+
+  return rows.map((r) => ({
+    workflowId: r.id,
+    name: r.name,
+    description: r.description,
+    category: r.category,
+    chains: JSON.parse(r.chains) as string[],
+    capabilities: JSON.parse(r.capabilities) as string[],
+    priceUsdc: r.priceUsdc ?? 10000,
+    x402Endpoint: r.x402Endpoint ?? "",
+    totalExecutions: r.totalExecutions ?? 0,
+    successfulExecutions: r.successfulExecutions ?? 0,
+    source: "local" as const,
+  }))
+}
+
+// ── Path C: Bazaar directory ──
 
 interface BazaarResource {
   resource: string
@@ -210,23 +263,28 @@ export async function discoverWorkflows(
     return cached
   }
 
-  const [registryResult, bazaarResult] = await Promise.allSettled([
+  const [registryResult, localResult, bazaarResult] = await Promise.allSettled([
     discoverViaRegistry(query),
+    discoverViaLocal(query),
     discoverViaBazaar(query),
   ])
 
-  if (
+  // Local never fails (SQLite), so only check registry + bazaar for hard failure
+  const remotesFailed =
     registryResult.status === "rejected" &&
     bazaarResult.status === "rejected"
-  ) {
-    log.error("Both discovery sources failed", {
+  const localFailed = localResult.status === "rejected"
+
+  if (remotesFailed && localFailed) {
+    log.error("All discovery sources failed", {
       registry: registryResult.reason,
+      local: localResult.reason,
       bazaar: bazaarResult.reason,
     })
     throw new AppError(
       ErrorCodes.DISCOVERY_FAILED,
       502,
-      "Both discovery sources unavailable",
+      "All discovery sources unavailable",
       {
         registry: registryResult.reason instanceof Error
           ? registryResult.reason.message
@@ -239,22 +297,32 @@ export async function discoverWorkflows(
   }
 
   if (registryResult.status === "rejected") {
-    log.warn("Registry discovery failed, using Bazaar only", registryResult.reason)
+    log.warn("Registry discovery failed", registryResult.reason)
+  }
+  if (localResult.status === "rejected") {
+    log.warn("Local discovery failed", localResult.reason)
   }
   if (bazaarResult.status === "rejected") {
-    log.warn("Bazaar discovery failed, using registry only", bazaarResult.reason)
+    log.warn("Bazaar discovery failed", bazaarResult.reason)
   }
 
   const registryWorkflows =
     registryResult.status === "fulfilled" ? registryResult.value : []
+  const localWorkflows =
+    localResult.status === "fulfilled" ? localResult.value : []
   const bazaarWorkflows =
     bazaarResult.status === "fulfilled" ? bazaarResult.value : []
 
-  // ── Deduplicate by x402Endpoint — prefer registry (has execution stats) ──
+  // ── Deduplicate by x402Endpoint — prefer registry (has execution stats), then local ──
   const seen = new Map<string, DiscoveredWorkflow>()
 
   for (const w of registryWorkflows) {
     seen.set(w.x402Endpoint, w)
+  }
+  for (const w of localWorkflows) {
+    if (!seen.has(w.x402Endpoint)) {
+      seen.set(w.x402Endpoint, w)
+    }
   }
   for (const w of bazaarWorkflows) {
     if (!seen.has(w.x402Endpoint)) {
@@ -272,6 +340,7 @@ export async function discoverWorkflows(
 
 // ── Test introspection exports ──
 export const _discoverViaRegistry = discoverViaRegistry
+export const _discoverViaLocal = discoverViaLocal
 export const _discoverViaBazaar = discoverViaBazaar
 export const _CHAIN_SELECTORS = CHAIN_SELECTORS
 export const _discoveryCache = discoveryCache

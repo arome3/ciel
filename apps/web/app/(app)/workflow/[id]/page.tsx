@@ -11,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAccount, useSignMessage } from "wagmi"
 import { getCategoryVariant, getCategoryLabel, CHAIN_COLORS } from "@/lib/design-tokens"
 import { api, type WorkflowDetail } from "@/lib/api"
+import { toastSuccess, toastError, toastInfo } from "@/lib/toast"
+import { createSSEConnection } from "@/lib/sse"
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
@@ -110,6 +112,18 @@ export default function WorkflowDetailPage() {
   const [execResult, setExecResult] = useState<unknown>(null)
   const [execError, setExecError] = useState<string | null>(null)
 
+  // ── Config editing (owner only) ──
+  const [editedConfig, setEditedConfig] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  // ── Redeploy (owner only, failed/none status) ──
+  const [redeploying, setRedeploying] = useState(false)
+
+  // ── Execute overrides (anyone) ──
+  const [showOverrides, setShowOverrides] = useState(false)
+  const [overrideConfig, setOverrideConfig] = useState("")
+
   useEffect(() => {
     if (!params.id) return
 
@@ -120,7 +134,12 @@ export default function WorkflowDetailPage() {
     api
       .getWorkflow(params.id)
       .then((data) => {
-        if (!cancelled) setWorkflow(data)
+        if (!cancelled) {
+          setWorkflow(data)
+          const configStr = JSON.stringify(data.config, null, 2)
+          setEditedConfig(configStr)
+          setOverrideConfig(configStr)
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load workflow")
@@ -134,10 +153,88 @@ export default function WorkflowDetailPage() {
     }
   }, [params.id])
 
+  // ── SSE: live deploy status updates ──
+  useEffect(() => {
+    if (!params.id) return
+
+    const cleanup = createSSEConnection({
+      onDeploy: (raw) => {
+        const d = raw as Record<string, unknown>
+        if (d.workflowId !== params.id) return
+
+        const status = d.status as string
+        setWorkflow((prev) => prev ? { ...prev, deployStatus: status } : prev)
+        setRedeploying(false)
+
+        if (status === "deployed") {
+          toastSuccess("Deployed to DON", "Workflow is now running on the Chainlink network")
+        } else if (status === "failed") {
+          toastError("DON deploy failed", typeof d.error === "string" ? d.error : "Deployment failed")
+        }
+      },
+    })
+
+    return cleanup
+  }, [params.id])
+
   const isOwner =
     address !== undefined &&
     workflow !== null &&
     address.toLowerCase() === workflow.ownerAddress.toLowerCase()
+
+  const configDirty =
+    workflow !== null &&
+    editedConfig !== JSON.stringify(workflow.config, null, 2)
+
+  const handleSaveConfig = useCallback(async () => {
+    if (!workflow || !address || saving) return
+
+    setSaving(true)
+    setSaveError(null)
+
+    try {
+      const parsed = JSON.parse(editedConfig)
+      const signature = await signMessageAsync({ message: workflow.id })
+      const { config: updated } = await api.updateWorkflowConfig(
+        workflow.id,
+        parsed,
+        { address, signature },
+      )
+      setWorkflow({ ...workflow, config: updated })
+      setOverrideConfig(JSON.stringify(updated, null, 2))
+      toastSuccess("Config saved", "Workflow defaults updated successfully")
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save config"
+      setSaveError(msg)
+      toastError("Save failed", msg)
+    } finally {
+      setSaving(false)
+    }
+  }, [workflow, address, saving, editedConfig, signMessageAsync])
+
+  const canRedeploy =
+    isOwner &&
+    workflow !== null &&
+    workflow.published &&
+    (workflow.deployStatus === "failed" || workflow.deployStatus === "none")
+
+  const handleRedeploy = useCallback(async () => {
+    if (!workflow || !address || redeploying) return
+
+    setRedeploying(true)
+
+    try {
+      const signature = await signMessageAsync({ message: workflow.id })
+      const result = await api.redeployWorkflow(workflow.id, { address, signature })
+      setWorkflow({ ...workflow, deployStatus: result.deployStatus } as WorkflowDetail)
+      toastSuccess("Deploy initiated", "Workflow is being deployed to the DON")
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Redeploy failed"
+      toastError("Deploy failed", msg)
+    } finally {
+      setRedeploying(false)
+    }
+  }, [workflow, address, redeploying, signMessageAsync])
 
   const handleExecute = useCallback(async () => {
     if (!workflow || executing) return
@@ -157,14 +254,34 @@ export default function WorkflowDetailPage() {
         }
       }
 
-      const result = await api.executeWorkflow(workflow.id, ownerAuth)
+      // Parse overrides if the override panel is open
+      let configOverrides: Record<string, unknown> | undefined
+      if (showOverrides) {
+        try {
+          const parsed = JSON.parse(overrideConfig)
+          const originalConfig = workflow.config
+          // Only send overrides if different from stored config
+          if (JSON.stringify(parsed) !== JSON.stringify(originalConfig)) {
+            configOverrides = parsed
+          }
+        } catch {
+          setExecError("Invalid JSON in config overrides")
+          setExecuting(false)
+          return
+        }
+      }
+
+      const result = await api.executeWorkflow(workflow.id, ownerAuth, configOverrides)
       setExecResult(result)
+      toastSuccess("Execution complete")
     } catch (err) {
-      setExecError(err instanceof Error ? err.message : "Execution failed")
+      const msg = err instanceof Error ? err.message : "Execution failed"
+      setExecError(msg)
+      toastError("Execution failed", msg)
     } finally {
       setExecuting(false)
     }
-  }, [workflow, executing, isOwner, address, signMessageAsync])
+  }, [workflow, executing, isOwner, address, signMessageAsync, showOverrides, overrideConfig])
 
   if (loading) return <DetailSkeleton />
 
@@ -297,17 +414,35 @@ export default function WorkflowDetailPage() {
                 config.json
               </span>
               <span className="ml-auto font-mono text-[10px] text-muted-foreground/50">
-                read-only
+                {isOwner ? "editable" : "read-only"}
               </span>
             </div>
             <MonacoEditor
               height="300px"
               language="json"
               theme="vs-dark"
-              value={JSON.stringify(workflow.config, null, 2)}
-              options={EDITOR_OPTIONS}
+              value={isOwner ? editedConfig : JSON.stringify(workflow.config, null, 2)}
+              options={isOwner ? { ...EDITOR_OPTIONS, readOnly: false } : EDITOR_OPTIONS}
+              onChange={(value) => {
+                if (isOwner && value !== undefined) setEditedConfig(value)
+              }}
             />
           </div>
+          {isOwner && (
+            <div className="mt-3 flex items-center gap-3">
+              <Button
+                onClick={handleSaveConfig}
+                disabled={!configDirty || saving}
+                variant="secondary"
+                size="sm"
+              >
+                {saving ? "Saving..." : "Save Config"}
+              </Button>
+              {saveError && (
+                <p className="text-sm text-red-400">{saveError}</p>
+              )}
+            </div>
+          )}
         </TabsContent>
 
         {workflow.simulationTrace && (
@@ -347,19 +482,84 @@ export default function WorkflowDetailPage() {
         )}
       </Tabs>
 
-      {/* Execute button */}
+      {/* Deploy status + redeploy */}
+      {isOwner && workflow.published && (
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">
+            DON status:{" "}
+            <span
+              className={
+                workflow.deployStatus === "deployed"
+                  ? "font-medium text-green-400"
+                  : workflow.deployStatus === "pending"
+                    ? "font-medium text-yellow-400"
+                    : workflow.deployStatus === "failed"
+                      ? "font-medium text-red-400"
+                      : "font-medium text-muted-foreground"
+              }
+            >
+              {workflow.deployStatus ?? "none"}
+            </span>
+          </span>
+          {canRedeploy && (
+            <Button
+              onClick={handleRedeploy}
+              disabled={redeploying}
+              variant="outline"
+              size="sm"
+            >
+              {redeploying ? "Deploying..." : "Deploy to DON"}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Execute section */}
       <div className="space-y-4">
-        <Button
-          onClick={handleExecute}
-          disabled={executing}
-          className="active:scale-[0.98]"
-        >
-          {executing
-            ? "Executing..."
-            : isOwner
-              ? "Execute (Free)"
-              : `Execute ($${price})`}
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button
+            onClick={handleExecute}
+            disabled={executing}
+            className="active:scale-[0.98]"
+          >
+            {executing
+              ? "Executing..."
+              : isOwner
+                ? "Execute (Free)"
+                : `Execute ($${price})`}
+          </Button>
+          <button
+            type="button"
+            onClick={() => setShowOverrides(!showOverrides)}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {showOverrides ? "Hide overrides" : "Customize config"}
+          </button>
+        </div>
+
+        {showOverrides && (
+          <div className="overflow-hidden rounded-lg border border-border">
+            <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-3 py-1.5">
+              <span className="h-2 w-2 rounded-full bg-blue-400/60" />
+              <span className="font-mono text-xs text-muted-foreground">
+                execution overrides
+              </span>
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground/50">
+                per-execution only
+              </span>
+            </div>
+            <MonacoEditor
+              height="200px"
+              language="json"
+              theme="vs-dark"
+              value={overrideConfig}
+              options={{ ...EDITOR_OPTIONS, readOnly: false }}
+              onChange={(value) => {
+                if (value !== undefined) setOverrideConfig(value)
+              }}
+            />
+          </div>
+        )}
 
         {execError && (
           <p className="text-sm text-red-400" role="alert">

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useCallback } from "react"
+import { useAccount } from "wagmi"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import {
@@ -30,13 +31,17 @@ export function SearchBar() {
     fetchWorkflows,
   } = useWorkflowStore()
 
+  const { address } = useAccount()
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const isMyWorkflows = filters.ownerAddress !== null
 
   const hasActiveFilters =
     searchQuery !== "" ||
     filters.category !== null ||
     filters.chain !== null ||
-    filters.sortBy !== "newest"
+    filters.sortBy !== "newest" ||
+    isMyWorkflows
 
   // Debounced search
   const handleSearchChange = useCallback(
@@ -74,6 +79,12 @@ export function SearchBar() {
     },
     [setFilter, fetchWorkflows],
   )
+
+  const handleMyWorkflows = useCallback(() => {
+    if (!address) return
+    setFilter("ownerAddress", isMyWorkflows ? null : address)
+    fetchWorkflows()
+  }, [address, isMyWorkflows, setFilter, fetchWorkflows])
 
   const handleClear = useCallback(() => {
     clearFilters()
@@ -142,6 +153,16 @@ export function SearchBar() {
           ))}
         </SelectContent>
       </Select>
+
+      {address && (
+        <Button
+          variant={isMyWorkflows ? "default" : "outline"}
+          size="sm"
+          onClick={handleMyWorkflows}
+        >
+          My Workflows
+        </Button>
+      )}
 
       {hasActiveFilters && (
         <Button variant="ghost" size="sm" onClick={handleClear}>
