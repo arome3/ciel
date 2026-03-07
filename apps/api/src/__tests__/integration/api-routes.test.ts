@@ -219,6 +219,7 @@ mock.module(resolve(SRC, "db/schema.ts"), () => ({
   events: { id: "id", type: "type", data: "data" },
   pipelines: { id: "id" },
   pipelineExecutions: { id: "id" },
+  generationTraces: {},
 }))
 
 // ── Rate limiter mock (bypass all) ──

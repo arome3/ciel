@@ -1,0 +1,15 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "tokenContract": { "type": "string", "description": "Token contract address to monitor collateral for" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "ratio": { "type": "number", "description": "Collateral ratio (scaled by 1e8)" },
+      "reserves": { "type": "number", "description": "Total reserves value (scaled by 1e8)" }
+    }
+  }
+}

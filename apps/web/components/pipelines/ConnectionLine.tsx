@@ -6,11 +6,10 @@ interface ConnectionLineProps {
   connection: Connection
   sourceStep: PipelineStep
   targetStep: PipelineStep
+  stepWidth: number
+  stepHeight: number
   onClick: (connectionId: string) => void
 }
-
-const STEP_WIDTH = 200
-const STEP_HEIGHT = 80
 
 function getStrokeColor(compatibility: number): string {
   if (compatibility >= 0.8) return "#22c55e" // green-500
@@ -22,12 +21,14 @@ export function ConnectionLine({
   connection,
   sourceStep,
   targetStep,
+  stepWidth,
+  stepHeight,
   onClick,
 }: ConnectionLineProps) {
-  const x1 = sourceStep.x + STEP_WIDTH
-  const y1 = sourceStep.y + STEP_HEIGHT / 2
+  const x1 = sourceStep.x + stepWidth
+  const y1 = sourceStep.y + stepHeight / 2
   const x2 = targetStep.x
-  const y2 = targetStep.y + STEP_HEIGHT / 2
+  const y2 = targetStep.y + stepHeight / 2
 
   const dx = Math.abs(x2 - x1) * 0.5
   const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`
@@ -55,7 +56,7 @@ export function ConnectionLine({
         fill="none"
         stroke="transparent"
         strokeWidth="12"
-        className="cursor-pointer"
+        className="pointer-events-auto cursor-pointer"
         onClick={() => onClick(connection.id)}
       />
       {/* Visible line */}

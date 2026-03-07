@@ -26,8 +26,8 @@ export const showCommand = new Command("show")
     out.field("Published", w.published ? "yes" : "no")
     out.field("Deploy Status", w.deployStatus)
     out.field("Owner", w.ownerAddress)
-    out.field("Price", w.priceUsdc ? `$${(w.priceUsdc / 1_000_000).toFixed(2)}` : "–")
-    out.field("Executions", w.executionCount)
+    out.field("Price", w.priceUsdc == null ? "–" : w.priceUsdc === 0 ? "Free" : `$${(w.priceUsdc / 1_000_000).toFixed(2)}`)
+    out.field("Executions", w.totalExecutions)
     out.field("Created", w.createdAt)
 
     if (w.onchainWorkflowId) {

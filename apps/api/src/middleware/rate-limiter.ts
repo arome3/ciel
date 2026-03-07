@@ -79,3 +79,11 @@ export const tenderlyLimiter = rateLimit({
   legacyHeaders: false,
   message: rateLimitMessage,
 })
+
+export const githubLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: rateLimitMessage,
+})

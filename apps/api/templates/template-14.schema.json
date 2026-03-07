@@ -1,0 +1,17 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "key": { "type": "string", "description": "KV store key to read or write" },
+      "value": { "type": "string", "description": "Value to store (for write operations)" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "value": { "type": "number", "description": "Latest stored value" },
+      "movingAverage": { "type": "number", "description": "Computed moving average" },
+      "count": { "type": "number", "description": "Total number of entries in state" }
+    }
+  }
+}

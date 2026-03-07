@@ -5,6 +5,8 @@
 Describe blockchain automations in plain English. An AI agent generates a valid [CRE](https://docs.chain.link/cre) workflow, simulates it, and publishes it as a payable micro-service that other AI agents can discover and execute via [x402](https://www.x402.org/) micropayments.
 
 > *"Describe what you want automated onchain, and an AI builds it, tests it, and sells it to other AI agents."*
+>
+> *Chainlink CRE took workflow development from weeks to hours. Ciel takes it from hours to minutes.*
 
 ---
 
@@ -133,10 +135,13 @@ Published workflows become payable micro-services. Any AI agent can discover a w
 ciel/
 ├── apps/
 │   ├── api/          # Express backend (Bun runtime)
-│   └── web/          # Next.js 14 frontend
+│   ├── web/          # Next.js 14 frontend
+│   └── cli/          # CLI tool
 ├── contracts/        # Foundry Solidity contracts (Base Sepolia)
-├── agent/            # Demo AI agent (CLI)
+├── agent/            # Demo AI agent
 ├── packages/
+│   ├── sdk/          # @ciel/sdk — Buyer SDK (discover + execute)
+│   ├── mcp-server/   # @ciel/mcp-server — MCP tool server for AI agents
 │   └── shared/       # Shared types, constants, utils
 ├── package.json      # Bun workspaces root
 └── turbo.json        # Turborepo task config
@@ -235,10 +240,11 @@ bun run build
 
 ## API Reference
 
-All routes are prefixed with `/api`.
+All routes are prefixed with `/api` unless noted.
 
 | Method | Route | Description | Rate Limit |
 |--------|-------|-------------|------------|
+| `GET` | `/.well-known/agent-card.json` | A2A agent card with dynamic skills (root path) | Default |
 | `GET` | `/health` | Health check (DB ping, SSE clients, uptime) | Default |
 | `GET` | `/workflows` | List published workflows | Default |
 | `GET` | `/workflows/:id` | Get workflow by ID | Default |
@@ -313,14 +319,166 @@ bun run db:seed
 
 ---
 
-## Demo AI Agent
+## Agent Integration
 
-The `agent/` directory contains a standalone CLI agent that demonstrates the full consume flow:
+Every published Ciel workflow is a payable micro-service that AI agents can discover and execute. There are multiple integration paths depending on the agent's capabilities:
 
-1. **Discover** — Queries the onchain registry and x402 Bazaar for available workflows
+```
+┌──────────────────────────────────────────────────────────────┐
+│                       AI AGENT                                │
+├──────────┬──────────┬──────────┬──────────┬──────────────────┤
+│ MCP      │ SDK      │ REST API │ On-Chain │ A2A Agent Card   │
+│ Server   │          │ (direct) │ Registry │ (passive)        │
+│ (native  │ (npm     │          │ (direct  │                  │
+│  tools)  │  module) │          │  read)   │                  │
+└────┬─────┴────┬─────┴────┬─────┴────┬─────┴────────┬────────┘
+     │          │          │          │              │
+     └──────────┴──────┬───┘          │              │
+                       ▼              ▼              ▼
+              ┌────────────┐  ┌────────────┐  ┌──────────────┐
+              │ Ciel API   │  │ Base       │  │ /.well-known │
+              │ (Express)  │  │ Sepolia    │  │ /agent-card  │
+              │ + x402     │  │ Registry   │  │ .json        │
+              └────────────┘  └────────────┘  └──────────────┘
+```
+
+### 1. MCP Server — Native AI Agent Tools
+
+Any MCP-compatible AI agent (Claude, GPT, Cursor, Windsurf) gets native tool access to Ciel.
+
+**Setup for Claude Code / Claude Desktop:**
+
+```json
+{
+  "mcpServers": {
+    "ciel": {
+      "command": "npx",
+      "args": ["@ciel/mcp-server"],
+      "env": { "CIEL_API_URL": "https://api.ciel.app" }
+    }
+  }
+}
+```
+
+This gives the agent three tools:
+
+| Tool | Description |
+|------|-------------|
+| `ciel_discover` | Find workflows by category, chain, or capability |
+| `ciel_get_workflow` | Get full workflow details (code, config, schemas, stats) |
+| `ciel_execute` | Run a workflow (owner-bypass / free tier) |
+
+### 2. Buyer SDK — Programmatic Access
+
+```bash
+npm install @ciel/sdk
+```
+
+```ts
+import { CielSDK } from "@ciel/sdk"
+
+// Discovery — no auth needed
+const sdk = new CielSDK({ apiUrl: "https://api.ciel.app" })
+const workflows = await sdk.discover({ category: "core-defi" })
+const detail = await sdk.getWorkflow(workflows[0].workflowId)
+
+// Execution with x402 payment — requires optional peer deps
+// npm install viem @x402/fetch @x402/evm
+const paidSdk = new CielSDK({
+  apiUrl: "https://api.ciel.app",
+  privateKey: process.env.PRIVATE_KEY,
+})
+const result = await paidSdk.execute(detail.id)
+```
+
+Payment deps (`viem`, `@x402/fetch`, `@x402/evm`) are optional peer deps — only needed for `execute()`.
+
+### 3. REST API — Direct HTTP
+
+Any agent that can make HTTP requests can use the API directly:
+
+```bash
+# Discover workflows
+curl http://localhost:3001/api/discover?category=core-defi
+
+# Get workflow details
+curl http://localhost:3001/api/workflows/{id}
+
+# Execute (x402-gated — returns 402 with payment challenge)
+curl http://localhost:3001/api/workflows/{id}/execute
+```
+
+The x402 middleware returns a `402 Payment Required` response with `X-Payment-Required` and `X-Payment-Address` headers. The agent signs a USDC payment, retries with `X-Payment` header, and receives the result.
+
+### 4. On-Chain Registry — Direct Blockchain Read
+
+Agents can bypass the API entirely and read the registry contract on Base Sepolia:
+
+| Contract | Address |
+|----------|---------|
+| `AutopilotRegistry` | `0x10317DEe62219bD69619C27575995F4CC145DdC0` |
+| `AutopilotConsumer` | `0x34DAba0F2295972547d3ceb42f12B50a18D8E392` |
+
+```ts
+// Read directly from on-chain registry
+registry.searchByCategory("core-defi", 0, 10)
+registry.getWorkflow(workflowId) // → metadata, pricing, x402Endpoint
+```
+
+### 5. A2A Agent Card — Passive Discovery
+
+Ciel serves a [Google A2A](https://a2a-protocol.org/) agent card at:
+
+```bash
+curl https://api.ciel.app/.well-known/agent-card.json
+```
+
+Returns skills (one per published workflow), auth schemes (`x402`), and provider info. Any A2A-compatible orchestrator can crawl this endpoint to discover Ciel's capabilities automatically.
+
+### 6. SSE Events — Real-Time Streaming
+
+Agents can subscribe to real-time events for monitoring:
+
+```bash
+curl -H "Accept: text/event-stream" http://localhost:3001/api/events
+```
+
+Event types: `execution`, `discovery`, `deploy`, `pipeline_started`, `pipeline_completed`, `pipeline_failed`, and per-step pipeline events. Supports `Last-Event-ID` for replay (up to 100 events).
+
+### 7. Pipeline Composition — Multi-Workflow DAGs
+
+Agents can compose multiple workflows into a single pipeline with conditional branching:
+
+```bash
+# Create a pipeline
+curl -X POST http://localhost:3001/api/pipelines \
+  -d '{"name": "Price→Swap", "steps": [...], "ownerAddress": "0x..."}'
+
+# Execute it
+curl -X POST http://localhost:3001/api/pipelines/{id}/execute \
+  -d '{"input": {...}}'
+```
+
+Pipelines run steps in DAG order with retry logic (1 attempt, 2s delay), 60s per-step timeout, and conditional branching via `onSuccessStepId`/`onFailureStepId`.
+
+### 8. Demo Agent — Reference Implementation
+
+The `agent/` directory contains a full working example of the consume flow:
+
+1. **Discover** — Queries the API + on-chain registry + x402 Bazaar
 2. **Evaluate** — Scores workflow fitness (schema match, reliability, price)
 3. **Pay** — Sends x402 micropayment (0.01 USDC on Base Sepolia)
-4. **Execute** — Triggers the Multi-AI Consensus Oracle and receives the BFT-verified result
+4. **Execute** — Triggers the workflow and receives the result
+5. **Compose** — Builds multi-workflow pipelines from a goal string
+
+### 9. CLI — Command-Line Interface
+
+```bash
+ciel search --category core-defi     # Discover workflows
+ciel show <workflow-id>               # View details
+ciel execute <workflow-id>            # Execute with payment
+ciel list --published                 # List published workflows
+```
 
 ---
 

@@ -15,7 +15,7 @@ import { getTemplateById, type TemplateDefinition } from "./template-matcher"
 import { buildFewShotContext } from "./context-builder"
 import { buildStaticBase, buildTemplateContext } from "./prompts/system"
 import { buildGenerationPrompt, type GenerationPromptInput } from "./prompts/generation"
-import { detectStateKeyword } from "./file-manager"
+import { detectStateKeyword, loadTemplateConfig } from "./file-manager"
 import { createLogger } from "../../lib/logger"
 
 const log = createLogger("CodeGen")
@@ -74,6 +74,24 @@ export interface GenerateCodeInput {
   maxInternalRetries?: number
   /** Fix patterns + compiler output from error-resolver (enriches retry context) */
   enrichedContext?: string
+  /** Supplementary CRE SDK docs from doc-retriever (low-overlap .md files only) */
+  relevantDocs?: string
+  /** Refinement mode: existing code to modify */
+  previousCode?: string
+  /** Refinement mode: existing config to modify */
+  previousConfig?: string
+  /** Refinement mode: the change request */
+  refinementPrompt?: string
+  /** Refinement mode: brief list of prior refinement prompts */
+  priorRefinements?: string[]
+}
+
+export interface GeneratedCodeTokenUsage {
+  inputTokens: number
+  outputTokens: number
+  reasoningTokens: number
+  cachedTokens: number
+  totalTokens: number
 }
 
 export interface GeneratedCode {
@@ -85,6 +103,12 @@ export interface GeneratedCode {
   consumerSol: string | null
   /** Human-readable explanation */
   explanation: string
+  /** Token usage from OpenAI response (if available) */
+  tokenUsage?: GeneratedCodeTokenUsage
+  /** Duration of the code generation LLM call in ms */
+  codeGenDurationMs?: number
+  /** Reasoning effort used for this call */
+  reasoningEffort?: string
 }
 
 // ─────────────────────────────────────────────
@@ -164,6 +188,7 @@ export async function generateCode(input: GenerateCodeInput): Promise<GeneratedC
     effectiveTemplate.requiredCapabilities,
     needsState,
     fewShotContext,
+    input.relevantDocs,
   )
 
   // ── Retry loop ──
@@ -173,7 +198,7 @@ export async function generateCode(input: GenerateCodeInput): Promise<GeneratedC
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const result = await callGPT52(
+      const { parsed: result, tokenUsage, durationMs, reasoningEffort } = await callGPT52(
         staticBase,
         templateContext,
         input,
@@ -204,6 +229,9 @@ export async function generateCode(input: GenerateCodeInput): Promise<GeneratedC
         configJson,
         consumerSol: result.consumer_sol,
         explanation: result.explanation,
+        tokenUsage,
+        codeGenDurationMs: durationMs,
+        reasoningEffort,
       }
     } catch (err) {
       if (err instanceof AppError) throw err
@@ -241,10 +269,16 @@ async function callGPT52(
   attempt: number,
   previousError?: string,
   previousSelfReview?: string,
-): Promise<z.infer<typeof CREWorkflowResponseSchema>> {
+): Promise<{
+  parsed: z.infer<typeof CREWorkflowResponseSchema>
+  tokenUsage?: GeneratedCodeTokenUsage
+  durationMs: number
+  reasoningEffort: string
+}> {
   const openai = getOpenAIClient()
 
   // Build user prompt
+  const canonicalConfig = loadTemplateConfig(input.templateId)
   const promptInput: GenerationPromptInput = {
     userPrompt: input.userPrompt,
     intent: input.intent,
@@ -252,12 +286,21 @@ async function callGPT52(
     previousError,
     previousSelfReview,
     enrichedContext: input.enrichedContext,
+    canonicalConfig,
+    previousCode: input.previousCode,
+    previousConfig: input.previousConfig,
+    refinementPrompt: input.refinementPrompt,
+    priorRefinements: input.priorRefinements,
   }
   const userPrompt = buildGenerationPrompt(promptInput)
 
-  // "medium" for first attempt (balanced), "high" for retries or wildcard (deeper reasoning)
+  // Refinement: "medium" on first attempt (strong context), "high" on retries
+  // Generation: "medium" for first attempt (balanced), "high" for retries or wildcard
   const isWildcard = input.templateId === 0
-  const reasoningEffort = (isWildcard || attempt > 1) ? "high" : "medium"
+  const isRefinement = !!input.previousCode
+  const reasoningEffort = isRefinement
+    ? (attempt > 1 ? "high" : "medium")
+    : ((isWildcard || attempt > 1) ? "high" : "medium")
 
   // Layered instructions: static base (cached by OpenAI) + template-specific context
   const instructions = templateContext
@@ -302,7 +345,21 @@ async function callGPT52(
     })
   }
 
-  log.info(`Response received in ${Date.now() - t0}ms`)
+  const durationMs = Date.now() - t0
+  log.info(`Response received in ${durationMs}ms`)
+
+  // ── Extract token usage from response ──
+  let tokenUsage: GeneratedCodeTokenUsage | undefined
+  const usage = (response as any).usage
+  if (usage) {
+    tokenUsage = {
+      inputTokens: usage.input_tokens ?? 0,
+      outputTokens: usage.output_tokens ?? 0,
+      reasoningTokens: usage.output_tokens_details?.reasoning_tokens ?? 0,
+      cachedTokens: usage.input_tokens_details?.cached_tokens ?? 0,
+      totalTokens: (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0),
+    }
+  }
 
   // ── Handle refusal ──
   const outputMessage = response.output.find((o) => o.type === "message")
@@ -336,7 +393,7 @@ async function callGPT52(
     )
   }
 
-  return parsed
+  return { parsed, tokenUsage, durationMs, reasoningEffort }
 }
 
 // ─────────────────────────────────────────────

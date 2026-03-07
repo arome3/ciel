@@ -1,0 +1,19 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "period": { "type": "string", "description": "Dividend distribution period" },
+      "amount": { "type": "string", "description": "Total distribution amount in wei" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "executed": { "type": "boolean", "description": "Whether distribution was executed" },
+      "totalDistributed": { "type": "string", "description": "Total amount distributed in wei" },
+      "recipients": { "type": "number", "description": "Number of recipients paid" },
+      "totalHolders": { "type": "number", "description": "Total eligible holders" },
+      "reason": { "type": "string", "description": "Reason if not executed" }
+    }
+  }
+}

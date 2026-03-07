@@ -1,0 +1,19 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "address": { "type": "string", "description": "Redeemer wallet address" },
+      "amount": { "type": "string", "description": "Amount of stablecoins to burn in wei" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "executed": { "type": "boolean", "description": "Whether the burn was executed" },
+      "redeemer": { "type": "string", "description": "Address of the redeemer" },
+      "amount": { "type": "string", "description": "Amount burned in wei" },
+      "asset": { "type": "string", "description": "Asset identifier" },
+      "reason": { "type": "string", "description": "Reason if not executed" }
+    }
+  }
+}

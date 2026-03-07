@@ -1,6 +1,8 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
+import { ArrowRight } from "lucide-react"
 import { useWorkflowStore } from "@/lib/store"
 import { getCategoryVariant } from "@/lib/design-tokens"
 
@@ -233,9 +235,18 @@ export function TemplateGrid() {
 
   return (
     <section className="animate-fade-up" style={{ animationDelay: "100ms" }}>
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Try an example
-      </h2>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Try an example
+        </h2>
+        <Link
+          href="/templates"
+          className="flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-primary"
+        >
+          View all
+          <ArrowRight className="h-3 w-3" />
+        </Link>
+      </div>
 
       {/* Category filter chips */}
       <div className="mb-3 flex flex-wrap gap-1.5">

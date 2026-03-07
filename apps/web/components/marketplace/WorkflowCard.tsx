@@ -21,7 +21,8 @@ export function WorkflowCard({ workflow }: { workflow: WorkflowListItem }) {
         )
       : 0
 
-  const price = (workflow.priceUsdc / 1_000_000).toFixed(2)
+  const isFree = workflow.priceUsdc === 0
+  const price = isFree ? "Free" : `$${(workflow.priceUsdc / 1_000_000).toFixed(2)}`
   const visibleTags = workflow.capabilities.slice(0, MAX_TAGS)
   const overflowCount = workflow.capabilities.length - MAX_TAGS
 
@@ -83,7 +84,7 @@ export function WorkflowCard({ workflow }: { workflow: WorkflowListItem }) {
 
       {/* Price */}
       <p className="mt-3 font-mono text-sm font-semibold text-foreground">
-        ${price} <span className="text-xs font-medium text-muted-foreground">USDC</span>
+        {price}{!isFree && <span className="text-xs font-medium text-muted-foreground"> USDC</span>}
       </p>
 
       {/* Stats footer */}

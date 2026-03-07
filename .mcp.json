@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ciel": {
+      "command": "bun",
+      "args": ["packages/mcp-server/src/index.ts"],
+      "env": {
+        "CIEL_API_URL": "http://localhost:3001"
+      }
+    }
+  }
+}

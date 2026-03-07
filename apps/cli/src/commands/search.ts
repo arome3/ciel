@@ -38,7 +38,7 @@ export const searchCommand = new Command("search")
         w.name.slice(0, 25),
         w.category,
         w.chain,
-        `$${(w.priceUsdc / 1_000_000).toFixed(2)}`,
+        w.priceUsdc === 0 ? "Free" : `$${(w.priceUsdc / 1_000_000).toFixed(2)}`,
         String(w.executionCount),
       ]),
     )

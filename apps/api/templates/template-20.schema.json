@@ -1,0 +1,19 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "period": { "type": "string", "description": "Reconciliation period identifier" },
+      "accounts": { "type": "string", "description": "Account identifiers to reconcile" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "reconciled": { "type": "boolean", "description": "Whether accounts are reconciled" },
+      "offchain": { "type": "string", "description": "Off-chain total in wei" },
+      "onchain": { "type": "string", "description": "On-chain total in wei" },
+      "difference": { "type": "string", "description": "Difference between off-chain and on-chain" },
+      "records": { "type": "number", "description": "Number of records processed" }
+    }
+  }
+}

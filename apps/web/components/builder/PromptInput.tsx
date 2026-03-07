@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useWorkflowStore } from "@/lib/store"
+import { ArrowRight } from "lucide-react"
 
 const MIN_CHARS = 20
 const MAX_CHARS = 2000
@@ -19,7 +20,7 @@ export function PromptInput() {
   const isReady = prompt.length >= MIN_CHARS && prompt.length <= MAX_CHARS
 
   return (
-    <div className="rounded-xl border border-border bg-card p-5 transition-colors focus-within:border-ring/40">
+    <div className="rounded-xl border border-border bg-card p-5 transition-all focus-within:border-primary/50 focus-within:shadow-[0_0_15px_hsl(var(--primary)/0.1)]">
       <label
         htmlFor="prompt-input"
         className="mb-3 block text-sm font-semibold text-foreground"
@@ -35,7 +36,7 @@ export function PromptInput() {
         maxLength={MAX_CHARS}
         disabled={isGenerating}
       />
-      <div className="mt-4 flex items-center justify-between gap-4 border-t border-border pt-3">
+      <div className="mt-4 flex items-center justify-between gap-4">
         <p
           className={`text-xs transition-colors ${
             isReady
@@ -50,9 +51,11 @@ export function PromptInput() {
         <Button
           onClick={() => generate(prompt)}
           disabled={!isReady || isGenerating}
-          className={`active:scale-[0.98] ${isGenerating ? "animate-glow-pulse disabled:opacity-90" : ""}`}
+          size="sm"
+          className={`gap-1.5 active:scale-[0.98] ${isGenerating ? "animate-glow-pulse disabled:opacity-90" : ""}`}
         >
           {isGenerating ? "Generating..." : "Generate"}
+          {!isGenerating && <ArrowRight className="h-3.5 w-3.5" />}
         </Button>
       </div>
       {error && (

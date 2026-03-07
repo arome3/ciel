@@ -1,0 +1,19 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "amount": { "type": "string", "description": "Escrow amount in wei" },
+      "counterparty": { "type": "string", "description": "Counterparty address for the escrow" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "executed": { "type": "boolean", "description": "Whether the escrow action was executed" },
+      "action": { "type": "string", "description": "Action performed: lock | release" },
+      "depositor": { "type": "string", "description": "Depositor address" },
+      "amount": { "type": "string", "description": "Escrow amount in wei" },
+      "conditions": { "type": "string", "description": "Settlement conditions status" }
+    }
+  }
+}

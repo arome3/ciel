@@ -23,6 +23,16 @@ export interface GenerationPromptInput {
   previousSelfReview?: string
   /** Optional: fix patterns + compiler output from error-resolver (for retries) */
   enrichedContext?: string
+  /** Canonical config JSON from template's .config.json — use exact field names */
+  canonicalConfig?: string | null
+  /** Refinement mode: existing code to modify */
+  previousCode?: string
+  /** Refinement mode: existing config to modify */
+  previousConfig?: string
+  /** Refinement mode: the change request */
+  refinementPrompt?: string
+  /** Refinement mode: brief list of prior refinement prompts for context */
+  priorRefinements?: string[]
 }
 
 /**
@@ -40,8 +50,38 @@ export interface GenerationPromptInput {
 export function buildGenerationPrompt(input: GenerationPromptInput): string {
   const sections: string[] = []
 
-  // ── User Request ──
-  sections.push(`## User Request\n\n${input.userPrompt}`)
+  // ── Refinement Mode ──
+  if (input.previousCode && input.refinementPrompt) {
+    sections.push(
+      "## Refinement Mode\n\n" +
+      "You are modifying an existing CRE workflow. Apply ONLY the requested change.\n" +
+      "Preserve all existing functionality unless explicitly asked to change it.\n" +
+      "Return the COMPLETE modified code and updated config.\n\n" +
+      "### Current Working Code\n```typescript\n" + input.previousCode + "\n```\n\n" +
+      "### Current Config\n```json\n" + input.previousConfig + "\n```\n\n" +
+      "### Requested Change\n" + input.refinementPrompt,
+    )
+
+    if (input.priorRefinements && input.priorRefinements.length > 0) {
+      const history = input.priorRefinements
+        .map((p, i) => `${i + 1}. ${p}`)
+        .join("\n")
+      sections.push(`### Previous Refinements (context)\n${history}`)
+    }
+
+    sections.push(
+      "## Refinement Guidelines\n" +
+      "1. Keep the same trigger type, handler structure, and export pattern\n" +
+      "2. Only modify what was asked — minimize diff surface\n" +
+      "3. If the change requires new config fields, update both Zod schema AND config_json\n" +
+      "4. If the change requires new capabilities, add appropriate imports\n" +
+      "5. All 14 critical constraints still apply\n" +
+      "6. In the `explanation` field, describe WHAT CHANGED (not just what the workflow does)",
+    )
+  } else {
+    // ── User Request (standard generation) ──
+    sections.push(`## User Request\n\n${input.userPrompt}`)
+  }
 
   // ── Parsed Intent ──
   const intent = input.intent
@@ -103,6 +143,13 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
       `- **Trigger Type**: ${tmpl.triggerType}`,
       `- **Description**: ${tmpl.defaultPromptFill}`,
     ]
+
+    if (input.canonicalConfig) {
+      templateLines.push(
+        `- **Canonical Config** (use these EXACT field names in your configSchema and config_json):\n` +
+        "```json\n" + input.canonicalConfig + "\n```",
+      )
+    }
 
     sections.push(`## Matched Template\n\n${templateLines.join("\n")}`)
   }

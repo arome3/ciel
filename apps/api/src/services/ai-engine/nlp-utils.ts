@@ -249,6 +249,8 @@ const SYNONYM_MAP: Array<{ regex: RegExp; replacement: string }> = [
 
   // Institutional finance — settlement & payment
   { regex: /\bdvp\b/gi, replacement: "delivery versus payment settlement" },
+  { regex: /\batomic dvp\b/gi, replacement: "delivery versus payment settlement escrow dual trigger" },
+  { regex: /\btwo phase settlement\b/gi, replacement: "delivery versus payment settlement escrow payment confirmation" },
   // "swift" alone handled by DATA_SOURCE_MAP → payment-api (no synonym to avoid false positives)
   { regex: /\bswift\s+(?:payment|transfer|message)\b/gi, replacement: "payment initiation wire transfer" },
   { regex: /\bt\+1\b/gi, replacement: "settlement cycle" },

@@ -19,8 +19,13 @@ export function HeroSection() {
           <span className="text-muted-foreground">with natural language</span>
         </h1>
 
+        {/* Campaign hook */}
+        <p className="mx-auto mt-6 max-w-2xl text-base font-medium text-foreground/70 sm:text-lg">
+          With Chainlink CRE, you build in hours. With Ciel, you build in minutes.
+        </p>
+
         {/* Subtext */}
-        <p className="mx-auto mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg">
+        <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground sm:text-base">
           Describe what you want automated on-chain. Ciel&apos;s AI engine parses
           your intent, generates validated CRE workflows, and deploys them to a
           decentralized marketplace.

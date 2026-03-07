@@ -1,6 +1,8 @@
 // apps/api/src/services/tenderly/manager.ts
 // Singleton managing the "active testnet" lifecycle state.
+// State is persisted to SQLite so it survives server restarts.
 
+import { eq } from "drizzle-orm"
 import { createLogger } from "../../lib/logger"
 import { AppError, ErrorCodes } from "../../types/errors"
 import { emitEvent } from "../events/emitter"
@@ -35,6 +37,76 @@ let state: ManagerState = {
   snapshotId: null,
 }
 
+// --- DB Persistence (lazy imports to avoid circular deps at module load) ---
+
+type DbModule = typeof import("../../db")
+type SchemaModule = typeof import("../../db/schema")
+let _db: DbModule | null = null
+let _schema: SchemaModule | null = null
+
+function getDb() {
+  if (!_db) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    _db = require("../../db") as DbModule
+  }
+  return _db
+}
+
+function getSchema() {
+  if (!_schema) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    _schema = require("../../db/schema") as SchemaModule
+  }
+  return _schema
+}
+
+function persistState(): void {
+  try {
+    const { db } = getDb()
+    const { tenderlyState } = getSchema()
+    const json = JSON.stringify(state)
+
+    db.insert(tenderlyState)
+      .values({ id: 1, stateJson: json })
+      .onConflictDoUpdate({
+        target: tenderlyState.id,
+        set: { stateJson: json, updatedAt: new Date().toISOString().replace("T", " ").slice(0, 19) },
+      })
+      .run()
+
+    log.debug("VNet state persisted to DB")
+  } catch (err) {
+    log.warn(`Failed to persist VNet state: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+function loadPersistedState(): void {
+  try {
+    const { db } = getDb()
+    const { tenderlyState } = getSchema()
+
+    const [row] = db
+      .select({ stateJson: tenderlyState.stateJson })
+      .from(tenderlyState)
+      .where(eq(tenderlyState.id, 1))
+      .limit(1)
+      .all()
+
+    if (row) {
+      const parsed = JSON.parse(row.stateJson) as ManagerState
+      if (parsed.testnet) {
+        state = parsed
+        log.info(`Restored VNet state from DB: "${state.testnet?.name}" (${state.testnet?.id})`)
+      }
+    }
+  } catch (err) {
+    log.warn(`Failed to load persisted VNet state: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+// Restore on module load
+loadPersistedState()
+
 // --- Public API ---
 
 export async function createWorkflowTestnet(opts: CreateTestnetConfig): Promise<TenderlyTestnet> {
@@ -54,6 +126,8 @@ export async function createWorkflowTestnet(opts: CreateTestnetConfig): Promise<
   } catch (err) {
     log.warn(`Failed to auto-fund deployer: ${err instanceof Error ? err.message : String(err)}`)
   }
+
+  persistState()
 
   emitEvent({
     type: "tenderly",
@@ -95,6 +169,8 @@ export async function destroyActiveTestnet(): Promise<void> {
     contracts: { registry: null, consumer: null },
     snapshotId: null,
   }
+
+  persistState()
 }
 
 export function getActiveTestnet(): {
@@ -116,6 +192,8 @@ export function setContractAddresses(registry: string, consumer: string): void {
 
   state.contracts = { registry, consumer }
   log.info(`Contract addresses set — Registry: ${registry}, Consumer: ${consumer}`)
+
+  persistState()
 
   emitEvent({
     type: "tenderly",
@@ -144,6 +222,9 @@ export async function snapshotState(): Promise<string> {
 
   const id = await createSnapshot(state.testnet.adminRpcUrl)
   state.snapshotId = id
+
+  persistState()
+
   return id
 }
 
@@ -159,6 +240,7 @@ export async function revertState(snapshotId: string): Promise<boolean> {
   const result = await revertSnapshot(state.testnet.adminRpcUrl, snapshotId)
   if (result) {
     state.snapshotId = null
+    persistState()
   }
   return result
 }

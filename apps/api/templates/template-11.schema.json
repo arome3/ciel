@@ -1,0 +1,18 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "assetId": { "type": "string", "description": "Asset identifier for price-triggered swap" },
+      "threshold": { "type": "number", "description": "Price threshold to trigger the swap" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "executed": { "type": "boolean", "description": "Whether the swap was executed" },
+      "price": { "type": "number", "description": "Current asset price" },
+      "amountIn": { "type": "string", "description": "Swap input amount in wei" },
+      "reason": { "type": "string", "description": "Reason if not executed" }
+    }
+  }
+}

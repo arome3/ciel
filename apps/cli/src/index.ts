@@ -10,6 +10,7 @@ import { simulateCommand } from "./commands/simulate"
 import { publishCommand } from "./commands/publish"
 import { executeCommand } from "./commands/execute"
 import { redeployCommand } from "./commands/redeploy"
+import { deployCommand } from "./commands/deploy"
 import { listCommand } from "./commands/list"
 import { showCommand } from "./commands/show"
 import { searchCommand } from "./commands/search"
@@ -43,6 +44,7 @@ program.addCommand(simulateCommand)
 program.addCommand(publishCommand)
 program.addCommand(executeCommand)
 program.addCommand(redeployCommand)
+program.addCommand(deployCommand)
 program.addCommand(listCommand)
 program.addCommand(showCommand)
 program.addCommand(searchCommand)

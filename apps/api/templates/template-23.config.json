@@ -1,0 +1,15 @@
+{
+  "schedule": "0 */5 * * * *",
+  "chainSelectorName": "base-sepolia",
+  "consumerContract": "0x0000000000000000000000000000000000000000",
+  "escrowContractAddress": "0x0000000000000000000000000000000000000000",
+  "deliveryContractAddress": "0x0000000000000000000000000000000000000000",
+  "deliveryEventSignature": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "settlementApiUrl": "https://api.example.com/settlement",
+  "paymentApiUrl": "https://api.example.com/payments",
+  "s3Bucket": "PLACEHOLDER_S3_BUCKET",
+  "s3Region": "us-east-1",
+  "s3Key": "dvp-trades.json",
+  "paymentTimeoutMs": 86400000,
+  "maxTradeAmount": "1000000000000000000000"
+}

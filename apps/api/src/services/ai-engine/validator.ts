@@ -13,6 +13,7 @@ import { join } from "path"
 import { tmpdir } from "os"
 import type { ParsedIntent } from "./types"
 import type { TemplateDefinition } from "./template-matcher"
+import { loadTemplateConfig } from "./file-manager"
 
 // ─────────────────────────────────────────────
 // Public Interfaces
@@ -21,6 +22,112 @@ import type { TemplateDefinition } from "./template-matcher"
 export interface ValidationResult {
   valid: boolean
   errors: string[] // Structured errors with [CATEGORY] prefix
+}
+
+// ─────────────────────────────────────────────
+// Config Key Normalization (Layer 3)
+// ─────────────────────────────────────────────
+
+/** Levenshtein distance — inline implementation (no external dep) */
+function levenshtein(a: string, b: string): number {
+  const m = a.length
+  const n = b.length
+  const dp: number[] = Array.from({ length: n + 1 }, (_, i) => i)
+
+  for (let i = 1; i <= m; i++) {
+    let prev = i - 1
+    dp[0] = i
+    for (let j = 1; j <= n; j++) {
+      const temp = dp[j]
+      dp[j] = a[i - 1] === b[j - 1]
+        ? prev
+        : 1 + Math.min(prev, dp[j], dp[j - 1])
+      prev = temp
+    }
+  }
+  return dp[n]
+}
+
+/**
+ * Normalizes generated config field names against the canonical config
+ * from the template's .config.json file.
+ *
+ * For each generated key NOT in the canonical set, finds the closest
+ * canonical key by Levenshtein distance (≤ 2). Only renames when the
+ * match is unambiguous (single best match). Unknown keys with no close
+ * match are kept as-is — the LLM may have added valid extra fields.
+ *
+ * @param configJson - Stringified JSON config from the LLM
+ * @param templateId - Template ID to load canonical config from
+ * @returns Normalized config JSON string and list of fixes applied
+ */
+export function normalizeConfigKeys(
+  configJson: string,
+  templateId: number,
+): { configJson: string, fixes: string[] } {
+  const fixes: string[] = []
+
+  const canonicalRaw = loadTemplateConfig(templateId)
+  if (!canonicalRaw) return { configJson, fixes }
+
+  let canonical: Record<string, unknown>
+  let generated: Record<string, unknown>
+  try {
+    canonical = JSON.parse(canonicalRaw) as Record<string, unknown>
+    generated = JSON.parse(configJson) as Record<string, unknown>
+  } catch {
+    return { configJson, fixes }
+  }
+
+  const canonicalKeys = new Set(Object.keys(canonical))
+  const generatedKeys = Object.keys(generated)
+
+  // Keys already used by canonical — track to avoid double-mapping
+  const usedCanonicalKeys = new Set<string>()
+  for (const key of generatedKeys) {
+    if (canonicalKeys.has(key)) usedCanonicalKeys.add(key)
+  }
+
+  const result: Record<string, unknown> = {}
+
+  for (const key of generatedKeys) {
+    if (canonicalKeys.has(key)) {
+      // Exact match — keep as-is
+      result[key] = generated[key]
+      continue
+    }
+
+    // Fuzzy match: find closest canonical key within distance ≤ 2
+    let bestMatch: string | null = null
+    let bestDist = 3 // threshold: only accept distance ≤ 2
+    let ambiguous = false
+
+    for (const canonKey of canonicalKeys) {
+      if (usedCanonicalKeys.has(canonKey)) continue
+      const dist = levenshtein(key.toLowerCase(), canonKey.toLowerCase())
+      if (dist < bestDist) {
+        bestDist = dist
+        bestMatch = canonKey
+        ambiguous = false
+      } else if (dist === bestDist && canonKey !== bestMatch) {
+        ambiguous = true
+      }
+    }
+
+    if (bestMatch && !ambiguous) {
+      result[bestMatch] = generated[key]
+      usedCanonicalKeys.add(bestMatch)
+      fixes.push(`Renamed config key "${key}" → "${bestMatch}" (distance ${bestDist})`)
+    } else {
+      // No close match or ambiguous — keep the generated key
+      result[key] = generated[key]
+    }
+  }
+
+  return {
+    configJson: JSON.stringify(result, null, 2),
+    fixes,
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -50,6 +157,11 @@ const FORBIDDEN_CJS_PATTERN = new RegExp(
  * 1. Remove known-forbidden import/require lines (ESM and CJS)
  * 2. Strip `async` from handler callbacks AND replace `await expr` → `expr` in handler bodies
  * 3. Add missing `export` to `function main(`
+ * 4–7. Non-determinism fixes (Date.now, new Date, Math.random, setTimeout/setInterval)
+ * 8. JSON.parse(*.body) → decodeJson(*.body)
+ * 9. sendTransaction() → writeReport pattern
+ * 10. report.report → full Report object
+ * 11. BigInt(bytesToHex(...)) → BigInt("0x" + bytesToHex(...))
  */
 export function quickFix(code: string): { code: string; fixes: string[] } {
   const fixes: string[] = []
@@ -323,6 +435,18 @@ export function quickFix(code: string): { code: string; fixes: string[] } {
         fixed = fixed.replace(match[0], `report: ${varName}`)
         fixes.push(`Fixed report: ${varName}.report → report: ${varName} — pass full Report object, not inner protobuf`)
       }
+    }
+  }
+
+  // 11. Fix BigInt(bytesToHex(...)) → BigInt("0x" + bytesToHex(...))
+  // bytesToHex returns hex without "0x" prefix. BigInt() without the prefix
+  // interprets the string as decimal, giving wildly wrong values.
+  {
+    const bigintHexRe = /BigInt\(bytesToHex\(/g
+    let match: RegExpExecArray | null
+    while ((match = bigintHexRe.exec(fixed)) !== null) {
+      fixed = fixed.slice(0, match.index) + 'BigInt("0x" + bytesToHex(' + fixed.slice(match.index + match[0].length)
+      fixes.push('Fixed BigInt(bytesToHex(...)) → BigInt("0x" + bytesToHex(...)) — hex string needs 0x prefix')
     }
   }
 
@@ -740,8 +864,17 @@ function checkIntentAlignment(
   }
 
   // Data source alignment — HTTP data sources should have HTTPClient
+  // Exclude on-chain data sources that use EVMClient (not HTTPClient):
+  //   chainlink-feeds → callContract reads
+  //   kv-store → ConfidentialHTTPClient (checked separately in state pattern check)
+  //   ccip → CCIP Router contract calls (fee estimation, approve, ccipSend)
+  // Also filter to only data sources the matched template actually requires —
+  // the intent parser may detect spurious sources (e.g. "Ethereum" → price-feed)
+  // that aren't relevant to the template.
+  const ON_CHAIN_SOURCES = new Set(["chainlink-feeds", "kv-store", "ccip"])
+  const templateCaps = new Set(templateDef.requiredCapabilities)
   const httpDataSources = intent.dataSources.filter((ds) =>
-    !["chainlink-feeds", "kv-store"].includes(ds),
+    !ON_CHAIN_SOURCES.has(ds) && templateCaps.has(ds),
   )
   if (httpDataSources.length > 0 && !/HTTPClient|httpClient|sendRequest|fetch/.test(code)) {
     errors.push(

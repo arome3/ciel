@@ -9,7 +9,7 @@ export type { ParsedIntent } from "./types"
 // ─────────────────────────────────────────────
 
 export interface TemplateDefinition {
-  /** Unique template ID (1-22) */
+  /** Unique template ID (1-23) */
   id: number
 
   /** Human-readable template name */
@@ -74,7 +74,7 @@ const KEYWORD_WEIGHT = 1 - EMBEDDING_WEIGHT
 // ─────────────────────────────────────────────
 // Wildcard Template (standalone — NOT in TEMPLATES array)
 // ─────────────────────────────────────────────
-// Catch-all for prompts that don't match any of the 22 templates.
+// Catch-all for prompts that don't match any of the 23 templates.
 // Kept outside TEMPLATES to avoid corrupting IDF weights and scoring.
 
 export const WILDCARD_TEMPLATE: TemplateDefinition = {
@@ -91,7 +91,7 @@ export const WILDCARD_TEMPLATE: TemplateDefinition = {
 }
 
 // ─────────────────────────────────────────────
-// Template Definitions (22 Templates)
+// Template Definitions (23 Templates)
 // ─────────────────────────────────────────────
 
 export const TEMPLATES: TemplateDefinition[] = [
@@ -533,6 +533,33 @@ export const TEMPLATES: TemplateDefinition[] = [
       "calculates pro-rata dividend amounts, executes batch token transfers via evmWrite, " +
       "and reports the distribution summary onchain.",
   },
+
+  // ─────────────────────────────────────────────
+  // DvP Dual-Trigger Escrow (Template 23)
+  // ─────────────────────────────────────────────
+  {
+    id: 23,
+    name: "DvP Dual-Trigger Escrow",
+    category: "institutional",
+    keywords: [
+      "atomic dvp",
+      "two phase workflow",
+      "async poll confirm",
+      "event lock poll release",
+      "initiate poll confirm",
+    ],
+    requiredCapabilities: [
+      "settlement-api", "payment-api", "escrowLock",
+      "escrowRelease", "evmWrite", "kv-store",
+    ],
+    triggerType: "cron",
+    defaultPromptFill:
+      "Generate a dual-trigger CRE workflow for DvP (Delivery vs Payment) escrow. " +
+      "Handler 1 (evm_log): reacts to delivery confirmation events, locks escrow, " +
+      "initiates payment via payment API, and writes trade state to KV store. " +
+      "Handler 2 (cron): polls payment status, releases escrow when payment confirmed. " +
+      "Return two cre.handler() entries from initWorkflow.",
+  },
 ]
 
 // ─────────────────────────────────────────────
@@ -651,9 +678,9 @@ function scoreTemplate(
   }
   score += Math.min(actionBonus, 0.1)
 
-  // ── Dual-trigger heuristic (T16) ──
-  // If both cron and evmLog signals are present, T16 gets a significant boost
-  if (template.id === 16 && intent.triggerScores) {
+  // ── Dual-trigger heuristic (T16, T23) ──
+  // If both cron and evmLog signals are present, dual-trigger templates get a significant boost
+  if ((template.id === 16 || template.id === 23) && intent.triggerScores) {
     if (intent.triggerScores.cron > 0 && intent.triggerScores.evmLog > 0) {
       score += 0.25
     }
@@ -722,9 +749,23 @@ function fallbackByCapabilities(intent: ParsedIntent): TemplateMatch | null {
     const t = TEMPLATES.find((t) => t.id === 17)!
     return { templateId: 17, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
   }
+  if (acts.has("mint") && ds.has("reserve-api")) {
+    const t = TEMPLATES.find((t) => t.id === 4)!
+    return { templateId: 4, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
   if (ds.has("payment-api") && (acts.has("initiatePayment") || acts.has("transfer"))) {
     const t = TEMPLATES.find((t) => t.id === 18)!
     return { templateId: 18, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
+  }
+  if (
+    (acts.has("escrowLock") || acts.has("escrowRelease")) &&
+    ds.has("payment-api") &&
+    intent.triggerScores &&
+    intent.triggerScores.cron > 0 &&
+    intent.triggerScores.evmLog > 0
+  ) {
+    const t = TEMPLATES.find((t) => t.id === 23)!
+    return { templateId: 23, templateName: t.name, category: t.category, confidence: 0.35, matchedKeywords: ["capability-fallback"] }
   }
   if (acts.has("escrowLock") || acts.has("escrowRelease")) {
     const t = TEMPLATES.find((t) => t.id === 19)!
@@ -828,8 +869,19 @@ export async function matchTemplate(
   // Sort by score descending
   scored.sort((a, b) => b.score - a.score)
 
-  const best = scored[0]
+  let best = scored[0]
   const runnerUp = scored[1]
+
+  // ── Cross-template disambiguation: T4 vs T5 ──
+  // "mint" action is T4-exclusive. When T5 wins on trigger advantage
+  // (user says "every hour" + "mint stablecoins"), T4 is the correct
+  // template because T5 (Proof of Reserve) never involves minting.
+  if (best && best.match.templateId === 5 && intent.actions.includes("mint")) {
+    const t4Entry = scored.find((s) => s.match.templateId === 4)
+    if (t4Entry) {
+      best = t4Entry
+    }
+  }
 
   // ── Threshold check ──
   if (!best || best.score < CONFIDENCE_THRESHOLD) {

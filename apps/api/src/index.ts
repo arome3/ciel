@@ -16,6 +16,11 @@ import eventsRouter from "./routes/events"
 import discoverRouter from "./routes/discover"
 import pipelinesRouter from "./routes/pipelines"
 import tenderlyRouter from "./routes/tenderly"
+import templatesRouter from "./routes/templates"
+import settingsRouter from "./routes/settings"
+import agentCardRouter from "./routes/agent-card"
+import generationMetricsRouter from "./routes/generation-metrics"
+import githubRouter from "./routes/github"
 import { requestId } from "./middleware/request-id"
 import { createLogger } from "./lib/logger"
 import { checkCRECli } from "./services/cre/compiler"
@@ -64,6 +69,9 @@ app.use(requestId)
 // ── SSE route (before global limiter — has its own eventsSseLimiter) ──
 app.use("/api", eventsRouter)
 
+// ── Agent Card (root path per A2A spec — no /api prefix) ──
+app.use(agentCardRouter)
+
 // ── Global rate limiter ──
 app.use(defaultLimiter)
 
@@ -78,6 +86,10 @@ app.use("/api", redeployRouter)
 app.use("/api", discoverRouter)
 app.use("/api", pipelinesRouter)
 app.use("/api", tenderlyRouter)
+app.use("/api", templatesRouter)
+app.use("/api", settingsRouter)
+app.use("/api", generationMetricsRouter)
+app.use("/api", githubRouter)
 
 // ── Error handler (must be last) ──
 app.use(errorHandler)

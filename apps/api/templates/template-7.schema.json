@@ -1,0 +1,16 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "recipients": { "type": "string", "description": "Comma-separated recipient addresses" },
+      "amount": { "type": "string", "description": "Total payout amount in wei" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "parameterValue": { "type": "number", "description": "Current parameter value (scaled by 1e8)" },
+      "triggered": { "type": "number", "description": "Whether payout was triggered (1 or 0)" }
+    }
+  }
+}

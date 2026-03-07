@@ -1,0 +1,20 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "tradeId": { "type": "string", "description": "Trade/delivery identifier" },
+      "depositor": { "type": "string", "description": "Depositor address" },
+      "amount": { "type": "string", "description": "Trade amount in wei" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "source": { "type": "string", "description": "Trigger source: delivery_event | payment_poll" },
+      "tradeId": { "type": "string", "description": "Trade identifier processed" },
+      "action": { "type": "string", "description": "Action taken: lock | release | timeout" },
+      "paymentConfirmed": { "type": "boolean", "description": "Whether payment was confirmed" },
+      "tradesProcessed": { "type": "number", "description": "Number of trades processed (cron)" }
+    }
+  }
+}

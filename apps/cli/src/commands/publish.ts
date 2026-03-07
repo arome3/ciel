@@ -25,7 +25,7 @@ export const publishCommand = new Command("publish")
   .argument("<id>", "workflow ID")
   .requiredOption("--name <name>", "workflow name (3-100 chars)")
   .requiredOption("--description <desc>", "workflow description (10-500 chars)")
-  .requiredOption("--price <microUsdc>", "price in micro USDC (1000-10000000)")
+  .requiredOption("--price <microUsdc>", "price in micro USDC (0-10000000, 0 = free)")
   .requiredOption("--registry <address>", "AutopilotRegistry contract address")
   .action(async (id, opts, cmd) => {
     const config = resolveConfig(cmd.optsWithGlobals())
@@ -33,8 +33,8 @@ export const publishCommand = new Command("publish")
     const client = new CielClient(config)
 
     const price = Number(opts.price)
-    if (Number.isNaN(price) || price < 1000 || price > 10_000_000) {
-      out.error("Price must be between 1000 and 10000000 micro USDC")
+    if (Number.isNaN(price) || price < 0 || price > 10_000_000) {
+      out.error("Price must be between 0 and 10000000 micro USDC (0 = free)")
       process.exit(1)
     }
 

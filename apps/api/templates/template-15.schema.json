@@ -1,0 +1,20 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "token": { "type": "string", "description": "Token contract address for CCIP transfer" },
+      "amount": { "type": "string", "description": "Transfer amount in wei" },
+      "targetChain": { "type": "string", "description": "Destination chain selector name" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "executed": { "type": "boolean", "description": "Whether the transfer was executed" },
+      "amount": { "type": "string", "description": "Amount transferred in wei" },
+      "source": { "type": "string", "description": "Source chain selector" },
+      "destination": { "type": "string", "description": "Destination chain selector" },
+      "reason": { "type": "string", "description": "Reason if not executed" }
+    }
+  }
+}

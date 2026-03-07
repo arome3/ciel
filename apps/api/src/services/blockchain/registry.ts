@@ -31,9 +31,29 @@ const registryAbi = parseAbi([
   "event WorkflowUpdated(bytes32 indexed workflowId, address indexed creator)",
 ])
 
-const registryAddress = config.REGISTRY_CONTRACT_ADDRESS as Hex
-
 const TX_TIMEOUT = 60_000
+
+// --- Dynamic Registry Address Resolution ---
+// Same pattern as provider.ts: VNet-deployed registry takes priority over env var.
+
+type ManagerModule = typeof import("../tenderly/manager")
+let _manager: ManagerModule | null = null
+function getManager(): ManagerModule {
+  if (!_manager) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    _manager = require("../tenderly/manager") as ManagerModule
+  }
+  return _manager
+}
+
+function getRegistryAddress(): Hex {
+  const active = getManager().getActiveTestnet()
+  if (active.testnet && active.contracts.registry) {
+    log.debug(`Using VNet registry: ${active.contracts.registry}`)
+    return active.contracts.registry as Hex
+  }
+  return config.REGISTRY_CONTRACT_ADDRESS as Hex
+}
 
 // --- Publish ---
 
@@ -50,7 +70,7 @@ export async function publishToRegistry(params: {
     try {
       const hash = await withRetry(() =>
         getWalletClient().writeContract({
-          address: registryAddress,
+          address: getRegistryAddress(),
           abi: registryAbi,
           functionName: "publishWorkflow",
           args: [
@@ -123,7 +143,7 @@ export async function updateWorkflow(params: {
     try {
       const hash = await withRetry(() =>
         getWalletClient().writeContract({
-          address: registryAddress,
+          address: getRegistryAddress(),
           abi: registryAbi,
           functionName: "updateWorkflow",
           args: [
@@ -163,7 +183,7 @@ export async function recordExecution(
     try {
       const hash = await withRetry(() =>
         getWalletClient().writeContract({
-          address: registryAddress,
+          address: getRegistryAddress(),
           abi: registryAbi,
           functionName: "recordExecution",
           args: [workflowId, success],
@@ -192,7 +212,7 @@ export async function deactivateWorkflow(workflowId: Hex): Promise<void> {
     try {
       const hash = await withRetry(() =>
         getWalletClient().writeContract({
-          address: registryAddress,
+          address: getRegistryAddress(),
           abi: registryAbi,
           functionName: "deactivateWorkflow",
           args: [workflowId],
@@ -219,7 +239,7 @@ export async function reactivateWorkflow(workflowId: Hex): Promise<void> {
     try {
       const hash = await withRetry(() =>
         getWalletClient().writeContract({
-          address: registryAddress,
+          address: getRegistryAddress(),
           abi: registryAbi,
           functionName: "reactivateWorkflow",
           args: [workflowId],
@@ -246,7 +266,7 @@ export async function addAuthorizedSender(sender: Hex): Promise<void> {
     try {
       const hash = await withRetry(() =>
         getWalletClient().writeContract({
-          address: registryAddress,
+          address: getRegistryAddress(),
           abi: registryAbi,
           functionName: "addAuthorizedSender",
           args: [sender],
@@ -271,7 +291,7 @@ export async function removeAuthorizedSender(sender: Hex): Promise<void> {
     try {
       const hash = await withRetry(() =>
         getWalletClient().writeContract({
-          address: registryAddress,
+          address: getRegistryAddress(),
           abi: registryAbi,
           functionName: "removeAuthorizedSender",
           args: [sender],
@@ -297,7 +317,7 @@ export async function getWorkflowFromRegistry(workflowId: Hex) {
   try {
     return await withRetry(() =>
       getPublicClient().readContract({
-        address: registryAddress,
+        address: getRegistryAddress(),
         abi: registryAbi,
         functionName: "getWorkflow",
         args: [workflowId],
@@ -321,7 +341,7 @@ export async function searchWorkflowsByCategory(
   try {
     const [ids, total] = await withRetry(() =>
       getPublicClient().readContract({
-        address: registryAddress,
+        address: getRegistryAddress(),
         abi: registryAbi,
         functionName: "searchByCategory",
         args: [category, offset, limit],
@@ -346,7 +366,7 @@ export async function searchWorkflowsByChain(
   try {
     const [ids, total] = await withRetry(() =>
       getPublicClient().readContract({
-        address: registryAddress,
+        address: getRegistryAddress(),
         abi: registryAbi,
         functionName: "searchByChain",
         args: [chainSelector, offset, limit],
@@ -370,7 +390,7 @@ export async function getAllWorkflowIds(
   try {
     const [ids, total] = await withRetry(() =>
       getPublicClient().readContract({
-        address: registryAddress,
+        address: getRegistryAddress(),
         abi: registryAbi,
         functionName: "getAllWorkflows",
         args: [offset, limit],
@@ -395,7 +415,7 @@ export async function getCreatorWorkflows(
   try {
     const [ids, total] = await withRetry(() =>
       getPublicClient().readContract({
-        address: registryAddress,
+        address: getRegistryAddress(),
         abi: registryAbi,
         functionName: "getCreatorWorkflows",
         args: [creator, offset, limit],

@@ -10,6 +10,7 @@ export function StatementSection() {
             Purpose-built for Chainlink CRE, Ciel transforms natural language
             into validated, consensus-safe workflows — then deploys them to a
             marketplace where AI agents discover, compose, and pay to use them.
+            Build a CRE workflow in minutes. Let AI agents pay to use it forever.
           </span>
         </p>
       </div>

@@ -1,0 +1,20 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "walletAddress": { "type": "string", "description": "Wallet address to monitor for transfers" },
+      "minAmount": { "type": "string", "description": "Minimum transfer amount in wei to trigger alert" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "matched": { "type": "boolean", "description": "Whether a matching transfer was detected" },
+      "from": { "type": "string", "description": "Sender address" },
+      "to": { "type": "string", "description": "Recipient address" },
+      "value": { "type": "string", "description": "Transfer value in wei" },
+      "isExchange": { "type": "boolean", "description": "Whether counterparty is a known exchange" },
+      "reason": { "type": "string", "description": "Filter reason if not matched" }
+    }
+  }
+}

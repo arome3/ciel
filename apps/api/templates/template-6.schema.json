@@ -1,0 +1,18 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "shares": { "type": "number", "description": "Number of fund shares to redeem" },
+      "address": { "type": "string", "description": "Redeemer wallet address" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string", "description": "Result status: processed | rejected" },
+      "shares": { "type": "number", "description": "Number of shares processed" },
+      "nav": { "type": "number", "description": "Net asset value per unit (scaled by 1e8)" },
+      "reason": { "type": "string", "description": "Rejection reason (if rejected)" }
+    }
+  }
+}

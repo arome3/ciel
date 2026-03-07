@@ -143,6 +143,11 @@ export interface WorkflowListItem {
   totalExecutions: number
   successfulExecutions: number
   ownerAddress: string
+  published?: boolean
+  publishedAt?: string | null
+  deployStatus?: string | null
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface WorkflowDetail extends WorkflowListItem {
@@ -162,6 +167,71 @@ export interface WorkflowDetail extends WorkflowListItem {
   outputSchema: unknown
   createdAt: string
   updatedAt: string
+}
+
+export interface TemplateCatalogItem {
+  id: number
+  name: string
+  category: string
+  categoryLabel: string
+  triggerType: string
+  triggerLabel: string
+  capabilities: string[]
+  description: string
+}
+
+export interface TemplateRequestItem {
+  id: string
+  description: string
+  category: string | null
+  triggerType: string | null
+  ownerAddress: string
+  status: string
+  createdAt: string
+  voteCount: number
+}
+
+export interface UserSettings {
+  ownerAddress: string
+  displayName: string | null
+  defaultChain: string
+  webhookUrl: string | null
+  notifyDeployFail: boolean
+  notifyExecFail: boolean
+  notifyExecSuccess: boolean
+  githubInstallationId?: number | null
+  githubUsername?: string | null
+}
+
+export interface GitHubStatus {
+  connected: boolean
+  username: string | null
+  installationId: number | null
+}
+
+export interface GitHubRepo {
+  owner: string
+  name: string
+  fullName: string
+  private: boolean
+  defaultBranch: string
+}
+
+export interface GitHubExportResult {
+  success: boolean
+  repoUrl: string
+  branch: string
+  filesCreated: string[]
+  commitSha: string
+  commitUrl: string
+}
+
+export interface GitHubImportResult {
+  workflowId: string
+  code: string
+  config: Record<string, unknown>
+  validation: { valid: boolean; errors: string[] }
+  source: { repo: string; branch: string; path: string }
 }
 
 interface WorkflowsListResponse {
@@ -210,6 +280,49 @@ export const api = {
       intent: raw.intent,
       template: raw.template,
       validation: raw.validation,
+    }
+  },
+
+  async refine(
+    workflowId: string,
+    refinementPrompt: string,
+    ownerAddress?: string,
+    signal?: AbortSignal,
+  ): Promise<GeneratedWorkflow & { revisionNumber: number }> {
+    const timeoutSignal = AbortSignal.timeout(360_000) // 6min — backend pipeline is 5min max
+    const combinedSignal = signal
+      ? AbortSignal.any([signal, timeoutSignal])
+      : timeoutSignal
+
+    const headers: Record<string, string> = {}
+    if (ownerAddress) headers["X-Owner-Address"] = ownerAddress
+
+    const raw = await request<RawGenerateResponse & { revisionNumber: number }>("/api/refine", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ workflowId, refinementPrompt }),
+      signal: combinedSignal,
+    })
+
+    let config: Record<string, unknown> = {}
+    try {
+      config = JSON.parse(raw.configJson)
+    } catch {
+      // default to empty
+    }
+
+    return {
+      id: raw.workflowId,
+      code: raw.code,
+      config,
+      fallback: raw.fallback,
+      language: "typescript",
+      explanation: raw.explanation,
+      consumerSol: raw.consumerSol,
+      intent: raw.intent,
+      template: raw.template,
+      validation: raw.validation,
+      revisionNumber: raw.revisionNumber,
     }
   },
 
@@ -278,6 +391,7 @@ export const api = {
     search?: string
     sort?: string
     owner?: string
+    published?: "true" | "false" | "all"
   }): Promise<WorkflowsListResponse> {
     const query = new URLSearchParams()
     if (params?.page) query.set("page", String(params.page))
@@ -286,9 +400,15 @@ export const api = {
     if (params?.search) query.set("search", params.search)
     if (params?.sort) query.set("sort", params.sort)
     if (params?.owner) query.set("owner", params.owner)
+    if (params?.published) query.set("published", params.published)
     const qs = query.toString()
+    const headers: Record<string, string> = {}
+    if (params?.owner && (params?.published === "all" || params?.published === "false")) {
+      headers["X-Owner-Address"] = params.owner
+    }
     return request<WorkflowsListResponse>(
       `/api/workflows${qs ? `?${qs}` : ""}`,
+      { headers },
     )
   },
 
@@ -445,6 +565,10 @@ export const api = {
     return request("/api/tenderly/cleanup", { method: "DELETE" })
   },
 
+  workflowExportUrl(workflowId: string): string {
+    return `${API_BASE}/api/workflows/${workflowId}/export`
+  },
+
   async redeployWorkflow(
     workflowId: string,
     auth: { address: string; signature: string },
@@ -474,6 +598,141 @@ export const api = {
         body: JSON.stringify({ config }),
       },
     )
+  },
+
+  // ─────────────────────────────────────────────
+  // Templates API methods
+  // ─────────────────────────────────────────────
+
+  async listTemplates(): Promise<{
+    templates: TemplateCatalogItem[]
+    total: number
+  }> {
+    return request("/api/templates")
+  },
+
+  async listTemplateRequests(params?: {
+    page?: number
+    limit?: number
+    sort?: "votes" | "newest"
+    status?: "open" | "planned" | "completed" | "all"
+  }): Promise<{
+    requests: TemplateRequestItem[]
+    total: number
+    page: number
+    limit: number
+  }> {
+    const query = new URLSearchParams()
+    if (params?.page) query.set("page", String(params.page))
+    if (params?.limit) query.set("limit", String(params.limit))
+    if (params?.sort) query.set("sort", params.sort)
+    if (params?.status) query.set("status", params.status)
+    const qs = query.toString()
+    return request(`/api/template-requests${qs ? `?${qs}` : ""}`)
+  },
+
+  async createTemplateRequest(
+    data: { description: string; category?: string; triggerType?: string },
+    ownerAddress: string,
+  ): Promise<TemplateRequestItem> {
+    return request("/api/template-requests", {
+      method: "POST",
+      headers: { "X-Owner-Address": ownerAddress },
+      body: JSON.stringify(data),
+    })
+  },
+
+  async voteTemplateRequest(
+    requestId: string,
+    ownerAddress: string,
+  ): Promise<{ voted: boolean }> {
+    return request(`/api/template-requests/${requestId}/vote`, {
+      method: "POST",
+      headers: { "X-Owner-Address": ownerAddress },
+    })
+  },
+
+  // ─────────────────────────────────────────────
+  // Settings API methods
+  // ─────────────────────────────────────────────
+
+  async getSettings(ownerAddress: string): Promise<UserSettings> {
+    return request("/api/settings", {
+      headers: { "X-Owner-Address": ownerAddress },
+    })
+  },
+
+  async updateSettings(
+    settings: Partial<UserSettings>,
+    ownerAddress: string,
+  ): Promise<UserSettings> {
+    const { ownerAddress: _, ...body } = settings as UserSettings
+    return request("/api/settings", {
+      method: "PUT",
+      headers: { "X-Owner-Address": ownerAddress },
+      body: JSON.stringify(body),
+    })
+  },
+
+  // ─────────────────────────────────────────────
+  // GitHub API methods
+  // ─────────────────────────────────────────────
+
+  githubInstallUrl(ownerAddress: string): string {
+    return `${API_BASE}/api/github/install`
+  },
+
+  async githubStatus(ownerAddress: string): Promise<GitHubStatus> {
+    return request("/api/github/status", {
+      headers: { "X-Owner-Address": ownerAddress },
+    })
+  },
+
+  async githubDisconnect(ownerAddress: string): Promise<{ disconnected: boolean }> {
+    return request("/api/github/disconnect", {
+      method: "DELETE",
+      headers: { "X-Owner-Address": ownerAddress },
+    })
+  },
+
+  async githubRepos(ownerAddress: string): Promise<{ repos: GitHubRepo[] }> {
+    return request("/api/github/repos", {
+      headers: { "X-Owner-Address": ownerAddress },
+    })
+  },
+
+  async exportToGitHub(
+    workflowId: string,
+    ownerAddress: string,
+    options: {
+      repo: string
+      owner: string
+      createRepo?: boolean
+      isPrivate?: boolean
+      branch?: string
+      createBranch?: boolean
+      commitMessage?: string
+      path?: string
+    },
+  ): Promise<GitHubExportResult> {
+    return request(`/api/workflows/${workflowId}/export-github`, {
+      method: "POST",
+      headers: { "X-Owner-Address": ownerAddress },
+      body: JSON.stringify(options),
+    })
+  },
+
+  async importFromGitHub(
+    ownerAddress: string,
+    url: string,
+    branch?: string,
+    configPath?: string,
+  ): Promise<GitHubImportResult> {
+    return request("/api/workflows/import-github", {
+      method: "POST",
+      headers: { "X-Owner-Address": ownerAddress },
+      body: JSON.stringify({ url, branch, configPath }),
+    })
   },
 
   async executeWorkflow(

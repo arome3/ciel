@@ -453,15 +453,15 @@ describe("getAllTemplates", async () => {
     }
   })
 
-  test("returns exactly 22 templates", async () => {
+  test("returns exactly 23 templates", async () => {
     const all = getAllTemplates()
-    expect(all.length).toBe(22)
+    expect(all.length).toBe(23)
   })
 
-  test("IDs are 1 through 22", async () => {
+  test("IDs are 1 through 23", async () => {
     const all = getAllTemplates()
     const ids = all.map((t) => t.id).sort((a, b) => a - b)
-    expect(ids).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
+    expect(ids).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23])
   })
 })
 
@@ -961,6 +961,17 @@ describe("T17-T22 Reachability", async () => {
     expect(match!.templateName).toBe("Dividend Distribution")
     expect(match!.confidence).toBeGreaterThan(0.3)
   })
+
+  test("T23: DvP Dual-Trigger Escrow", async () => {
+    const intent = parseIntent(
+      "Atomic dvp dual trigger escrow with payment poll release and delivery event escrow lock",
+    )
+    const match = await matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(23)
+    expect(match!.templateName).toBe("DvP Dual-Trigger Escrow")
+    expect(match!.confidence).toBeGreaterThan(0.3)
+  })
 })
 
 // ─────────────────────────────────────────────
@@ -1007,6 +1018,19 @@ describe("T17-T22 getTemplateById", async () => {
     const template = getTemplateById(22)
     expect(template).not.toBeUndefined()
     expect(template!.name).toBe("Dividend Distribution")
+    expect(template!.category).toBe("institutional")
+  })
+})
+
+// ─────────────────────────────────────────────
+// Suite 14b: T23 getTemplateById
+// ─────────────────────────────────────────────
+
+describe("T23 getTemplateById", async () => {
+  test("ID 23 returns DvP Dual-Trigger Escrow", async () => {
+    const template = getTemplateById(23)
+    expect(template).not.toBeUndefined()
+    expect(template!.name).toBe("DvP Dual-Trigger Escrow")
     expect(template!.category).toBe("institutional")
   })
 })
@@ -1059,6 +1083,33 @@ describe("T17-T22 Disambiguation", async () => {
     const match = await matchTemplate(intent)
     expect(match).not.toBeNull()
     expect(match!.templateId).toBe(20)
+  })
+
+  test("T23 vs T19: bare 'escrow lock release' without dual-trigger signals → T19", async () => {
+    const intent = parseIntent(
+      "Escrow lock release settlement conditions",
+    )
+    const match = await matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(19)
+  })
+
+  test("T23 vs T20: 'dvp reconciliation daily' → T20 (no escrow/payment)", async () => {
+    const intent = parseIntent(
+      "DvP reconciliation daily clearing between bank and blockchain ledger",
+    )
+    const match = await matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(20)
+  })
+
+  test("T4 vs T5: 'mint stablecoins every hour based on reserves' → T4, not T5", async () => {
+    const intent = parseIntent(
+      "Every hour check reserve levels and mint stablecoins when reserve ratio exceeds 150%",
+    )
+    const match = await matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(4)
   })
 })
 
@@ -1131,6 +1182,31 @@ describe("T17-T22 Capability Fallback", async () => {
     const match = await matchTemplate(intent)
     expect(match).not.toBeNull()
     expect(match!.templateId).toBe(21)
+  })
+
+  test("escrowLock + payment-api + dual triggers → T23", async () => {
+    const intent = makeIntent({
+      dataSources: ["payment-api"],
+      actions: ["escrowLock"],
+      keywords: ["unusual"],
+      triggerScores: { cron: 1, http: 0, evmLog: 1 },
+    })
+    const match = await matchTemplate(intent)
+    expect(match).not.toBeNull()
+    expect(match!.templateId).toBe(23)
+  })
+
+  test("escrowLock + payment-api without dual triggers → T19 via fallback (not T23)", async () => {
+    const intent = makeIntent({
+      dataSources: ["payment-api"],
+      actions: ["escrowLock"],
+      keywords: ["unusual"],
+    })
+    const match = await matchTemplate(intent)
+    expect(match).not.toBeNull()
+    // Without dual-trigger signals, falls through T23 fallback check to T19
+    expect(match!.templateId).toBe(19)
+    expect(match!.matchedKeywords).toContain("capability-fallback")
   })
 })
 

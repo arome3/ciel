@@ -78,25 +78,26 @@ export function PipelineSummary({ ownerAddress }: PipelineSummaryProps) {
   }
 
   return (
-    <div className="sticky bottom-0 flex h-16 items-center gap-4 border-t border-border bg-card px-4">
+    <div className="sticky bottom-0 flex h-14 items-center gap-3 border-t border-border bg-card px-4">
       {/* Name + description */}
       <Input
         placeholder="Pipeline name"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        className="h-8 w-40 text-xs"
+        className="h-8 w-56 text-xs"
       />
       <Input
-        placeholder="Description"
+        placeholder="Description (optional)"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        className="hidden h-8 w-48 text-xs sm:block"
+        className="hidden h-8 w-72 text-xs lg:block"
       />
 
       {/* Stats */}
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <span>{steps.length} step{steps.length !== 1 ? "s" : ""}</span>
-        <span className="font-mono">${price}</span>
+        <span>·</span>
+        <span className="font-mono">${price} USDC</span>
       </div>
 
       <div className="flex-1" />

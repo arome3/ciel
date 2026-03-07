@@ -1,0 +1,18 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "payee": { "type": "string", "description": "Payment recipient address" },
+      "amount": { "type": "string", "description": "Payment amount" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "executed": { "type": "boolean", "description": "Whether payments were processed" },
+      "initiated": { "type": "number", "description": "Number of payments initiated" },
+      "total": { "type": "number", "description": "Total pending payments found" },
+      "reason": { "type": "string", "description": "Reason if not executed" }
+    }
+  }
+}

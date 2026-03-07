@@ -1,0 +1,20 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": { "type": "string", "description": "Registry action: transfer | register" },
+      "shareholderId": { "type": "string", "description": "Shareholder address" },
+      "shares": { "type": "string", "description": "Number of shares for the action" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "executed": { "type": "boolean", "description": "Whether the registry action was executed" },
+      "from": { "type": "string", "description": "Transferor address" },
+      "to": { "type": "string", "description": "Transferee address" },
+      "shares": { "type": "string", "description": "Number of shares transferred" },
+      "reason": { "type": "string", "description": "Reason if not executed" }
+    }
+  }
+}

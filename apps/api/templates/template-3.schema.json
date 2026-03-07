@@ -1,0 +1,16 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "location": { "type": "string", "description": "Geographic location for event monitoring" },
+      "eventType": { "type": "string", "description": "Type of insurable event (e.g. weather, flight)" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "settled": { "type": "boolean", "description": "Whether the claim was settled" },
+      "timestamp": { "type": "number", "description": "Settlement timestamp (ms)" }
+    }
+  }
+}

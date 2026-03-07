@@ -37,7 +37,7 @@ async function lookupWorkflowPrice(context: { path: string }): Promise<string> {
       .where(eq(workflows.id, workflowId))
       .get()
 
-    if (!workflow?.priceUsdc) return "0.01"
+    if (workflow?.priceUsdc == null) return "0.01"
 
     // Convert from 6-decimal integer to dollar string
     // 10000 → "0.01", 1000000 → "1"
@@ -114,15 +114,36 @@ const x402Handler = paymentMiddleware(routes, resourceServer)
  * Conditional payment middleware.
  * Skips x402 challenge if upstream owner-verify set req.skipPayment.
  */
-export function conditionalPayment(
+export async function conditionalPayment(
   req: Request,
   res: Response,
   next: NextFunction,
-): void {
+): Promise<void> {
   if (req.skipPayment) {
     log.debug("Owner bypass — skipping x402 payment")
     next()
     return
+  }
+
+  // Free-workflow bypass — no point issuing a 402 challenge for $0
+  try {
+    const parts = req.path.split("/")
+    const workflowId = parts[2]
+    if (workflowId) {
+      const row = await db
+        .select({ priceUsdc: workflows.priceUsdc })
+        .from(workflows)
+        .where(eq(workflows.id, workflowId))
+        .get()
+      if (row?.priceUsdc === 0) {
+        log.debug("Free workflow — skipping x402 payment")
+        req.skipPayment = true
+        next()
+        return
+      }
+    }
+  } catch (err) {
+    log.error("Free-tier check failed, falling through to x402", err)
   }
 
   log.debug("Delegating to x402 payment middleware")

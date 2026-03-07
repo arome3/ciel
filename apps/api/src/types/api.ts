@@ -6,8 +6,13 @@ import { z } from "zod"
 
 export const GenerateRequestSchema = z.object({
   prompt: z.string().min(10).max(2000),
-  templateHint: z.number().int().min(1).max(22).optional(),
+  templateHint: z.number().int().min(1).max(23).optional(),
   parameters: z.record(z.unknown()).optional(),
+})
+
+export const RefineRequestSchema = z.object({
+  workflowId: z.string().uuid(),
+  refinementPrompt: z.string().min(5).max(2000),
 })
 
 export const SimulateRequestSchema = z.discriminatedUnion("mode", [
@@ -29,7 +34,7 @@ export const PublishRequestSchema = z.object({
   onchainWorkflowId: z.string().startsWith("0x"),
   name: z.string().min(3).max(100),
   description: z.string().min(10).max(500),
-  priceUsdc: z.number().int().min(1000).max(10_000_000),
+  priceUsdc: z.number().int().min(0).max(10_000_000),
 })
 
 export const PublishResponseSchema = z.object({
@@ -49,6 +54,8 @@ export const WorkflowsListQuerySchema = z.object({
     .optional(),
   search: z.string().optional(),
   owner: z.string().startsWith("0x").optional(),
+  published: z.enum(["true", "false", "all"]).optional(),
+  sort: z.enum(["newest", "oldest", "popular"]).optional(),
 })
 
 export const DiscoverQuerySchema = z.object({

@@ -8,11 +8,15 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Card, CardHeader, CardTitle, CardDescription, CardAction, CardContent } from "@/components/ui/card"
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { useAccount, useSignMessage } from "wagmi"
 import { getCategoryVariant, getCategoryLabel, CHAIN_COLORS } from "@/lib/design-tokens"
 import { api, type WorkflowDetail } from "@/lib/api"
 import { toastSuccess, toastError, toastInfo } from "@/lib/toast"
 import { createSSEConnection } from "@/lib/sse"
+import { ExportGitHubDialog } from "@/components/builder/ExportGitHubDialog"
+import { Github } from "lucide-react"
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
@@ -73,6 +77,51 @@ function StatusBadge({ status }: { status: string }) {
   }
 }
 
+function CopySnippet({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2">
+      <code className="flex-1 overflow-x-auto font-mono text-xs text-foreground whitespace-nowrap">
+        {text}
+      </code>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 shrink-0 px-2 text-[11px]"
+        onClick={handleCopy}
+      >
+        {copied ? "Copied" : "Copy"}
+      </Button>
+    </div>
+  )
+}
+
+function DeployStatusBadge({ status }: { status: string | null }) {
+  const label = status ?? "none"
+  const colorClass =
+    status === "deployed"
+      ? "border-green-500/40 text-green-400"
+      : status === "pending"
+        ? "border-yellow-500/40 text-yellow-400"
+        : status === "failed"
+          ? "border-red-500/40 text-red-400"
+          : "border-border text-muted-foreground"
+
+  return (
+    <Badge variant="outline" className={colorClass}>
+      {label}
+    </Badge>
+  )
+}
+
 function DetailSkeleton() {
   return (
     <div className="container mx-auto max-w-5xl space-y-8 px-4 py-8">
@@ -119,6 +168,9 @@ export default function WorkflowDetailPage() {
 
   // ── Redeploy (owner only, failed/none status) ──
   const [redeploying, setRedeploying] = useState(false)
+
+  // ── GitHub export ──
+  const [exportOpen, setExportOpen] = useState(false)
 
   // ── Execute overrides (anyone) ──
   const [showOverrides, setShowOverrides] = useState(false)
@@ -301,7 +353,8 @@ export default function WorkflowDetailPage() {
     )
   }
 
-  const price = (workflow.priceUsdc / 1_000_000).toFixed(2)
+  const isFree = workflow.priceUsdc === 0
+  const price = isFree ? "Free" : `$${(workflow.priceUsdc / 1_000_000).toFixed(2)}`
   const successRate =
     workflow.totalExecutions > 0
       ? Math.round(
@@ -340,8 +393,8 @@ export default function WorkflowDetailPage() {
         {/* Stats row */}
         <div className="flex flex-wrap gap-6 text-sm">
           <span className="text-foreground">
-            <span className="font-mono font-semibold">${price}</span>{" "}
-            <span className="text-muted-foreground">USDC</span>
+            <span className="font-mono font-semibold">{price}</span>
+            {!isFree && <span className="text-muted-foreground"> USDC</span>}
           </span>
           <span className="text-muted-foreground">
             {successRate}% success rate
@@ -355,6 +408,29 @@ export default function WorkflowDetailPage() {
           <span className="font-mono text-xs text-muted-foreground">
             {truncateAddress(workflow.ownerAddress)}
           </span>
+        </div>
+
+        {/* Actions row */}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setExportOpen(true)}
+            className="gap-1.5"
+          >
+            <Github className="h-3.5 w-3.5" />
+            Push to GitHub
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              window.open(api.workflowExportUrl(workflow.id), "_blank")
+              toastSuccess("Downloading CRE project")
+            }}
+          >
+            Download .zip
+          </Button>
         </div>
 
         {/* Chains + capabilities */}
@@ -482,37 +558,156 @@ export default function WorkflowDetailPage() {
         )}
       </Tabs>
 
-      {/* Deploy status + redeploy */}
-      {isOwner && workflow.published && (
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">
-            DON status:{" "}
-            <span
-              className={
-                workflow.deployStatus === "deployed"
-                  ? "font-medium text-green-400"
-                  : workflow.deployStatus === "pending"
-                    ? "font-medium text-yellow-400"
-                    : workflow.deployStatus === "failed"
-                      ? "font-medium text-red-400"
-                      : "font-medium text-muted-foreground"
-              }
-            >
-              {workflow.deployStatus ?? "none"}
-            </span>
-          </span>
-          {canRedeploy && (
-            <Button
-              onClick={handleRedeploy}
-              disabled={redeploying}
-              variant="outline"
-              size="sm"
-            >
-              {redeploying ? "Deploying..." : "Deploy to DON"}
-            </Button>
+      {/* Deploy guide */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Deploy to DON</CardTitle>
+          <CardDescription>
+            Deploy this workflow to the Chainlink Decentralized Oracle Network for production execution.
+          </CardDescription>
+          {isOwner && workflow.published && (
+            <CardAction className="flex items-center gap-2">
+              <DeployStatusBadge status={workflow.deployStatus} />
+              {canRedeploy && (
+                <Button
+                  onClick={handleRedeploy}
+                  disabled={redeploying}
+                  variant="outline"
+                  size="sm"
+                >
+                  {redeploying ? "Deploying..." : "Redeploy"}
+                </Button>
+              )}
+            </CardAction>
           )}
-        </div>
-      )}
+        </CardHeader>
+
+        <CardContent>
+          <Tabs defaultValue="cli">
+            <TabsList>
+              <TabsTrigger value="cli">CLI Deploy</TabsTrigger>
+              <TabsTrigger value="manual">Manual Deploy</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="cli" className="space-y-4">
+              <Alert>
+                <AlertTitle>Prerequisites</AlertTitle>
+                <AlertDescription>
+                  <ul className="list-disc pl-4 text-xs">
+                    <li>CRE CLI installed and authenticated</li>
+                    <li><code className="rounded bg-muted px-1 font-mono text-[11px]">CIEL_PRIVATE_KEY</code> environment variable set</li>
+                  </ul>
+                </AlertDescription>
+              </Alert>
+
+              <div className="space-y-0">
+                {/* Step 1 */}
+                <div className="flex items-start gap-3">
+                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px] text-muted-foreground">
+                    1
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <p className="text-sm font-medium text-foreground">Install the Ciel CLI</p>
+                    <CopySnippet text="npm i -g @ciel/cli" />
+                  </div>
+                </div>
+                <div className="ml-2.5 h-4 w-px bg-border" />
+
+                {/* Step 2 */}
+                <div className="flex items-start gap-3">
+                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px] text-muted-foreground">
+                    2
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <p className="text-sm font-medium text-foreground">Authenticate CRE access</p>
+                    <CopySnippet text="cre account access" />
+                  </div>
+                </div>
+                <div className="ml-2.5 h-4 w-px bg-border" />
+
+                {/* Step 3 — primary */}
+                <div className="flex items-start gap-3">
+                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary font-mono text-[10px] text-primary-foreground">
+                    3
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <p className="text-sm font-medium text-foreground">Deploy the workflow</p>
+                    <CopySnippet text={`ciel deploy ${workflow.id}`} />
+                    <p className="text-xs text-muted-foreground">
+                      This fetches the workflow bundle, scaffolds the CRE project, deploys to the DON, and reports back.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="manual" className="space-y-4">
+              <Alert>
+                <AlertTitle>Prerequisites</AlertTitle>
+                <AlertDescription>
+                  <ul className="list-disc pl-4 text-xs">
+                    <li>CRE CLI installed (<code className="rounded bg-muted px-1 font-mono text-[11px]">npm i -g @chainlink/cre-cli</code>)</li>
+                    <li>CRE account access configured (<code className="rounded bg-muted px-1 font-mono text-[11px]">cre account access</code>)</li>
+                    <li>Bun runtime installed</li>
+                  </ul>
+                </AlertDescription>
+              </Alert>
+
+              <div className="space-y-0">
+                {/* Step 1 */}
+                <div className="flex items-start gap-3">
+                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px] text-muted-foreground">
+                    1
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <p className="text-sm font-medium text-foreground">Download and unzip the project</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        window.open(api.workflowExportUrl(workflow.id), "_blank")
+                        toastSuccess("Downloading CRE project")
+                      }}
+                    >
+                      Download .zip
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Unzip to get a ready-to-use project with <code className="rounded bg-muted px-1 font-mono text-[11px]">project.yaml</code>, <code className="rounded bg-muted px-1 font-mono text-[11px]">wf/main.ts</code>, and all config files pre-configured.
+                    </p>
+                  </div>
+                </div>
+                <div className="ml-2.5 h-4 w-px bg-border" />
+
+                {/* Step 2 */}
+                <div className="flex items-start gap-3">
+                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px] text-muted-foreground">
+                    2
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <p className="text-sm font-medium text-foreground">Install dependencies</p>
+                    <CopySnippet text="cd wf && bun install && cd .." />
+                  </div>
+                </div>
+                <div className="ml-2.5 h-4 w-px bg-border" />
+
+                {/* Step 3 — primary */}
+                <div className="flex items-start gap-3">
+                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary font-mono text-[10px] text-primary-foreground">
+                    3
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <p className="text-sm font-medium text-foreground">Deploy to DON</p>
+                    <CopySnippet text="cre workflow deploy wf --target production-settings" />
+                    <p className="text-xs text-muted-foreground">
+                      Run from the project root (where <code className="rounded bg-muted px-1 font-mono text-[11px]">project.yaml</code> lives). This compiles to WASM and deploys to the Chainlink DON.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
 
       {/* Execute section */}
       <div className="space-y-4">
@@ -524,9 +719,9 @@ export default function WorkflowDetailPage() {
           >
             {executing
               ? "Executing..."
-              : isOwner
+              : isOwner || isFree
                 ? "Execute (Free)"
-                : `Execute ($${price})`}
+                : `Execute (${price})`}
           </Button>
           <button
             type="button"
@@ -578,6 +773,13 @@ export default function WorkflowDetailPage() {
           </div>
         )}
       </div>
+
+      <ExportGitHubDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        workflowId={workflow.id}
+        workflowName={workflow.name}
+      />
     </div>
   )
 }

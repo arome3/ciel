@@ -784,6 +784,85 @@ evmClient.writeReport(runtime, { receiver: config.consumerContract, report: creR
 IMPORTANT: The burn function must be on the token contract itself. Some tokens use \`burnFrom(address, amount)\` — check the ABI.
 Do NOT use \`encodeFunctionData\` or \`parseAbi\` — use manual selectors + \`encodeAbiParameters\`.`
 
+const CCIP_TRANSFER_PATTERN = `## Cross-Chain CCIP Transfer Pattern
+
+CRE workflows can execute Chainlink CCIP cross-chain token transfers via the CCIP Router contract.
+All CCIP operations are **on-chain** — use \`callContract\` and \`writeReport\`, NOT HTTPClient.
+
+### CCIP Function Selectors
+\`\`\`typescript
+const BALANCE_OF_SELECTOR = "0x70a08231"  // balanceOf(address)
+const APPROVE_SELECTOR = "0x095ea7b3"     // approve(address,uint256)
+const CCIP_SEND_SELECTOR = "0x96f4e9f9"   // ccipSend(uint64,(bytes,bytes,(address,uint256)[],address,bytes))
+\`\`\`
+
+### Step 1: Check token balance via callContract
+\`\`\`typescript
+const balanceCallData = BALANCE_OF_SELECTOR + encodeAbiParameters(
+  parseAbiParameters("address"),
+  [config.consumerContract as \\\`0x\${string}\\\`]
+).slice(2)
+const balanceResp = evmClient.callContract(runtime, {
+  call: encodeCallMsg({ from: "0x0", to: config.tokenAddress, data: balanceCallData }),
+  blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
+}).result()
+const balance = BigInt(bytesToHex(balanceResp.data as unknown as Uint8Array))
+\`\`\`
+
+### Step 2: Build CCIP message + encode approve and ccipSend calldata
+\`\`\`typescript
+const receiverBytes = encodeAbiParameters(parseAbiParameters("address"), [config.receiverAddress as \\\`0x\${string}\\\`])
+const destSelector = BigInt(destNetwork.chainSelector.selector)
+
+// Approve token spend to Router
+const approveData = APPROVE_SELECTOR + encodeAbiParameters(
+  parseAbiParameters("address, uint256"),
+  [config.ccipRouterAddress as \\\`0x\${string}\\\`, transferAmount]
+).slice(2)
+
+// ccipSend(uint64 destChainSelector, EVM2AnyMessage message)
+const ccipSendData = CCIP_SEND_SELECTOR + encodeAbiParameters(
+  parseAbiParameters("uint64, (bytes, bytes, (address, uint256)[], address, bytes)"),
+  [
+    destSelector,
+    [
+      receiverBytes as \\\`0x\${string}\\\`,          // receiver (abi-encoded)
+      "0x" as \\\`0x\${string}\\\`,                    // data (empty)
+      [[config.tokenAddress as \\\`0x\${string}\\\`, transferAmount]],  // tokenAmounts
+      config.feeTokenAddress as \\\`0x\${string}\\\`,  // feeToken (zero = native)
+      "0x" as \\\`0x\${string}\\\`,                    // extraArgs (empty)
+    ],
+  ]
+).slice(2)
+\`\`\`
+
+### Step 3: Pack both operations into a single report
+The consumer contract executes approve then ccipSend in sequence:
+\`\`\`typescript
+const reportData = encodeAbiParameters(
+  parseAbiParameters("address tokenAddr, bytes approveData, address routerAddr, bytes ccipSendData, uint256 feeValue, uint256 amount, uint64 destChain, uint256 timestamp"),
+  [
+    config.tokenAddress as \\\`0x\${string}\\\`,
+    approveData as \\\`0x\${string}\\\`,
+    config.ccipRouterAddress as \\\`0x\${string}\\\`,
+    ccipSendData as \\\`0x\${string}\\\`,
+    feeValue, transferAmount, destSelector,
+    BigInt(Math.floor(runtime.now().getTime() / 1000)),
+  ]
+)
+const creReport = runtime.report({ encodedPayload: reportData, encoderName: "EVM", signingAlgo: "SECP256K1", hashingAlgo: "KECCAK256" }).result()
+evmClient.writeReport(runtime, { receiver: config.consumerContract, report: creReport, gasConfig: { gasLimit: 500000 } }).result()
+\`\`\`
+
+### Config fields
+\`ccipRouterAddress\`, \`tokenAddress\`, \`feeTokenAddress\`, \`receiverAddress\`, \`transferAmount\`, \`sourceChainSelector\`, \`destChainSelector\`, \`consumerContract\`, \`gasLimit\`
+
+### Important
+- Use \`getNetwork()\` for both source and destination chains
+- Fee token \`0x0000000000000000000000000000000000000000\` = pay in native ETH
+- Do NOT use \`encodeFunctionData\` or \`parseAbi\` — use manual selectors + \`encodeAbiParameters\`
+- The consumer contract handles the actual approve + ccipSend execution from the decoded report`
+
 const ESCROW_PATTERN = `## Escrow Lock/Release Pattern
 
 CRE workflows can interact with escrow contracts for DvP (Delivery vs Payment) workflows.
@@ -819,6 +898,62 @@ evmClient.writeReport(runtime, { receiver: config.consumerContract, report: creR
 \`\`\`
 
 Do NOT use \`encodeFunctionData\` or \`parseAbi\` — use manual selectors + \`encodeAbiParameters\`.`
+
+const DVP_PATTERN = `## DvP Dual-Trigger Escrow Pattern
+
+Two-phase Delivery vs Payment (DvP) workflow using dual triggers (evm_log + cron)
+with S3 KV state bridging between phases.
+
+### Phase B — Delivery Event Handler (evm_log)
+\`\`\`typescript
+// Extract trade data from log topics
+const depositor = "0x" + bytesToHex(log.topics[1]).slice(24)
+const tradeId = bytesToHex(log.topics[2])
+const amount = BigInt("0x" + bytesToHex(log.data))
+
+// Validate delivery via settlement API
+const settlementResp = httpClient.sendRequest(runtime, { url: \\\`\${config.settlementApiUrl}/validate?tradeId=\${tradeId}\\\`, method: "GET", headers: { "Content-Type": "application/json" } }).result()
+const validation = decodeJson(settlementResp.body)
+
+// Lock escrow via writeReport (LOCK_SELECTOR = "0x282d3fdf")
+const lockCallData = (LOCK_SELECTOR + encodeAbiParameters(parseAbiParameters("address, uint256"), [depositor, amount]).slice(2))
+// ... runtime.report() + evmClient.writeReport() ...
+
+// Initiate payment via ConfidentialHTTPClient
+const paymentResp = kvClient.sendRequest(runtime, { url: \\\`\${config.paymentApiUrl}/initiate\\\`, method: "POST", body: JSON.stringify({ tradeId, depositor, amount: amount.toString() }) }).result()
+
+// Write trade state to S3 KV store (SigV4 PUT) — bridges Phase B → Phase C
+trades.push({ tradeId, depositor, amount: amount.toString(), paymentId, status: "pending", lockedAt: runtime.now().getTime() })
+\`\`\`
+
+### Phase C — Payment Poll Handler (cron)
+\`\`\`typescript
+// Read pending trades from S3 KV store (SigV4 GET)
+const trades = decodeJson(getResp.body)
+
+for (const trade of trades) {
+  if (trade.status !== "pending") continue
+  // Poll payment status
+  const status = decodeJson(statusResp.body)
+  if (status.confirmed) {
+    // Release escrow (RELEASE_SELECTOR = "0x0357371d")
+    // ... runtime.report() + evmClient.writeReport() ...
+    trade.status = "completed"
+  } else if (now - trade.lockedAt > config.paymentTimeoutMs) {
+    trade.status = "failed" // Do NOT release on timeout
+  }
+}
+// Write updated state back to S3
+\`\`\`
+
+### initWorkflow — Dual Triggers
+\`\`\`typescript
+const logTrigger = evmClient.logTrigger({ addresses: [hexToBase64(config.deliveryContractAddress)], topics: [hexToBase64(config.deliveryEventSignature)] })
+const cronTrigger = cronCapability.trigger({ schedule: config.schedule })
+return [cre.handler(logTrigger, onDeliveryEvent), cre.handler(cronTrigger, onPaymentPoll)]
+\`\`\`
+
+Key: S3 KV state (SigV4 signed) is the async bridge between the two phases. Use runtime.now() for all timestamps.`
 
 const REGISTRY_PATTERN = `## Shareholder Registry & Distribution Pattern
 
@@ -944,6 +1079,7 @@ export function buildTemplateContext(
   capabilities: string[],
   needsState: boolean,
   fewShotContext?: string,
+  relevantDocs?: string,
 ): string {
   const caps = new Set(capabilities)
   const sections: string[] = []
@@ -964,6 +1100,11 @@ export function buildTemplateContext(
   // Wallet/ERC-20 monitor pattern
   if (caps.has("wallet-api")) {
     sections.push(WALLET_MONITOR_PATTERN)
+  }
+
+  // Cross-chain CCIP transfer pattern
+  if (caps.has("ccip") || caps.has("ccipTransfer")) {
+    sections.push(CCIP_TRANSFER_PATTERN)
   }
 
   // State management (cross-run persistence)
@@ -987,8 +1128,20 @@ export function buildTemplateContext(
   if (caps.has("escrowLock") || caps.has("escrowRelease") || caps.has("settlement-api")) {
     sections.push(ESCROW_PATTERN)
   }
+  if (
+    (caps.has("escrowLock") || caps.has("escrowRelease")) &&
+    (caps.has("payment-api") || caps.has("initiatePayment")) &&
+    caps.has("kv-store")
+  ) {
+    sections.push(DVP_PATTERN)
+  }
   if (caps.has("registry-api") || caps.has("distribute")) {
     sections.push(REGISTRY_PATTERN)
+  }
+
+  // ── Supplementary CRE SDK documentation ──
+  if (relevantDocs && relevantDocs.length > 0) {
+    sections.push("## Supplementary CRE SDK Documentation\n\n" + relevantDocs)
   }
 
   // ── Few-shot examples ──
@@ -1046,6 +1199,13 @@ export function buildSystemPrompt(
   }
   if (caps.has("escrowLock") || caps.has("escrowRelease") || caps.has("settlement-api")) {
     sections.push(ESCROW_PATTERN)
+  }
+  if (
+    (caps.has("escrowLock") || caps.has("escrowRelease")) &&
+    (caps.has("payment-api") || caps.has("initiatePayment")) &&
+    caps.has("kv-store")
+  ) {
+    sections.push(DVP_PATTERN)
   }
   if (caps.has("registry-api") || caps.has("distribute")) {
     sections.push(REGISTRY_PATTERN)

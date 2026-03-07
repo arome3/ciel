@@ -72,6 +72,7 @@ function CodeSkeleton() {
 export function CodePreview() {
   const generatedWorkflow = useWorkflowStore((s) => s.generatedWorkflow)
   const isGenerating = useWorkflowStore((s) => s.isGenerating)
+  const isRefining = useWorkflowStore((s) => s.isRefining)
   const [copied, setCopied] = useState(false)
 
   const handleCopy = useCallback(async () => {
@@ -100,6 +101,12 @@ export function CodePreview() {
           <h3 className="text-sm font-semibold text-foreground">
             Generated Code
           </h3>
+          {isRefining && (
+            <span className="flex items-center gap-1.5 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+              refining...
+            </span>
+          )}
           {generatedWorkflow.template && (
             <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
               Template {generatedWorkflow.template.templateId}

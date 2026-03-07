@@ -32,24 +32,36 @@ export interface SimulateResponse {
 
 export interface WorkflowSummary {
   id: string
-  name: string | null
-  description: string | null
+  name: string
+  description: string
   prompt: string
   category: string
-  priceUsdc: number | null
-  executionCount: number
+  priceUsdc: number
+  capabilities: string[]
+  chains: string[]
+  totalExecutions: number
+  successfulExecutions: number
   published: boolean
   deployStatus: string | null
-  ownerAddress: string | null
+  ownerAddress: string
   createdAt: string
 }
 
 export interface WorkflowDetail extends WorkflowSummary {
   code: string
+  config: Record<string, unknown>
   configJson: string
-  capabilities: string | null
+  templateId: number
+  templateName: string
+  consumerSol: string | null
+  simulationTrace: Array<{ step: string; status: string; duration: number; output: string }> | null
   onchainWorkflowId: string | null
   donWorkflowId: string | null
+  publishTxHash: string | null
+  x402Endpoint: string | null
+  inputSchema: unknown
+  outputSchema: unknown
+  updatedAt: string
 }
 
 export interface PublishResponse {
@@ -218,6 +230,18 @@ export class CielClient {
     return this.request(`/api/workflows/${workflowId}/redeploy`, {
       method: "POST",
       headers: authHeaders,
+    })
+  }
+
+  async reportDeploy(
+    workflowId: string,
+    donWorkflowId: string,
+    authHeaders: Record<string, string>,
+  ): Promise<{ workflowId: string; deployStatus: string }> {
+    return this.request(`/api/workflows/${workflowId}/report-deploy`, {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({ donWorkflowId }),
     })
   }
 

@@ -1,0 +1,16 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "feedAddress": { "type": "string", "description": "Chainlink data feed contract address" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "price": { "type": "number", "description": "Formatted price from the data feed" },
+      "decimals": { "type": "number", "description": "Feed decimal precision" },
+      "answer": { "type": "string", "description": "Raw latest answer from the feed" }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@ciel/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target node",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "zod": "^3.22.0"
+  },
+  "peerDependencies": {
+    "@x402/fetch": "latest",
+    "@x402/evm": "latest",
+    "viem": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@x402/fetch": { "optional": true },
+    "@x402/evm": { "optional": true },
+    "viem": { "optional": true }
+  }
+}

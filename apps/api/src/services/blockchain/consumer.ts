@@ -16,7 +16,26 @@ const consumerAbi = parseAbi([
   "function getAllReports(bytes32 workflowId, uint256 offset, uint256 limit) view returns (bytes[], uint256)",
 ])
 
-const consumerAddress = config.CONSUMER_CONTRACT_ADDRESS as Hex
+// --- Dynamic Consumer Address Resolution ---
+
+type ManagerModule = typeof import("../tenderly/manager")
+let _manager: ManagerModule | null = null
+function getManager(): ManagerModule {
+  if (!_manager) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    _manager = require("../tenderly/manager") as ManagerModule
+  }
+  return _manager
+}
+
+function getConsumerAddress(): Hex {
+  const active = getManager().getActiveTestnet()
+  if (active.testnet && active.contracts.consumer) {
+    log.debug(`Using VNet consumer: ${active.contracts.consumer}`)
+    return active.contracts.consumer as Hex
+  }
+  return config.CONSUMER_CONTRACT_ADDRESS as Hex
+}
 
 // --- Read Functions ---
 
@@ -26,7 +45,7 @@ export async function getLatestReport(
   try {
     const [report, timestamp] = await withRetry(() =>
       getPublicClient().readContract({
-        address: consumerAddress,
+        address: getConsumerAddress(),
         abi: consumerAbi,
         functionName: "getLatestReport",
         args: [workflowId],
@@ -49,7 +68,7 @@ export async function getReportCount(workflowId: Hex): Promise<bigint> {
   try {
     const count = await withRetry(() =>
       getPublicClient().readContract({
-        address: consumerAddress,
+        address: getConsumerAddress(),
         abi: consumerAbi,
         functionName: "getReportCount",
         args: [workflowId],
@@ -75,7 +94,7 @@ export async function getReportsPaginated(
   try {
     const [reports, total] = await withRetry(() =>
       getPublicClient().readContract({
-        address: consumerAddress,
+        address: getConsumerAddress(),
         abi: consumerAbi,
         functionName: "getAllReports",
         args: [workflowId, offset, limit],

@@ -538,12 +538,12 @@ describe("generateCode", () => {
 })
 
 // ─────────────────────────────────────────────
-// Suite 7: TEMPLATE_RELATIONS covers all 22 (Change #1)
+// Suite 7: TEMPLATE_RELATIONS covers all 23 (Change #1)
 // ─────────────────────────────────────────────
 
-describe("buildFewShotContext — all 22 templates", () => {
-  test("returns non-empty context for all 22 templates", () => {
-    for (let id = 1; id <= 22; id++) {
+describe("buildFewShotContext — all 23 templates", () => {
+  test("returns non-empty context for all 23 templates", () => {
+    for (let id = 1; id <= 23; id++) {
       const context = buildFewShotContext(id)
       expect(context.length).toBeGreaterThan(0)
       expect(context).toContain("Working CRE Workflow Examples")
@@ -568,8 +568,14 @@ describe("buildFewShotContext — all 22 templates", () => {
     expect(context).toContain("Template 21")
   })
 
+  test("template 23 (DvP Dual-Trigger Escrow) relates to T16 and T19", () => {
+    const context = buildFewShotContext(23)
+    expect(context).toContain("Template 16")
+    expect(context).toContain("Template 19")
+  })
+
   test("all templates include valid CRE SDK patterns", () => {
-    for (let id = 1; id <= 22; id++) {
+    for (let id = 1; id <= 23; id++) {
       const context = buildFewShotContext(id)
       expect(context).toContain("@chainlink/cre-sdk")
     }

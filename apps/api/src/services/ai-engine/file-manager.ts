@@ -58,6 +58,24 @@ export function loadTemplateConfig(templateId: number): string | null {
 }
 
 /**
+ * Loads pipeline I/O schemas from a template's co-located .schema.json file.
+ * @returns { inputSchema, outputSchema } or null if not found / malformed
+ */
+export function loadTemplateSchemas(templateId: number): {
+  inputSchema: Record<string, unknown>
+  outputSchema: Record<string, unknown>
+} | null {
+  try {
+    const content = readFileSync(join(TEMPLATES_DIR, `template-${templateId}.schema.json`), "utf-8")
+    const parsed = JSON.parse(content)
+    if (parsed.inputSchema && parsed.outputSchema) return parsed
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Detects whether any keyword matches the STATE_KEYWORDS set via exact or stemmed matching.
  * Returns the user's original keyword (for stateKey naming) or null.
  */

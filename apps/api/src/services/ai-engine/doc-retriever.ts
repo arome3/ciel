@@ -2,7 +2,7 @@
 // Doc Retriever — Capability-Based Documentation Lookup
 // ─────────────────────────────────────────────
 // Maps template capabilities to relevant CRE SDK doc files.
-// Always includes config-schema.md as a baseline.
+// Only includes low-overlap docs (consensus, node-mode, state-management, chain-selectors).
 // All files cached at module load — zero per-request I/O.
 
 import { readFileSync } from "fs"
@@ -18,34 +18,23 @@ const log = createLogger("DocRetriever")
 // Capability → Doc File Mapping
 // ─────────────────────────────────────────────
 
+// Only low-overlap docs — capabilities.md, triggers.md, and config-schema.md
+// are excluded because API_REFERENCE in the static base prompt already covers
+// those patterns (and the doc files contain stale/contradictory examples).
 const CAPABILITY_TO_DOCS: Record<string, string[]> = {
-  "price-feed": ["capabilities.md", "triggers.md"],
-  "weather-api": ["capabilities.md", "triggers.md"],
-  "flight-api": ["capabilities.md", "triggers.md"],
-  "reserve-api": ["capabilities.md", "triggers.md"],
-  "nav-api": ["capabilities.md", "triggers.md"],
-  "compliance-api": ["capabilities.md", "triggers.md"],
-  "defi-api": ["capabilities.md", "triggers.md"],
-  "prediction-market": ["capabilities.md", "triggers.md"],
   "multi-ai": ["consensus.md", "node-mode.md"],
-  evmWrite: ["capabilities.md", "chain-selectors.md"],
-  "multi-chain": ["chain-selectors.md", "capabilities.md"],
-  alert: ["capabilities.md"],
-  "wallet-api": ["capabilities.md", "triggers.md"],
-  "chainlink-feeds": ["capabilities.md", "chain-selectors.md"],
-  "kv-store": ["state-management.md", "capabilities.md"],
-  "ccip": ["chain-selectors.md", "capabilities.md"],
-  evmRead: ["capabilities.md", "chain-selectors.md"],
-  ccipTransfer: ["chain-selectors.md", "capabilities.md"],
-  // Institutional finance (T17-T22)
-  "payment-api": ["capabilities.md", "triggers.md"],
-  "settlement-api": ["capabilities.md", "triggers.md"],
-  "registry-api": ["capabilities.md", "triggers.md"],
-  burn: ["capabilities.md", "chain-selectors.md"],
-  escrowLock: ["capabilities.md", "chain-selectors.md"],
-  escrowRelease: ["capabilities.md", "chain-selectors.md"],
-  initiatePayment: ["capabilities.md", "state-management.md"],
-  distribute: ["capabilities.md", "chain-selectors.md"],
+  "multi-chain": ["chain-selectors.md"],
+  evmWrite: ["chain-selectors.md"],
+  "chainlink-feeds": ["chain-selectors.md"],
+  "kv-store": ["state-management.md"],
+  ccip: ["chain-selectors.md"],
+  evmRead: ["chain-selectors.md"],
+  ccipTransfer: ["chain-selectors.md"],
+  burn: ["chain-selectors.md"],
+  escrowLock: ["chain-selectors.md"],
+  escrowRelease: ["chain-selectors.md"],
+  initiatePayment: ["state-management.md"],
+  distribute: ["chain-selectors.md"],
 }
 
 // ─────────────────────────────────────────────
@@ -86,10 +75,9 @@ for (const fileName of ALL_DOC_FILES) {
  * Reads from module-level cache — zero file I/O per request.
  *
  * Strategy:
- * 1. Map each requiredCapability to its doc files
+ * 1. Map each requiredCapability to its doc files (low-overlap only)
  * 2. Deduplicate file set
- * 3. Always include config-schema.md (every workflow needs config)
- * 4. Concatenate cached contents with section headers
+ * 3. Concatenate cached contents with section headers
  *
  * @param template - The matched template definition
  * @returns Concatenated documentation string with section headers
@@ -100,10 +88,7 @@ export function retrieveRelevantDocs(
 ): string {
   const docFiles = new Set<string>()
 
-  // Always include config-schema — every workflow needs the Runner pattern
-  docFiles.add("config-schema.md")
-
-  // Map capabilities to doc files
+  // Map capabilities to doc files (low-overlap only)
   for (const capability of template.requiredCapabilities) {
     const docs = CAPABILITY_TO_DOCS[capability]
     if (docs) {

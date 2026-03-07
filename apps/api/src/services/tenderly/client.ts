@@ -197,7 +197,7 @@ export async function createTestnet(opts: CreateTestnetConfig): Promise<Tenderly
     ?? raw.rpcs?.[0]?.url ?? ""
   const adminRpcUrl = raw.rpcs?.find(r => r.name === "Admin RPC")?.url
     ?? raw.rpcs?.[0]?.url ?? ""
-  const explorerUrl = `https://dashboard.tenderly.co/${config.TENDERLY_ACCOUNT_SLUG}/${config.TENDERLY_PROJECT_SLUG}/testnet/${raw.slug}`
+  const explorerUrl = `https://dashboard.tenderly.co/${config.TENDERLY_ACCOUNT_SLUG}/${config.TENDERLY_PROJECT_SLUG}/testnet/${raw.id}`
 
   const testnet: TenderlyTestnet = {
     id: raw.id,
@@ -245,7 +245,7 @@ export async function listTestnets(): Promise<TenderlyTestnet[]> {
     chainId: r.virtual_network_config.chain_config.chain_id,
     publicRpcUrl: r.rpcs?.find(rpc => rpc.name === "Public RPC")?.url ?? r.rpcs?.[0]?.url ?? "",
     adminRpcUrl: r.rpcs?.find(rpc => rpc.name === "Admin RPC")?.url ?? r.rpcs?.[0]?.url ?? "",
-    explorerUrl: `https://dashboard.tenderly.co/${config.TENDERLY_ACCOUNT_SLUG}/${config.TENDERLY_PROJECT_SLUG}/testnet/${r.slug}`,
+    explorerUrl: `https://dashboard.tenderly.co/${config.TENDERLY_ACCOUNT_SLUG}/${config.TENDERLY_PROJECT_SLUG}/testnet/${r.id}`,
     createdAt: r.created_at,
   }))
 }

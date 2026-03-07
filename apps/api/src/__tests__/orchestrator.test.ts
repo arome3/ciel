@@ -99,6 +99,8 @@ mock.module(resolve(SRC, "db/index.ts"), () => ({
 
 mock.module(resolve(SRC, "db/schema.ts"), () => ({
   workflows: {},
+  workflowRevisions: {},
+  generationTraces: {},
 }))
 
 // ── Config mock (prevent dotenv/zod side effects) ──
@@ -176,6 +178,8 @@ beforeEach(() => {
       rawOutput: "Workflow compiled\nSimulation complete",
     }),
   )
+  // Reset to default DB success (critical: mockClear doesn't reset implementation)
+  mockValues.mockImplementation(() => Promise.resolve())
 })
 
 // ─────────────────────────────────────────────
@@ -206,8 +210,9 @@ describe("orchestrator — happy path", () => {
 
   test("saves workflow to DB on success", async () => {
     await generateWorkflow(VALID_PROMPT, OWNER)
-    expect(mockInsert).toHaveBeenCalledTimes(1)
-    expect(mockValues).toHaveBeenCalledTimes(1)
+    // 3 inserts: workflow row + revision #1 bootstrap + generation trace
+    expect(mockInsert).toHaveBeenCalledTimes(3)
+    expect(mockValues).toHaveBeenCalledTimes(3)
   })
 })
 
@@ -422,7 +427,8 @@ describe("orchestrator — DB save args", () => {
   test("DB save includes correct fields", async () => {
     await generateWorkflow(VALID_PROMPT, OWNER)
 
-    expect(mockValues).toHaveBeenCalledTimes(1)
+    // 3 inserts: workflow + revision + trace. First call is the workflow.
+    expect(mockValues).toHaveBeenCalled()
     const savedObj = (mockValues.mock.calls as any[][])[0][0]
     expect(savedObj).toHaveProperty("ownerAddress", OWNER)
     expect(savedObj).toHaveProperty("templateId")

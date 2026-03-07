@@ -22,7 +22,7 @@ let embedder: ((text: string) => Promise<Float32Array>) | null = null
 let ready = false
 let warmPromise: Promise<void> | null = null
 
-// 22 template centroids: templateId → 384-dim vector
+// 23 template centroids: templateId → 384-dim vector
 const centroids: Map<number, Float32Array> = new Map()
 
 // ─────────────────────────────────────────────
@@ -197,6 +197,14 @@ const TEMPLATE_EXAMPLES: Record<number, string[]> = {
     "Monthly shareholder dividend distribution workflow",
     "Pay dividends proportionally based on share ownership",
     "Automated yield distribution to registered holders",
+  ],
+  23: [
+    "Lock escrow when delivery is confirmed on-chain then release when payment clears",
+    "Two-phase DvP: react to delivery event, initiate payment, poll for confirmation, release escrow",
+    "Atomic delivery versus payment with escrow lock on delivery and release on payment confirmation",
+    "Dual trigger escrow: event-driven lock phase plus scheduled payment status polling",
+    "When goods are delivered on-chain hold funds in escrow until bank payment confirms",
+    "Automated DvP settlement with async payment confirmation and conditional escrow release",
   ],
 }
 

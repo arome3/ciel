@@ -1,0 +1,19 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "prompt": { "type": "string", "description": "Question to ask the AI models for consensus" }
+    },
+    "required": ["prompt"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean", "description": "Whether consensus was reached" },
+      "answer": { "type": "string", "description": "Consensus answer from the models" },
+      "confidence": { "type": "number", "description": "Agreement ratio between models (0-1)" },
+      "modelsAgreed": { "type": "number", "description": "Number of models that agreed" },
+      "consensusReached": { "type": "boolean", "description": "Whether BFT consensus threshold was met" }
+    }
+  }
+}

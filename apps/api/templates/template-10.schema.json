@@ -1,0 +1,16 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "event": { "type": "string", "description": "Sports event identifier" },
+      "market": { "type": "string", "description": "Betting market type" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "value": { "type": "number", "description": "Aggregated value (scaled by 1e8)" },
+      "sourceCount": { "type": "number", "description": "Number of data sources used" }
+    }
+  }
+}

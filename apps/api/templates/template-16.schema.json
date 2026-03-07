@@ -1,0 +1,19 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "dataApiUrl": { "type": "string", "description": "API endpoint for cron-triggered data fetch" },
+      "eventContract": { "type": "string", "description": "Contract address for evm_log trigger" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "source": { "type": "string", "description": "Trigger source: cron | event" },
+      "value": { "type": "string", "description": "Fetched or event-derived value" },
+      "processed": { "type": "boolean", "description": "Whether the event was processed (event trigger)" },
+      "timestamp": { "type": "number", "description": "Scheduled execution time (cron trigger)" },
+      "reason": { "type": "string", "description": "Reason if not processed" }
+    }
+  }
+}

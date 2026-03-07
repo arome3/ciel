@@ -28,6 +28,11 @@ interface WorkflowState {
   simulation: Simulation | null
   editedConfig: Record<string, unknown> | null
 
+  // Refinement
+  isRefining: boolean
+  refinementPrompt: string
+  revisionHistory: Array<{ prompt: string; timestamp: number }>
+
   // Loading flags
   isGenerating: boolean
   isSimulating: boolean
@@ -64,6 +69,9 @@ interface WorkflowState {
   updateConfigField: (key: string, value: unknown) => void
   resetBuilder: () => void
   generate: (prompt: string) => Promise<void>
+  setRefinementPrompt: (prompt: string) => void
+  setIsRefining: (v: boolean) => void
+  refine: (workflowId: string, refinementPrompt: string, ownerAddress?: string) => Promise<void>
 
   // Marketplace actions
   setSearchQuery: (query: string) => void
@@ -83,6 +91,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   generatedWorkflow: null,
   simulation: null,
   editedConfig: null,
+  isRefining: false,
+  refinementPrompt: "",
+  revisionHistory: [],
   isGenerating: false,
   isSimulating: false,
   isPublishing: false,
@@ -128,6 +139,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       generatedWorkflow: null,
       simulation: null,
       editedConfig: null,
+      isRefining: false,
+      refinementPrompt: "",
+      revisionHistory: [],
       isGenerating: false,
       isSimulating: false,
       isPublishing: false,
@@ -157,6 +171,41 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       if (controller.signal.aborted) return // cancelled — resetBuilder already cleaned up
       const message = err instanceof Error ? err.message : "Failed to generate workflow"
       set({ error: message, isGenerating: false })
+    } finally {
+      _activeGenerateController = null
+    }
+  },
+
+  setRefinementPrompt: (refinementPrompt) => set({ refinementPrompt }),
+  setIsRefining: (isRefining) => set({ isRefining }),
+
+  refine: async (workflowId: string, refinementPrompt: string, ownerAddress?: string) => {
+    const state = get()
+    if (state.isRefining || state.isGenerating) return
+
+    const controller = new AbortController()
+    _activeGenerateController = controller
+
+    set({ isRefining: true, error: null })
+    try {
+      const result = await api.refine(workflowId, refinementPrompt, ownerAddress, controller.signal)
+      if (!controller.signal.aborted) {
+        set((s) => ({
+          generatedWorkflow: result,
+          editedConfig: result.config ? { ...result.config } : null,
+          simulation: null,
+          isRefining: false,
+          refinementPrompt: "",
+          revisionHistory: [
+            ...s.revisionHistory,
+            { prompt: refinementPrompt, timestamp: Date.now() },
+          ],
+        }))
+      }
+    } catch (err) {
+      if (controller.signal.aborted) return
+      const message = err instanceof Error ? err.message : "Refinement failed"
+      set({ error: message, isRefining: false })
     } finally {
       _activeGenerateController = null
     }

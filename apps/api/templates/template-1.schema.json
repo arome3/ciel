@@ -1,0 +1,16 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "assetId": { "type": "string", "description": "CoinGecko asset ID to monitor (e.g. ethereum)" },
+      "threshold": { "type": "number", "description": "Price threshold for alert trigger" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "price": { "type": "number", "description": "Current price (scaled by 1e8)" },
+      "alerted": { "type": "boolean", "description": "Whether the alert condition was triggered" }
+    }
+  }
+}

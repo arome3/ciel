@@ -1,11 +1,15 @@
 import { db } from "./index"
 import { workflows, events } from "./schema"
 import { randomUUID } from "crypto"
+import { loadTemplateSchemas } from "../services/ai-engine/file-manager"
 
 const FLAGSHIP_WORKFLOW_ID = randomUUID()
 
 async function seed() {
   console.log("Seeding database...")
+
+  const t9Schemas = loadTemplateSchemas(9)
+  const t1Schemas = loadTemplateSchemas(1)
 
   // ── Flagship workflow: Multi-AI Consensus Oracle (Template 9) ──
   await db.insert(workflows).values({
@@ -48,6 +52,8 @@ import { Workflow } from "@chainlink/cre-sdk"
     chains: JSON.stringify(["base-sepolia"]),
     totalExecutions: 42,
     successfulExecutions: 40,
+    inputSchema: t9Schemas?.inputSchema ?? null,
+    outputSchema: t9Schemas?.outputSchema ?? null,
   })
 
   // ── Seed a couple more workflows for marketplace variety ──
@@ -74,6 +80,8 @@ import { Workflow } from "@chainlink/cre-sdk"
     chains: JSON.stringify(["base-sepolia"]),
     totalExecutions: 128,
     successfulExecutions: 125,
+    inputSchema: t1Schemas?.inputSchema ?? null,
+    outputSchema: t1Schemas?.outputSchema ?? null,
   })
 
   // ── Seed initial event for the activity feed ──

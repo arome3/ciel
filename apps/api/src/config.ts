@@ -31,6 +31,12 @@ const envSchema = z.object({
   CRE_GATEWAY_URL: z.string().url().optional(),
   CRE_HTTP_TRIGGER_KEY: z.string().startsWith("0x").optional(),
 
+  // GitHub App
+  GITHUB_APP_ID: z.string().optional(),
+  GITHUB_APP_PRIVATE_KEY: z.string().optional(),     // base64-encoded PEM
+  GITHUB_APP_CLIENT_ID: z.string().optional(),
+  GITHUB_APP_CLIENT_SECRET: z.string().optional(),
+
   // Tenderly
   TENDERLY_ACCESS_KEY: z.string().optional(),
   TENDERLY_ACCOUNT_SLUG: z.string().default("me"),

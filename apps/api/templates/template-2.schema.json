@@ -1,0 +1,16 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "portfolio": { "type": "string", "description": "Portfolio identifier or allocation JSON" },
+      "threshold": { "type": "number", "description": "Drift threshold percentage for rebalancing" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "maxDrift": { "type": "number", "description": "Maximum drift detected (basis points)" },
+      "actionCount": { "type": "number", "description": "Number of rebalance actions taken" }
+    }
+  }
+}

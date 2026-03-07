@@ -43,6 +43,11 @@ export interface Connection {
   compatibility: number
 }
 
+interface UndoSnapshot {
+  steps: PipelineStep[]
+  connections: Connection[]
+}
+
 interface PipelineBuilderState {
   // Data
   steps: PipelineStep[]
@@ -51,6 +56,14 @@ interface PipelineBuilderState {
   palette: PaletteWorkflow[]
   name: string
   description: string
+
+  // Connection drag state
+  connectingFrom: { stepId: string; type: "output" } | null
+  connectingMouse: { x: number; y: number } | null
+
+  // Undo/redo
+  undoStack: UndoSnapshot[]
+  redoStack: UndoSnapshot[]
 
   // Loading states
   isLoadingPalette: boolean
@@ -72,160 +85,30 @@ interface PipelineBuilderState {
   executePipeline: (pipelineId: string, triggerInput?: Record<string, unknown>, ownerAuth?: { address: string; signature: string; timestamp: string }) => Promise<unknown>
   reset: () => void
 
+  // Connection drag actions
+  startConnecting: (stepId: string) => void
+  updateConnectingMouse: (x: number, y: number) => void
+  cancelConnecting: () => void
+
+  // Undo/redo actions
+  undo: () => void
+  redo: () => void
+
   // Computed
   totalPrice: () => number
 }
 
 // ─────────────────────────────────────────────
-// Mock palette fallback
-// ─────────────────────────────────────────────
-
-const MOCK_PALETTE: PaletteWorkflow[] = [
-  {
-    id: "00000000-0000-4000-8000-000000000001",
-    name: "Price Feed Oracle",
-    category: "DeFi",
-    description: "Fetches real-time asset prices from Chainlink feeds",
-    priceUsdc: 50000,
-    inputSchema: {
-      type: "object",
-      properties: {
-        assetPair: { type: "string", description: "e.g. ETH/USD" },
-        interval: { type: "string", description: "Polling interval" },
-      },
-      required: ["assetPair"],
-    },
-    outputSchema: {
-      type: "object",
-      properties: {
-        price: { type: "number", description: "Current price" },
-        timestamp: { type: "number", description: "Unix timestamp" },
-        source: { type: "string", description: "Data source ID" },
-      },
-    },
-  },
-  {
-    id: "00000000-0000-4000-8000-000000000002",
-    name: "Threshold Gate",
-    category: "Utility",
-    description: "Passes data through only when a condition is met",
-    priceUsdc: 20000,
-    inputSchema: {
-      type: "object",
-      properties: {
-        value: { type: "number", description: "Value to check" },
-        threshold: { type: "number", description: "Threshold value" },
-        operator: { type: "string", description: "gt, lt, eq, gte, lte" },
-      },
-      required: ["value", "threshold"],
-    },
-    outputSchema: {
-      type: "object",
-      properties: {
-        passed: { type: "boolean", description: "Whether condition was met" },
-        value: { type: "number", description: "The checked value" },
-      },
-    },
-  },
-  {
-    id: "00000000-0000-4000-8000-000000000003",
-    name: "Alert Sender",
-    category: "Utility",
-    description: "Sends notifications via webhook or on-chain event",
-    priceUsdc: 30000,
-    inputSchema: {
-      type: "object",
-      properties: {
-        message: { type: "string", description: "Alert message" },
-        severity: { type: "string", description: "info, warning, critical" },
-        passed: { type: "boolean", description: "Whether to send" },
-      },
-      required: ["message"],
-    },
-    outputSchema: {
-      type: "object",
-      properties: {
-        sent: { type: "boolean", description: "Whether alert was sent" },
-        alertId: { type: "string", description: "Alert ID" },
-      },
-    },
-  },
-  {
-    id: "00000000-0000-4000-8000-000000000004",
-    name: "EVM Transaction",
-    category: "DeFi",
-    description: "Executes a write transaction on an EVM chain",
-    priceUsdc: 100000,
-    inputSchema: {
-      type: "object",
-      properties: {
-        contractAddress: { type: "string", description: "Target contract" },
-        functionName: { type: "string", description: "Function to call" },
-        args: { type: "string", description: "Encoded arguments" },
-        value: { type: "number", description: "ETH value to send" },
-      },
-      required: ["contractAddress", "functionName"],
-    },
-    outputSchema: {
-      type: "object",
-      properties: {
-        txHash: { type: "string", description: "Transaction hash" },
-        success: { type: "boolean", description: "Whether tx succeeded" },
-        gasUsed: { type: "number", description: "Gas consumed" },
-      },
-    },
-  },
-  {
-    id: "00000000-0000-4000-8000-000000000005",
-    name: "Compliance Check",
-    category: "Security",
-    description: "Runs KYC/AML screening on an address",
-    priceUsdc: 75000,
-    inputSchema: {
-      type: "object",
-      properties: {
-        address: { type: "string", description: "Address to screen" },
-        checkType: { type: "string", description: "kyc, aml, sanctions" },
-      },
-      required: ["address"],
-    },
-    outputSchema: {
-      type: "object",
-      properties: {
-        passed: { type: "boolean", description: "Whether check passed" },
-        riskScore: { type: "number", description: "0-100 risk score" },
-        flags: { type: "string", description: "Comma-separated flags" },
-      },
-    },
-  },
-  {
-    id: "00000000-0000-4000-8000-000000000006",
-    name: "Data Aggregator",
-    category: "Analytics",
-    description: "Combines multiple data sources into a single output",
-    priceUsdc: 40000,
-    inputSchema: {
-      type: "object",
-      properties: {
-        values: { type: "string", description: "JSON array of values" },
-        method: { type: "string", description: "mean, median, mode, consensus" },
-      },
-      required: ["values"],
-    },
-    outputSchema: {
-      type: "object",
-      properties: {
-        result: { type: "number", description: "Aggregated result" },
-        confidence: { type: "number", description: "Confidence 0-1" },
-        sources: { type: "number", description: "Number of sources used" },
-      },
-    },
-  },
-]
-
-// ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
+
+const GRID_SIZE = 20
+const MAX_UNDO = 50
+
+/** Snap a coordinate to the nearest grid point. */
+export function snapToGrid(v: number): number {
+  return Math.round(v / GRID_SIZE) * GRID_SIZE
+}
 
 let stepCounter = 0
 
@@ -295,14 +178,26 @@ function suggestMappings(
 // Store
 // ─────────────────────────────────────────────
 
+function pushUndo(state: PipelineBuilderState): UndoSnapshot[] {
+  const snapshot: UndoSnapshot = {
+    steps: state.steps.map((s) => ({ ...s })),
+    connections: state.connections.map((c) => ({ ...c, fieldMappings: [...c.fieldMappings] })),
+  }
+  return [...state.undoStack.slice(-(MAX_UNDO - 1)), snapshot]
+}
+
 export const usePipelineBuilderStore = create<PipelineBuilderState>(
   (set, get) => ({
     steps: [],
     connections: [],
     selectedStepId: null,
-    palette: MOCK_PALETTE,
+    palette: [],
     name: "",
     description: "",
+    connectingFrom: null,
+    connectingMouse: null,
+    undoStack: [],
+    redoStack: [],
     isLoadingPalette: false,
     isSaving: false,
     isExecuting: false,
@@ -323,27 +218,30 @@ export const usePipelineBuilderStore = create<PipelineBuilderState>(
             outputSchema: wf.outputSchema as JSONSchema,
           }))
 
-        // Use real data if available, fallback to mock
-        set({ palette: withSchemas.length > 0 ? withSchemas : MOCK_PALETTE })
+        set({ palette: withSchemas })
       } catch {
-        // Keep mock data on error
+        set({ palette: [] })
       } finally {
         set({ isLoadingPalette: false })
       }
     },
 
     addStep: (workflowId, x, y) => {
-      const { palette } = get()
-      const wf = palette.find((w) => w.id === workflowId)
+      const state = get()
+      const wf = state.palette.find((w) => w.id === workflowId)
       if (!wf) return
       const step: PipelineStep = {
         id: generateStepId(),
         workflowId,
         name: wf.name,
-        x,
-        y,
+        x: snapToGrid(x),
+        y: snapToGrid(y),
       }
-      set((s) => ({ steps: [...s.steps, step] }))
+      set((s) => ({
+        steps: [...s.steps, step],
+        undoStack: pushUndo(s),
+        redoStack: [],
+      }))
     },
 
     removeStep: (stepId) => {
@@ -354,13 +252,15 @@ export const usePipelineBuilderStore = create<PipelineBuilderState>(
         ),
         selectedStepId:
           s.selectedStepId === stepId ? null : s.selectedStepId,
+        undoStack: pushUndo(s),
+        redoStack: [],
       }))
     },
 
     moveStep: (stepId, x, y) => {
       set((s) => ({
         steps: s.steps.map((st) =>
-          st.id === stepId ? { ...st, x, y } : st,
+          st.id === stepId ? { ...st, x: snapToGrid(x), y: snapToGrid(y) } : st,
         ),
       }))
     },
@@ -415,12 +315,18 @@ export const usePipelineBuilderStore = create<PipelineBuilderState>(
         compatibility,
       }
 
-      set((s) => ({ connections: [...s.connections, connection] }))
+      set((s) => ({
+        connections: [...s.connections, connection],
+        undoStack: pushUndo(s),
+        redoStack: [],
+      }))
     },
 
     disconnectSteps: (connectionId) => {
       set((s) => ({
         connections: s.connections.filter((c) => c.id !== connectionId),
+        undoStack: pushUndo(s),
+        redoStack: [],
       }))
     },
 
@@ -490,6 +396,44 @@ export const usePipelineBuilderStore = create<PipelineBuilderState>(
       }
     },
 
+    // Connection drag
+    startConnecting: (stepId) => set({ connectingFrom: { stepId, type: "output" }, connectingMouse: null }),
+    updateConnectingMouse: (x, y) => set({ connectingMouse: { x, y } }),
+    cancelConnecting: () => set({ connectingFrom: null, connectingMouse: null }),
+
+    // Undo/redo
+    undo: () => {
+      const { undoStack, steps, connections } = get()
+      if (undoStack.length === 0) return
+      const prev = undoStack[undoStack.length - 1]
+      const current: UndoSnapshot = {
+        steps: steps.map((s) => ({ ...s })),
+        connections: connections.map((c) => ({ ...c, fieldMappings: [...c.fieldMappings] })),
+      }
+      set((s) => ({
+        steps: prev.steps,
+        connections: prev.connections,
+        undoStack: s.undoStack.slice(0, -1),
+        redoStack: [...s.redoStack, current],
+      }))
+    },
+
+    redo: () => {
+      const { redoStack, steps, connections } = get()
+      if (redoStack.length === 0) return
+      const next = redoStack[redoStack.length - 1]
+      const current: UndoSnapshot = {
+        steps: steps.map((s) => ({ ...s })),
+        connections: connections.map((c) => ({ ...c, fieldMappings: [...c.fieldMappings] })),
+      }
+      set((s) => ({
+        steps: next.steps,
+        connections: next.connections,
+        redoStack: s.redoStack.slice(0, -1),
+        undoStack: [...s.undoStack, current],
+      }))
+    },
+
     reset: () => {
       stepCounter = 0
       set({
@@ -498,6 +442,10 @@ export const usePipelineBuilderStore = create<PipelineBuilderState>(
         selectedStepId: null,
         name: "",
         description: "",
+        connectingFrom: null,
+        connectingMouse: null,
+        undoStack: [],
+        redoStack: [],
       })
     },
 

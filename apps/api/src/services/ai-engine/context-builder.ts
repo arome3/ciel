@@ -8,6 +8,7 @@
 
 import { readFileSync } from "fs"
 import { join } from "path"
+import { loadTemplateConfig } from "./file-manager"
 
 // ─────────────────────────────────────────────
 // Template Relations Map
@@ -37,6 +38,7 @@ const TEMPLATE_RELATIONS: Record<number, [number, number]> = {
   20: [19, 4],   // Settlement Reconciliation — settlement like T19, evmWrite like T4
   21: [8, 19],   // Shareholder Registry — compliance like T8, escrow-adjacent like T19
   22: [6, 21],   // Dividend Distribution — payout like T6, registry like T21
+  23: [16, 19],  // DvP Dual-Trigger Escrow — dual-trigger like T16, escrow like T19
 }
 
 // ─────────────────────────────────────────────
@@ -48,7 +50,7 @@ const TEMPLATES_DIR = join(__dirname, "../../../data/templates")
 /** Pre-loaded template contents: templateId → file content */
 const TEMPLATE_CACHE = new Map<number, string>()
 
-for (let id = 1; id <= 22; id++) {
+for (let id = 1; id <= 23; id++) {
   try {
     const content = readFileSync(join(TEMPLATES_DIR, `template-${id}.ts`), "utf-8")
     TEMPLATE_CACHE.set(id, content)
@@ -66,7 +68,7 @@ for (let id = 1; id <= 22; id++) {
  *
  * Reads from module-level cache — zero file I/O per request.
  *
- * @param templateId - Target template ID (1-22)
+ * @param templateId - Target template ID (1-23)
  * @returns Labeled code fences with 2 related template examples
  */
 export function buildFewShotContext(templateId: number): string {
@@ -80,12 +82,15 @@ export function buildFewShotContext(templateId: number): string {
   for (const relatedId of relations) {
     const content = TEMPLATE_CACHE.get(relatedId)
     if (content) {
-      examples.push(
-        `### Example: Template ${relatedId}\n` +
+      const configContent = loadTemplateConfig(relatedId)
+      let example = `### Example: Template ${relatedId}\n` +
         "```typescript\n" +
         content +
-        "\n```",
-      )
+        "\n```"
+      if (configContent) {
+        example += `\n\n**Config for Template ${relatedId}:**\n\`\`\`json\n` + configContent + "\n```"
+      }
+      examples.push(example)
     }
   }
 

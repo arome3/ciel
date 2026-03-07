@@ -115,11 +115,13 @@ export function ConfigEditor() {
               <Input
                 id={`cfg-${key}`}
                 type={fieldType === "number" ? "number" : "text"}
-                value={value === null || value === undefined ? "" : String(value)}
+                value={value === null || value === undefined ? "" : typeof value === "object" ? JSON.stringify(value) : String(value)}
                 onChange={(e) => {
                   const raw = e.target.value
                   if (fieldType === "number") {
                     updateConfigField(key, raw === "" ? 0 : Number(raw))
+                  } else if (typeof value === "object" && value !== null) {
+                    try { updateConfigField(key, JSON.parse(raw)) } catch { updateConfigField(key, raw) }
                   } else {
                     updateConfigField(key, raw)
                   }

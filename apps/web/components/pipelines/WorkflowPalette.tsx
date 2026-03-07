@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { GripVertical } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { getCategoryVariant } from "@/lib/design-tokens"
 import { usePipelineBuilderStore } from "@/lib/pipeline-builder-store"
@@ -64,15 +65,17 @@ export function WorkflowPalette() {
               const outCount = Object.keys(
                 wf.outputSchema.properties ?? {},
               ).length
-              const price = (wf.priceUsdc / 1_000_000).toFixed(2)
+              const price = wf.priceUsdc === 0 ? "Free" : `$${(wf.priceUsdc / 1_000_000).toFixed(2)}`
 
               return (
                 <div
                   key={wf.id}
                   draggable
                   onDragStart={(e) => handleDragStart(e, wf.id)}
-                  className="cursor-grab rounded-lg border border-border bg-background p-2.5 transition-colors hover:border-primary/50 active:cursor-grabbing"
+                  className="flex cursor-grab items-start gap-1.5 rounded-lg border border-border bg-background p-2.5 transition-colors hover:border-primary/50 active:cursor-grabbing"
                 >
+                  <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/40" />
+                  <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span
                       className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${getCategoryVariant(wf.category)}`}
@@ -80,7 +83,7 @@ export function WorkflowPalette() {
                       {wf.category}
                     </span>
                     <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-                      ${price}
+                      {price}
                     </span>
                   </div>
                   <p className="mt-1.5 text-xs font-semibold text-foreground">
@@ -90,8 +93,9 @@ export function WorkflowPalette() {
                     {wf.description}
                   </p>
                   <p className="mt-1.5 text-[10px] text-muted-foreground">
-                    In: {inCount} fields | Out: {outCount} fields
+                    {inCount} in → {outCount} out
                   </p>
+                  </div>
                 </div>
               )
             })}

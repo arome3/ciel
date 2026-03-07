@@ -10,7 +10,18 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import { Hammer, Store, GitBranch, Plus, Wallet } from "lucide-react"
+import {
+  Hammer,
+  Store,
+  GitBranch,
+  Plus,
+  Wallet,
+  Layers,
+  Globe,
+  LayoutGrid,
+  FlaskConical,
+  Settings,
+} from "lucide-react"
 import { useCommandStore } from "@/lib/command-store"
 import { useAccount } from "wagmi"
 import { useConnectModal } from "@rainbow-me/rainbowkit"
@@ -48,18 +59,38 @@ export function CommandPalette() {
       <CommandInput placeholder="Type a command or search..." />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
-        <CommandGroup heading="Navigation">
-          <CommandItem onSelect={() => navigate("/build")}>
-            <Hammer className="mr-2 h-4 w-4" />
-            Build
+        <CommandGroup heading="Workspace">
+          <CommandItem onSelect={() => navigate("/workflows")}>
+            <Layers className="mr-2 h-4 w-4" />
+            My Workflows
           </CommandItem>
-          <CommandItem onSelect={() => navigate("/marketplace")}>
-            <Store className="mr-2 h-4 w-4" />
-            Marketplace
+          <CommandItem onSelect={() => navigate("/published")}>
+            <Globe className="mr-2 h-4 w-4" />
+            Published
           </CommandItem>
           <CommandItem onSelect={() => navigate("/pipelines")}>
             <GitBranch className="mr-2 h-4 w-4" />
             Pipelines
+          </CommandItem>
+        </CommandGroup>
+        <CommandGroup heading="Explore">
+          <CommandItem onSelect={() => navigate("/marketplace")}>
+            <Store className="mr-2 h-4 w-4" />
+            Marketplace
+          </CommandItem>
+          <CommandItem onSelect={() => navigate("/templates")}>
+            <LayoutGrid className="mr-2 h-4 w-4" />
+            Templates
+          </CommandItem>
+        </CommandGroup>
+        <CommandGroup heading="Tools">
+          <CommandItem onSelect={() => navigate("/testnet")}>
+            <FlaskConical className="mr-2 h-4 w-4" />
+            TestNet
+          </CommandItem>
+          <CommandItem onSelect={() => navigate("/settings")}>
+            <Settings className="mr-2 h-4 w-4" />
+            Settings
           </CommandItem>
         </CommandGroup>
         <CommandGroup heading="Actions">

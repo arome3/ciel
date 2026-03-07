@@ -1,9 +1,9 @@
 import { Router } from "express"
 import { z } from "zod"
 import OpenAI from "openai"
-import { GenerateRequestSchema } from "../types/api"
+import { GenerateRequestSchema, RefineRequestSchema } from "../types/api"
 import { generateLimiter } from "../middleware/rate-limiter"
-import { generateWorkflow } from "../services/ai-engine/orchestrator"
+import { generateWorkflow, refineWorkflow } from "../services/ai-engine/orchestrator"
 import { db } from "../db"
 import { intentLogs } from "../db/schema"
 import { config } from "../config"
@@ -22,7 +22,7 @@ router.post("/generate", generateLimiter, async (req, res, next) => {
       ? rawAddress
       : "0x0000000000000000000000000000000000000000"
 
-    const result = await generateWorkflow(parsed.prompt, ownerAddress, parsed.templateHint)
+    const result = await generateWorkflow(parsed.prompt, ownerAddress, parsed.templateHint, req.requestId)
 
     // Fire-and-forget: log intent for future fine-tuning
     db.insert(intentLogs).values({
@@ -31,6 +31,21 @@ router.post("/generate", generateLimiter, async (req, res, next) => {
       matchedTemplateId: result.template.templateId,
       matchedConfidence: result.template.confidence,
     }).catch(() => { /* non-blocking — never fail the response */ })
+
+    // Build trace summary (stages + tokens + summary — not full traceJson blob)
+    const traceSummary = result.trace ? {
+      requestId: result.trace.requestId,
+      stages: result.trace.stages,
+      tokenUsage: result.trace.tokenUsage,
+      attempts: result.trace.attempts,
+      totalDurationMs: result.trace.totalDurationMs,
+      totalAttempts: result.trace.totalAttempts,
+      successfulAttempt: result.trace.successfulAttempt,
+      finalOutcome: result.trace.finalOutcome,
+      estimatedCostUsd: result.trace.estimatedCostUsd,
+      promptHash: result.trace.promptHash,
+      model: result.trace.model,
+    } : undefined
 
     res.json({
       workflowId: result.workflowId,
@@ -43,6 +58,54 @@ router.post("/generate", generateLimiter, async (req, res, next) => {
       template: result.template,
       validation: result.validation,
       fallback: result.fallback,
+      trace: traceSummary,
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ─────────────────────────────────────────────
+// Refine — iterative follow-up on existing workflow
+// ─────────────────────────────────────────────
+
+router.post("/refine", generateLimiter, async (req, res, next) => {
+  try {
+    const parsed = RefineRequestSchema.parse(req.body)
+    const rawAddress = req.headers["x-owner-address"] as string | undefined
+    const ownerAddress = rawAddress && /^0x[a-fA-F0-9]{40}$/.test(rawAddress)
+      ? rawAddress
+      : "0x0000000000000000000000000000000000000000"
+
+    const result = await refineWorkflow(parsed.workflowId, parsed.refinementPrompt, ownerAddress, req.requestId)
+
+    const traceSummary = result.trace ? {
+      requestId: result.trace.requestId,
+      stages: result.trace.stages,
+      tokenUsage: result.trace.tokenUsage,
+      attempts: result.trace.attempts,
+      totalDurationMs: result.trace.totalDurationMs,
+      totalAttempts: result.trace.totalAttempts,
+      successfulAttempt: result.trace.successfulAttempt,
+      finalOutcome: result.trace.finalOutcome,
+      estimatedCostUsd: result.trace.estimatedCostUsd,
+      promptHash: result.trace.promptHash,
+      model: result.trace.model,
+    } : undefined
+
+    res.json({
+      workflowId: result.workflowId,
+      code: result.code,
+      configJson: result.configJson,
+      explanation: result.explanation,
+      consumerSol: result.consumerSol,
+      secretsYaml: result.secretsYaml,
+      intent: result.intent,
+      template: result.template,
+      validation: result.validation,
+      fallback: result.fallback,
+      revisionNumber: result.revisionNumber,
+      trace: traceSummary,
     })
   } catch (err) {
     next(err)

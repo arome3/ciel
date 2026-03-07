@@ -1,0 +1,17 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "amount": { "type": "string", "description": "Mint amount requested" },
+      "address": { "type": "string", "description": "Requestor wallet address" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string", "description": "Result status: minted | rejected" },
+      "amount": { "type": "string", "description": "Amount minted (if successful)" },
+      "reason": { "type": "string", "description": "Rejection reason (if rejected)" }
+    }
+  }
+}

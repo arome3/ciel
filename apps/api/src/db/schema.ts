@@ -46,9 +46,28 @@ export const workflows = sqliteTable("workflows", {
   totalExecutions: integer("total_executions").default(0),
   successfulExecutions: integer("successful_executions").default(0),
 
+  // Revision tracking
+  currentRevision: integer("current_revision").default(1),
+
   // Timestamps (ISO 8601 strings)
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+})
+
+// ─────────────────────────────────────────────
+// Workflow Revisions Table
+// ─────────────────────────────────────────────
+export const workflowRevisions = sqliteTable("workflow_revisions", {
+  id: text("id").primaryKey(),                              // UUID v4
+  workflowId: text("workflow_id").notNull().references(() => workflows.id),
+  revisionNumber: integer("revision_number").notNull(),     // 1-based
+  prompt: text("prompt").notNull(),                         // Refinement prompt (or original for rev 1)
+  code: text("code").notNull(),                             // Code snapshot at this revision
+  config: text("config").notNull(),                         // Config snapshot (stringified JSON)
+  explanation: text("explanation").notNull(),
+  consumerSol: text("consumer_sol"),
+  parentRevisionId: text("parent_revision_id"),             // FK to self, null for rev 1
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 })
 
 // ─────────────────────────────────────────────
@@ -131,10 +150,86 @@ export const intentLogs = sqliteTable("intentLogs", {
 })
 
 // ─────────────────────────────────────────────
+// Template Requests Table
+// ─────────────────────────────────────────────
+export const templateRequests = sqliteTable("template_requests", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  description: text("description").notNull(),
+  category: text("category"),
+  triggerType: text("trigger_type"),
+  ownerAddress: text("owner_address").notNull(),
+  status: text("status").notNull().default("open"),  // "open" | "planned" | "completed"
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+})
+
+// ─────────────────────────────────────────────
+// Template Request Votes Table
+// ─────────────────────────────────────────────
+export const templateRequestVotes = sqliteTable("template_request_votes", {
+  requestId: text("request_id").notNull().references(() => templateRequests.id),
+  voterAddress: text("voter_address").notNull(),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+})
+
+// ─────────────────────────────────────────────
+// User Settings Table
+// ─────────────────────────────────────────────
+export const userSettings = sqliteTable("user_settings", {
+  ownerAddress: text("owner_address").primaryKey(),
+  displayName: text("display_name"),
+  defaultChain: text("default_chain").default("base-sepolia"),
+  webhookUrl: text("webhook_url"),
+  notifyDeployFail: integer("notify_deploy_fail", { mode: "boolean" }).default(true),
+  notifyExecFail: integer("notify_exec_fail", { mode: "boolean" }).default(true),
+  notifyExecSuccess: integer("notify_exec_success", { mode: "boolean" }).default(false),
+  githubInstallationId: integer("github_installation_id"),
+  githubUsername: text("github_username"),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+})
+
+// ─────────────────────────────────────────────
+// Generation Traces Table (observability for AI pipeline)
+// ─────────────────────────────────────────────
+export const generationTraces = sqliteTable("generation_traces", {
+  id: text("id").primaryKey(),                              // requestId
+  workflowId: text("workflow_id"),                          // FK to workflows (nullable — set after generation)
+  prompt: text("prompt").notNull(),                         // truncated 200 chars
+  promptHash: text("prompt_hash"),                          // system prompt hash (cache analysis)
+  templateId: integer("template_id").notNull(),
+  templateName: text("template_name").notNull(),
+  templateConfidence: real("template_confidence"),
+  ownerAddress: text("owner_address").notNull(),
+  model: text("model"),                                     // "gpt-5.3-codex"
+  totalDurationMs: integer("total_duration_ms").notNull(),
+  totalAttempts: integer("total_attempts").notNull(),
+  successfulAttempt: integer("successful_attempt"),
+  usedFallback: integer("used_fallback", { mode: "boolean" }).notNull(),
+  finalOutcome: text("final_outcome").notNull(),
+  totalInputTokens: integer("total_input_tokens").default(0),
+  totalOutputTokens: integer("total_output_tokens").default(0),
+  totalReasoningTokens: integer("total_reasoning_tokens").default(0),
+  totalCachedTokens: integer("total_cached_tokens").default(0),
+  estimatedCostUsd: real("estimated_cost_usd").default(0),
+  traceJson: text("trace_json").notNull(),                  // full GenerationTrace
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+})
+
+// ─────────────────────────────────────────────
+// Tenderly VNet State (singleton row, survives restarts)
+// ─────────────────────────────────────────────
+export const tenderlyState = sqliteTable("tenderly_state", {
+  id: integer("id").primaryKey().default(1),                 // Always 1 — singleton
+  stateJson: text("state_json").notNull(),                   // Serialized ManagerState
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+})
+
+// ─────────────────────────────────────────────
 // Type exports for use across the app
 // ─────────────────────────────────────────────
 export type Workflow = typeof workflows.$inferSelect
 export type NewWorkflow = typeof workflows.$inferInsert
+export type WorkflowRevision = typeof workflowRevisions.$inferSelect
+export type NewWorkflowRevision = typeof workflowRevisions.$inferInsert
 export type Execution = typeof executions.$inferSelect
 export type NewExecution = typeof executions.$inferInsert
 export type Event = typeof events.$inferSelect
@@ -145,3 +240,9 @@ export type PipelineExecution = typeof pipelineExecutions.$inferSelect
 export type NewPipelineExecution = typeof pipelineExecutions.$inferInsert
 export type IntentLog = typeof intentLogs.$inferSelect
 export type NewIntentLog = typeof intentLogs.$inferInsert
+export type TemplateRequest = typeof templateRequests.$inferSelect
+export type NewTemplateRequest = typeof templateRequests.$inferInsert
+export type UserSetting = typeof userSettings.$inferSelect
+export type NewUserSetting = typeof userSettings.$inferInsert
+export type GenerationTraceRow = typeof generationTraces.$inferSelect
+export type NewGenerationTraceRow = typeof generationTraces.$inferInsert

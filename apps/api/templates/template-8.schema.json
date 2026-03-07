@@ -1,0 +1,17 @@
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "address": { "type": "string", "description": "Address to check compliance for" },
+      "operationType": { "type": "string", "description": "Type of operation to validate" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "string", "description": "Result status: approved | rejected" },
+      "operationType": { "type": "string", "description": "Type of operation processed" },
+      "reason": { "type": "string", "description": "Rejection reason (if rejected)" }
+    }
+  }
+}

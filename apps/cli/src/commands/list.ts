@@ -38,8 +38,8 @@ export const listCommand = new Command("list")
         w.id.slice(0, 8),
         (w.name ?? "unnamed").slice(0, 30),
         w.category,
-        w.priceUsdc ? `$${(w.priceUsdc / 1_000_000).toFixed(2)}` : "–",
-        String(w.executionCount),
+        w.priceUsdc == null ? "–" : w.priceUsdc === 0 ? "Free" : `$${(w.priceUsdc / 1_000_000).toFixed(2)}`,
+        String(w.totalExecutions),
       ]),
     )
     console.log()

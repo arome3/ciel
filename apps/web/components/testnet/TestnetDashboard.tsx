@@ -1,18 +1,15 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
+import { ExternalLink, Copy, Check, Globe, Server, FileCode, Shield, Zap } from "lucide-react"
 import { api } from "@/lib/api"
 
-const NETWORKS = [
-  { id: 1, label: "Ethereum Mainnet" },
-  { id: 84532, label: "Base Sepolia" },
-  { id: 8453, label: "Base" },
-  { id: 42161, label: "Arbitrum One" },
-] as const
-
-const NETWORK_LABELS: Record<number, string> = Object.fromEntries(
-  NETWORKS.map(n => [n.id, n.label]),
-)
+const NETWORK_LABELS: Record<number, string> = {
+  1: "Ethereum Mainnet",
+  84532: "Base Sepolia",
+  8453: "Base",
+  42161: "Arbitrum One",
+}
 
 interface TestnetState {
   active: boolean
@@ -28,112 +25,62 @@ interface TestnetState {
   snapshotId: string | null
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <button
+      onClick={handleCopy}
+      className="ml-2 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
+      title="Copy to clipboard"
+    >
+      {copied ? <Check className="size-3.5 text-green-400" /> : <Copy className="size-3.5" />}
+    </button>
+  )
+}
+
+const FEATURES = [
+  {
+    icon: Globe,
+    title: "Fork Real State",
+    desc: "Full mainnet state available — real token balances, deployed contracts, live oracle data.",
+  },
+  {
+    icon: Shield,
+    title: "Safe Testing",
+    desc: "Snapshot and revert to any state. Unlimited faucet for gas — no real funds at risk.",
+  },
+  {
+    icon: FileCode,
+    title: "CRE Workflows",
+    desc: "AI-generated CRE workflows are simulated and validated on the Virtual TestNet before publishing.",
+  },
+  {
+    icon: Zap,
+    title: "Shareable Explorer",
+    desc: "Every transaction is visible in a public Tenderly Explorer — perfect for demos and audits.",
+  },
+]
+
 export function TestnetDashboard() {
   const [state, setState] = useState<TestnetState | null>(null)
-  const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  // Create form state
-  const [name, setName] = useState("ciel-testnet")
-  const [networkId, setNetworkId] = useState(84532)
-  const [syncState, setSyncState] = useState(false)
-
-  // Fund form state
-  const [fundAddress, setFundAddress] = useState("")
-  const [fundAmount, setFundAmount] = useState("100")
 
   const refresh = useCallback(async () => {
     try {
       const data = await api.tenderlyStatus()
       setState(data)
       setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch status")
+    } catch {
+      // Tenderly not configured — show inactive state
+      setState({ active: false, testnet: null, contracts: { registry: null, consumer: null }, snapshotId: null })
     }
   }, [])
 
-  const handleCreate = async () => {
-    setLoading("create")
-    setError(null)
-    try {
-      await api.tenderlyCreate({ name, networkId, syncState })
-      await refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create testnet")
-    } finally {
-      setLoading(null)
-    }
-  }
-
-  const handleDeploy = async () => {
-    setLoading("deploy")
-    setError(null)
-    try {
-      await api.tenderlyDeployContracts()
-      await refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to deploy contracts")
-    } finally {
-      setLoading(null)
-    }
-  }
-
-  const handleFund = async () => {
-    if (!fundAddress) return
-    setLoading("fund")
-    setError(null)
-    try {
-      await api.tenderlyFund(fundAddress, Number(fundAmount))
-      setFundAddress("")
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fund account")
-    } finally {
-      setLoading(null)
-    }
-  }
-
-  const handleSnapshot = async () => {
-    setLoading("snapshot")
-    setError(null)
-    try {
-      await api.tenderlySnapshot()
-      await refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create snapshot")
-    } finally {
-      setLoading(null)
-    }
-  }
-
-  const handleRevert = async () => {
-    if (!state?.snapshotId) return
-    setLoading("revert")
-    setError(null)
-    try {
-      await api.tenderlyRevert(state.snapshotId)
-      await refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to revert")
-    } finally {
-      setLoading(null)
-    }
-  }
-
-  const handleCleanup = async () => {
-    setLoading("cleanup")
-    setError(null)
-    try {
-      await api.tenderlyCleanup()
-      setState(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to cleanup")
-    } finally {
-      setLoading(null)
-    }
-  }
-
-  // Initial load — must be in useEffect, not render body
   useEffect(() => {
     refresh()
   }, [refresh])
@@ -142,188 +89,144 @@ export function TestnetDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Error banner */}
       {error && (
         <div className="rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-3 text-sm text-red-300">
           {error}
         </div>
       )}
 
-      {/* Status Card */}
-      {t && (
-        <div className="rounded-lg border border-border bg-card p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">{t.name}</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {NETWORK_LABELS[t.networkId] ?? `Chain ${t.networkId}`} &middot; Chain ID {t.chainId}
-              </p>
+      {/* Powered by Tenderly badge */}
+      <div className="flex items-center gap-3 rounded-lg border border-border bg-card/50 px-4 py-3">
+        <Server className="size-5 text-purple-400 shrink-0" />
+        <div className="flex-1">
+          <p className="text-xs font-medium text-foreground">
+            Powered by Tenderly Virtual TestNets
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Ciel uses ephemeral blockchain forks with full mainnet state to simulate and validate every workflow before it goes live.
+          </p>
+        </div>
+        <a
+          href="https://tenderly.co/virtual-testnets"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0"
+        >
+          Learn more <ExternalLink className="inline size-3 ml-0.5" />
+        </a>
+      </div>
+
+      {/* Active TestNet Status */}
+      {t ? (
+        <div className="rounded-lg border border-border bg-card overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-border px-5 py-4">
+            <div className="flex items-center gap-3">
+              <div className="flex size-9 items-center justify-center rounded-full bg-green-500/10">
+                <div className="size-2.5 rounded-full bg-green-400 animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">{t.name}</h3>
+                <p className="text-xs text-muted-foreground">
+                  {NETWORK_LABELS[t.networkId] ?? `Chain ${t.networkId}`} &middot; Chain ID {t.chainId}
+                </p>
+              </div>
             </div>
             <span className="inline-flex items-center rounded-full bg-green-900/60 px-2.5 py-0.5 text-xs font-medium text-green-300">
               Active
             </span>
           </div>
-          <div className="mt-4 space-y-2 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">RPC URL</span>
-              <button
-                onClick={() => navigator.clipboard.writeText(t.rpcUrl)}
-                className="max-w-[300px] truncate text-right font-mono text-foreground hover:text-primary"
-                title="Click to copy"
-              >
-                {t.rpcUrl}
-              </button>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Explorer</span>
-              <a
-                href={t.explorerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-primary hover:underline"
-              >
-                Open Explorer
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Contracts Card */}
-      {state?.contracts?.registry && (
-        <div className="rounded-lg border border-border bg-card p-5">
-          <h3 className="mb-3 text-sm font-semibold text-foreground">Deployed Contracts</h3>
-          <div className="space-y-2 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Registry</span>
-              <span className="font-mono text-foreground">{state.contracts.registry}</span>
+          {/* Explorer Link — prominent */}
+          <a
+            href={t.explorerUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 border-b border-border px-5 py-3 bg-primary/5 hover:bg-primary/10 transition-colors group"
+          >
+            <ExternalLink className="size-4 text-primary shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-primary group-hover:underline">
+                Open Tenderly Explorer
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                View all transactions, contract state, and execution traces
+              </p>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Consumer</span>
-              <span className="font-mono text-foreground">{state.contracts.consumer}</span>
-            </div>
-          </div>
-        </div>
-      )}
+          </a>
 
-      {/* Create Panel (only show when no active testnet) */}
-      {!t && (
-        <div className="rounded-lg border border-border bg-card p-5">
-          <h3 className="mb-4 text-sm font-semibold text-foreground">Create Virtual TestNet</h3>
-          <div className="space-y-3">
+          {/* Details */}
+          <div className="px-5 py-4 space-y-3">
             <div>
-              <label className="mb-1 block text-xs text-muted-foreground">Name</label>
-              <input
-                type="text"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                placeholder="ciel-testnet"
-              />
+              <p className="text-xs text-muted-foreground mb-1">RPC URL</p>
+              <div className="flex items-center">
+                <code className="text-xs font-mono text-foreground truncate flex-1">{t.rpcUrl}</code>
+                <CopyButton text={t.rpcUrl} />
+              </div>
             </div>
             <div>
-              <label className="mb-1 block text-xs text-muted-foreground">Fork Network</label>
-              <select
-                value={networkId}
-                onChange={e => setNetworkId(Number(e.target.value))}
-                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              >
-                {NETWORKS.map(n => (
-                  <option key={n.id} value={n.id}>{n.label}</option>
-                ))}
-              </select>
+              <p className="text-xs text-muted-foreground mb-1">VNet ID</p>
+              <div className="flex items-center">
+                <code className="text-xs font-mono text-foreground truncate flex-1">{t.id}</code>
+                <CopyButton text={t.id} />
+              </div>
             </div>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={syncState}
-                onChange={e => setSyncState(e.target.checked)}
-                className="rounded border-border"
-              />
-              Enable real-time state sync
-            </label>
-            <button
-              onClick={handleCreate}
-              disabled={loading !== null || !name}
-              className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            >
-              {loading === "create" ? "Creating..." : "Create TestNet"}
-            </button>
           </div>
         </div>
-      )}
-
-      {/* Fund Card (only when active) */}
-      {t && (
-        <div className="rounded-lg border border-border bg-card p-5">
-          <h3 className="mb-3 text-sm font-semibold text-foreground">Fund Account</h3>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={fundAddress}
-              onChange={e => setFundAddress(e.target.value)}
-              placeholder="0x..."
-              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-            <input
-              type="number"
-              value={fundAmount}
-              onChange={e => setFundAmount(e.target.value)}
-              className="w-24 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              min="1"
-              max="10000"
-            />
-            <button
-              onClick={handleFund}
-              disabled={loading !== null || !fundAddress}
-              className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            >
-              {loading === "fund" ? "..." : "Fund"}
-            </button>
+      ) : (
+        <div className="rounded-lg border border-border bg-card px-5 py-8 text-center">
+          <div className="mx-auto mb-3 flex size-10 items-center justify-center rounded-full bg-muted">
+            <Server className="size-5 text-muted-foreground" />
           </div>
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            Amount in ETH (default 100). Unlimited faucet on Virtual TestNets.
+          <p className="text-sm font-medium text-foreground">No Active Virtual TestNet</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            A Virtual TestNet will appear here when one is running.
           </p>
         </div>
       )}
 
-      {/* Actions Row */}
-      {t && (
-        <div className="flex flex-wrap gap-2">
-          {!state?.contracts?.registry && (
-            <button
-              onClick={handleDeploy}
-              disabled={loading !== null}
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            >
-              {loading === "deploy" ? "Deploying..." : "Deploy Contracts"}
-            </button>
-          )}
-          <button
-            onClick={handleSnapshot}
-            disabled={loading !== null}
-            className="rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
-          >
-            {loading === "snapshot" ? "..." : "Snapshot"}
-          </button>
-          {state?.snapshotId && (
-            <button
-              onClick={handleRevert}
-              disabled={loading !== null}
-              className="rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
-            >
-              {loading === "revert" ? "..." : "Revert"}
-            </button>
-          )}
-          <button
-            onClick={handleCleanup}
-            disabled={loading !== null}
-            className="rounded-md border border-red-800/50 bg-red-950/30 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-900/40 disabled:opacity-50"
-          >
-            {loading === "cleanup" ? "..." : "Destroy"}
-          </button>
+      {/* Deployed Contracts */}
+      {state?.contracts?.registry && (
+        <div className="rounded-lg border border-border bg-card p-5">
+          <h3 className="mb-4 text-sm font-semibold text-foreground">Deployed Contracts</h3>
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">AutopilotRegistry</p>
+              <div className="flex items-center">
+                <code className="text-xs font-mono text-foreground truncate flex-1">
+                  {state.contracts.registry}
+                </code>
+                <CopyButton text={state.contracts.registry!} />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">AutopilotConsumer</p>
+              <div className="flex items-center">
+                <code className="text-xs font-mono text-foreground truncate flex-1">
+                  {state.contracts.consumer}
+                </code>
+                <CopyButton text={state.contracts.consumer!} />
+              </div>
+            </div>
+          </div>
         </div>
       )}
+
+      {/* How it works */}
+      <div>
+        <h3 className="mb-3 text-sm font-semibold text-foreground">How It Works</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {FEATURES.map(f => (
+            <div key={f.title} className="rounded-lg border border-border bg-card/50 p-4">
+              <div className="flex items-center gap-2 mb-1.5">
+                <f.icon className="size-4 text-muted-foreground" />
+                <p className="text-xs font-medium text-foreground">{f.title}</p>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
