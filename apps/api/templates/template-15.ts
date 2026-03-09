@@ -30,7 +30,7 @@ const CCIP_SEND_SELECTOR = "0x96f4e9f9"   // ccipSend(uint64,(bytes,bytes,(addre
 const configSchema = z.object({
   schedule: z.string().default("0 0 * * * *").describe("Transfer check frequency"),
   sourceChainSelector: z.string().default("ethereum-testnet-sepolia").describe("Source chain name"),
-  destChainSelector: z.string().default("base-sepolia").describe("Destination chain name"),
+  destChainSelector: z.string().default("ethereum-testnet-sepolia-base-1").describe("Destination chain name"),
   ccipRouterAddress: z.string().describe("CCIP Router contract address on source chain"),
   tokenAddress: z.string().describe("ERC-20 token address to transfer"),
   transferAmount: z.string().default("1000000000000000000").describe("Amount in wei to transfer"),

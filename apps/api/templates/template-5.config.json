@@ -4,7 +4,7 @@
   "minCollateralRatio": 1.0,
   "alertWebhookUrl": "https://hooks.slack.com/services/placeholder",
   "consumerContract": "0x0000000000000000000000000000000000000000",
-  "chainSelectorName": "base-sepolia",
+  "chainSelectorName": "ethereum-testnet-sepolia-base-1",
   "schedule": "0 0 * * * *",
   "kvStoreUrl": "",
   "kvApiKey": "",

@@ -1,6 +1,6 @@
 {
   "schedule": "0 */5 * * * *",
-  "chainSelectorName": "base-sepolia",
+  "chainSelectorName": "ethereum-testnet-sepolia-base-1",
   "consumerContract": "0x0000000000000000000000000000000000000000",
   "escrowContractAddress": "0x0000000000000000000000000000000000000000",
   "deliveryContractAddress": "0x0000000000000000000000000000000000000000",

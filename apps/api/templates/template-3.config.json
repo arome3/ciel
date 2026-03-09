@@ -5,7 +5,7 @@
   "anthropicApiKey": "sk-placeholder",
   "geminiApiKey": "placeholder",
   "consumerContract": "0x0000000000000000000000000000000000000000",
-  "chainSelectorName": "base-sepolia",
+  "chainSelectorName": "ethereum-testnet-sepolia-base-1",
   "kvStoreUrl": "",
   "kvApiKey": "",
   "stateKey": ""

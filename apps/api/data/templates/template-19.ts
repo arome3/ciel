@@ -19,7 +19,7 @@ const LOCK_SELECTOR = "0x282d3fdf"    // lock(address,uint256)
 const RELEASE_SELECTOR = "0x0357371d" // release(address,uint256)
 
 const configSchema = z.object({
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   consumerContract: z.string().describe("Consumer contract for onchain reporting"),
   escrowContractAddress: z.string().describe("Escrow smart contract address"),
   settlementApiUrl: z.string().describe("Settlement API endpoint"),

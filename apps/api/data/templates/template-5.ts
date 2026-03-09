@@ -24,7 +24,7 @@ const configSchema = z.object({
   minCollateralRatio: z.number().default(1.0).describe("Minimum collateralization ratio"),
   alertWebhookUrl: z.string().describe("Alert webhook for low collateral"),
   consumerContract: z.string().describe("Proof of reserve consumer contract"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   schedule: z.string().default("0 0 * * * *").describe("Hourly check"),
 })
 

@@ -19,7 +19,7 @@ const configSchema = z.object({
   sourceContract: z.string().describe("Contract emitting events"),
   targetContract: z.string().describe("Contract to read balance from"),
   sourceChainSelector: z.string().default("ethereum-testnet-sepolia").describe("Source chain"),
-  targetChainSelector: z.string().default("base-sepolia").describe("Target chain"),
+  targetChainSelector: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   consumerContract: z.string().describe("Consumer contract address"),
   transferEventSig: z.string().default("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"),
 })

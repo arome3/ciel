@@ -7,7 +7,7 @@
   "payoutAmount": 1000000000000000000,
   "beneficiaryAddress": "0x0000000000000000000000000000000000000000",
   "consumerContract": "0x0000000000000000000000000000000000000000",
-  "chainSelectorName": "base-sepolia",
+  "chainSelectorName": "ethereum-testnet-sepolia-base-1",
   "schedule": "0 0 */6 * * *",
   "kvStoreUrl": "",
   "kvApiKey": "",

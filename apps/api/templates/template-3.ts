@@ -21,7 +21,7 @@ const configSchema = z.object({
   anthropicApiKey: z.string().describe("Anthropic API key (stored as DON secret)"),
   geminiApiKey: z.string().describe("Gemini API key (stored as DON secret)"),
   consumerContract: z.string().describe("Consumer contract address"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Chain to monitor"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Chain to monitor"),
 })
 
 type Config = z.infer<typeof configSchema>

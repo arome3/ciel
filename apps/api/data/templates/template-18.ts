@@ -18,7 +18,7 @@ import {
 
 const configSchema = z.object({
   schedule: z.string().default("0 0 */4 * * *").describe("Payment check frequency"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   consumerContract: z.string().describe("Consumer contract for onchain reporting"),
   paymentApiUrl: z.string().describe("Payment gateway API endpoint"),
   maxPaymentAmount: z.string().default("50000000000").describe("Maximum payment amount in smallest unit"),

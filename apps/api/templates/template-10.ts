@@ -17,7 +17,7 @@ const configSchema = z.object({
   aggregationMethod: z.enum(["weighted_average", "median", "min", "max"]).default("weighted_average").describe("How to aggregate multi-source data"),
   minSources: z.number().default(2).describe("Minimum number of sources that must respond"),
   consumerContract: z.string().describe("Oracle consumer contract address"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   schedule: z.string().default("0 */5 * * * *").describe("Update frequency"),
 })
 

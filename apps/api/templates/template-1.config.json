@@ -6,7 +6,7 @@
   "alertWebhookUrl": "https://hooks.slack.com/services/placeholder",
   "schedule": "0 */5 * * * *",
   "consumerContract": "0x0000000000000000000000000000000000000000",
-  "chainSelectorName": "base-sepolia",
+  "chainSelectorName": "ethereum-testnet-sepolia-base-1",
   "kvStoreUrl": "",
   "kvApiKey": "",
   "stateKey": ""

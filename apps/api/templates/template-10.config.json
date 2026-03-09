@@ -3,7 +3,7 @@
   "aggregationMethod": "weighted_average",
   "minSources": 2,
   "consumerContract": "0x0000000000000000000000000000000000000000",
-  "chainSelectorName": "base-sepolia",
+  "chainSelectorName": "ethereum-testnet-sepolia-base-1",
   "schedule": "0 */5 * * * *",
   "kvStoreUrl": "",
   "kvApiKey": "",

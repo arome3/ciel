@@ -19,7 +19,7 @@ const configSchema = z.object({
   driftThreshold: z.number().default(5).describe("Rebalance trigger threshold (percentage drift)"),
   chains: z.string().default("base-sepolia,ethereum-sepolia").describe("Comma-separated chain names"),
   consumerContract: z.string().describe("Consumer contract address"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Primary chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Primary chain"),
   schedule: z.string().default("0 0 * * * *").describe("Hourly rebalance check"),
 })
 

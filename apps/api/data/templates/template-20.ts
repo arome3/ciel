@@ -24,7 +24,7 @@ const GET_TOTAL_SETTLED_SELECTOR = "0x5862a614" // getTotalSettled()
 
 const configSchema = z.object({
   schedule: z.string().default("0 0 0 * * *").describe("Reconciliation frequency (daily)"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   consumerContract: z.string().describe("Consumer contract for attestation"),
   settlementApiUrl: z.string().describe("Settlement API endpoint"),
   settlementContractAddress: z.string().describe("On-chain settlement ledger address"),

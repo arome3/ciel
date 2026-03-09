@@ -5,5 +5,5 @@
   "geminiModel": "gemini-1.5-pro",
   "openaiApiEndpoint": "https://api.openai.com/v1/chat/completions",
   "consumerContract": "0x34DAba0F2295972547d3ceb42f12B50a18D8E392",
-  "chainSelectorName": "base-sepolia"
+  "chainSelectorName": "ethereum-testnet-sepolia-base-1"
 }

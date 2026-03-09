@@ -21,7 +21,7 @@ const configSchema = z.object({
   payoutAmount: z.number().describe("Payout amount in wei"),
   beneficiaryAddress: z.string().describe("Beneficiary wallet address"),
   consumerContract: z.string().describe("Insurance contract address"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   schedule: z.string().default("0 0 */6 * * *").describe("Check every 6 hours"),
 })
 

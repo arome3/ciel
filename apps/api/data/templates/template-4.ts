@@ -19,7 +19,7 @@ const configSchema = z.object({
   mintAmount: z.number().describe("Amount of stablecoins to mint"),
   minReserveRatio: z.number().default(1.0).describe("Minimum reserve backing ratio"),
   consumerContract: z.string().describe("Stablecoin minting contract"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   schedule: z.string().default("0 */1 * * * *").describe("Check frequency"),
 })
 

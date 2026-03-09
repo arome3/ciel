@@ -365,7 +365,7 @@ CRITICAL: \`runtime.report().result()\` returns a Report class object. Pass it D
 const network = getNetwork({ chainFamily: "evm", chainSelectorName: "ethereum-testnet-sepolia", isTestnet: true })
 // network.chainSelector.selector → "16015286601757825753"
 \`\`\`
-Common chain selector names: \`"ethereum-testnet-sepolia"\`, \`"base-sepolia"\`, \`"arbitrum-testnet-sepolia"\`, \`"optimism-testnet-sepolia"\`
+Common chain selector names: \`"ethereum-testnet-sepolia"\`, \`"ethereum-testnet-sepolia-base-1"\` (Base Sepolia), \`"ethereum-testnet-sepolia-arbitrum-1"\` (Arbitrum Sepolia), \`"ethereum-testnet-sepolia-optimism-1"\` (Optimism Sepolia)
 
 ### KeystoneForwarder Addresses
 Consumer contracts that receive \`writeReport()\` data must verify the caller is the official KeystoneForwarder. Addresses per network:

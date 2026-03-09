@@ -5,7 +5,7 @@
   "mintAmount": 1000,
   "minReserveRatio": 1.0,
   "consumerContract": "0x0000000000000000000000000000000000000000",
-  "chainSelectorName": "base-sepolia",
+  "chainSelectorName": "ethereum-testnet-sepolia-base-1",
   "schedule": "0 */1 * * * *",
   "kvStoreUrl": "",
   "kvApiKey": "",

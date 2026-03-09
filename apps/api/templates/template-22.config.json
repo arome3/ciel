@@ -1,6 +1,6 @@
 {
   "schedule": "0 0 9 1 * *",
-  "chainSelectorName": "base-sepolia",
+  "chainSelectorName": "ethereum-testnet-sepolia-base-1",
   "consumerContract": "0x0000000000000000000000000000000000000000",
   "registryApiUrl": "https://api.example.com/registry",
   "distributionTokenAddress": "0x0000000000000000000000000000000000000000",

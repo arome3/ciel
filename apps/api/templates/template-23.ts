@@ -36,7 +36,7 @@ import { utf8ToBytes, bytesToHex as nobleHex } from "@noble/hashes/utils"
 
 const configSchema = z.object({
   schedule: z.string().default("0 */5 * * * *").describe("Payment poll frequency"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   consumerContract: z.string().describe("Consumer contract for onchain reporting"),
   escrowContractAddress: z.string().describe("Escrow smart contract address"),
   deliveryContractAddress: z.string().describe("Contract emitting delivery events"),

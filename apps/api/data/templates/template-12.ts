@@ -23,7 +23,7 @@ import {
 import { z } from "zod"
 
 const configSchema = z.object({
-  chainSelectorName: z.string().default("base-sepolia").describe("Chain to monitor for Transfer events"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Chain to monitor for Transfer events"),
   tokenContractAddress: z.string().describe("ERC-20 token contract address to watch"),
   transferEventSignature: z.string().default("Transfer(address,address,uint256)").describe("Transfer event signature"),
   watchAddresses: z.string().describe("Comma-separated list of addresses to watch (lowercase)"),

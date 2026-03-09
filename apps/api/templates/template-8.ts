@@ -20,7 +20,7 @@ const configSchema = z.object({
   operationType: z.string().describe("Type of DeFi operation (swap, lend, stake)"),
   operationData: z.string().describe("JSON-encoded operation parameters"),
   consumerContract: z.string().describe("DeFi operations contract"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   schedule: z.string().default("0 */1 * * * *").describe("Check frequency"),
 })
 

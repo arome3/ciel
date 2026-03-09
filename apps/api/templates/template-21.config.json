@@ -1,5 +1,5 @@
 {
-  "chainSelectorName": "base-sepolia",
+  "chainSelectorName": "ethereum-testnet-sepolia-base-1",
   "consumerContract": "0x0000000000000000000000000000000000000000",
   "registryContractAddress": "0x0000000000000000000000000000000000000000",
   "registryApiUrl": "https://api.example.com/registry",

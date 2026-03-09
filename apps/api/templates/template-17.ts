@@ -22,7 +22,7 @@ const BALANCE_OF_SELECTOR = "0x70a08231" // balanceOf(address)
 const BURN_SELECTOR = "0x42966c68"       // burn(uint256)
 
 const configSchema = z.object({
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   consumerContract: z.string().describe("Consumer contract for onchain reporting"),
   complianceApiUrl: z.string().describe("Compliance API endpoint"),
   tokenAddress: z.string().describe("Stablecoin token contract address"),

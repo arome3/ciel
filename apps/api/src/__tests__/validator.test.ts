@@ -478,7 +478,7 @@ const configSchema = z.object({
   threshold: z.number(),
   schedule: z.string().default("0 */5 * * * *"),
   consumerContract: z.string(),
-  chainSelectorName: z.string().default("base-sepolia"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1"),
 })
 
 type Config = z.infer<typeof configSchema>

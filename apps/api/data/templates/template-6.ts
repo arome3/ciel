@@ -19,7 +19,7 @@ const configSchema = z.object({
   operation: z.enum(["subscribe", "redeem"]).describe("Fund operation type"),
   amount: z.number().describe("Amount in fund units"),
   consumerContract: z.string().describe("Fund token contract"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   schedule: z.string().default("0 0 0 * * *").describe("Daily NAV update"),
 })
 

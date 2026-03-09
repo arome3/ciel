@@ -17,7 +17,7 @@ const configSchema = z.object({
   alertWebhookUrl: z.string().describe("Webhook URL for alert notifications"),
   schedule: z.string().default("0 */5 * * * *").describe("Check frequency"),
   consumerContract: z.string().describe("Consumer contract address"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
 })
 
 type Config = z.infer<typeof configSchema>

@@ -35,7 +35,7 @@ const configSchema = z.object({
   tokenInDecimals: z.number().default(18).describe("Input token decimals (e.g. 6 for USDC, 18 for WETH)"),
   useNativeETH: z.boolean().default(true).describe("Whether tokenIn is native ETH (uses msg.value)"),
   recipientAddress: z.string().describe("Address that receives output tokens"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   consumerContract: z.string().describe("Consumer contract for onchain reporting"),
   tokenOutDecimals: z.number().default(18).describe("Output token decimals (e.g. 6 for USDC, 18 for WETH)"),
 })

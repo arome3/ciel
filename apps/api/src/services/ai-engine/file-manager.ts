@@ -233,7 +233,7 @@ export function buildFallbackConfig(
     config.claudeModel = "claude-sonnet-4-20250514"
     config.geminiModel = "gemini-1.5-pro"
     config.openaiApiEndpoint = "https://api.openai.com/v1/chat/completions"
-    config.evms = [{ chainSelectorName: "base-sepolia", contractAddress: config.consumerContract || "0x0000000000000000000000000000000000000000" }]
+    config.evms = [{ chainSelectorName: "ethereum-testnet-sepolia-base-1", contractAddress: config.consumerContract || "0x0000000000000000000000000000000000000000" }]
   }
 
   if (intent.dataSources.includes("chainlink-feeds")) {
@@ -249,7 +249,7 @@ export function buildFallbackConfig(
 
   if (intent.dataSources.includes("ccip")) {
     config.sourceChainSelector = "ethereum-testnet-sepolia"
-    config.destChainSelector = "base-sepolia"
+    config.destChainSelector = "ethereum-testnet-sepolia-base-1"
     config.ccipRouterAddress = "0x0000000000000000000000000000000000000000"
     config.tokenAddress = "0x0000000000000000000000000000000000000000"
     config.transferAmount = "1000000000000000000"

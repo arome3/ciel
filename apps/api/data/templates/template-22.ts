@@ -18,7 +18,7 @@ import {
 
 const configSchema = z.object({
   schedule: z.string().default("0 0 9 1 * *").describe("Distribution schedule (monthly 1st at 9am)"),
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   consumerContract: z.string().describe("Consumer contract for onchain reporting"),
   registryApiUrl: z.string().describe("Registry API endpoint for holder list"),
   distributionTokenAddress: z.string().describe("Token address for dividend payments"),

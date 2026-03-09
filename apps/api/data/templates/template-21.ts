@@ -19,7 +19,7 @@ import {
 const REGISTER_TRANSFER_SELECTOR = "0x22855ef9" // registerTransfer(address,address,uint256)
 
 const configSchema = z.object({
-  chainSelectorName: z.string().default("base-sepolia").describe("Target chain"),
+  chainSelectorName: z.string().default("ethereum-testnet-sepolia-base-1").describe("Target chain"),
   consumerContract: z.string().describe("Consumer contract for onchain reporting"),
   registryContractAddress: z.string().describe("On-chain shareholder registry contract"),
   registryApiUrl: z.string().describe("Registry/Transfer Agent API endpoint"),
