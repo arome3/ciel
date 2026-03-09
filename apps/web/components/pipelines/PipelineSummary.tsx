@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { Loader2, CheckCircle, XCircle, Play, RotateCcw } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -16,6 +17,7 @@ interface PipelineSummaryProps {
 }
 
 export function PipelineSummary({ ownerAddress }: PipelineSummaryProps) {
+  const router = useRouter()
   const steps = usePipelineBuilderStore((s) => s.steps)
   const name = usePipelineBuilderStore((s) => s.name)
   const description = usePipelineBuilderStore((s) => s.description)
@@ -118,16 +120,26 @@ export function PipelineSummary({ ownerAddress }: PipelineSummaryProps) {
 
     if (execResult === "completed") {
       return (
-        <Button
-          size="sm"
-          className="text-xs gap-1.5 min-w-[100px] bg-green-600 hover:bg-green-700"
-          onClick={handleExecute}
-          disabled={!savedPipelineId}
-        >
-          <CheckCircle className="h-3 w-3" />
-          Completed
-          {execDuration && <span className="text-[10px] opacity-70">({(execDuration / 1000).toFixed(1)}s)</span>}
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <Button
+            size="sm"
+            className="text-xs gap-1.5 min-w-[100px] bg-green-600 hover:bg-green-700"
+            onClick={() => router.push("/pipelines")}
+          >
+            <CheckCircle className="h-3 w-3" />
+            Completed
+            {execDuration && <span className="text-[10px] opacity-70">({(execDuration / 1000).toFixed(1)}s)</span>}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-xs gap-1 h-7 px-2 text-muted-foreground hover:text-foreground"
+            onClick={handleExecute}
+            disabled={!savedPipelineId}
+          >
+            <RotateCcw className="h-3 w-3" />
+          </Button>
+        </div>
       )
     }
 

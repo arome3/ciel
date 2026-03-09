@@ -31,7 +31,7 @@ function loadConfig(): AgentConfig {
     cielApiUrl: process.env.CIEL_API_URL ?? "http://localhost:3001",
     facilitatorUrl: process.env.FACILITATOR_URL ?? "https://x402.org/facilitator",
     bazaarUrl: process.env.BAZAAR_URL ?? "http://localhost:3001",
-    category: process.env.AGENT_CATEGORY ?? process.argv[2] ?? "oracle",
+    category: process.env.AGENT_CATEGORY ?? process.argv[2] ?? "ai-powered",
     goal: process.env.AGENT_GOAL ?? process.argv[3] ?? "Get the current price of ETH in USD",
   }
 }

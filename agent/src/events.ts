@@ -155,8 +155,11 @@ function formatEventType(type: string): string {
 
 function formatEventDetail(type: string, data: Record<string, unknown>): string {
   switch (type) {
-    case "execution":
-      return `workflow ${shortId(data.workflowId)} — ${data.success ? "success" : "failed"}`
+    case "execution": {
+      const execResult = data.result as Record<string, unknown> | undefined
+      const execSuccess = data.success ?? execResult?.success
+      return `workflow ${shortId(data.workflowId)} — ${execSuccess ? "success" : "failed"}`
+    }
     case "deploy":
       return `workflow ${shortId(data.workflowId)} — ${data.deployStatus}`
     case "pipeline_started":

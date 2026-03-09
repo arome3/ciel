@@ -82,13 +82,27 @@ export async function executeWorkflow(
 
       log.done("Execution complete — payment settled automatically")
 
-      // Parse response — execute route returns { success, result: { output, ... }, payment, ... }
+      // Parse response — execute route returns { success, result: { output, success, ... }, payment, ... }
       const resultObj = data.result as Record<string, unknown> | undefined
       const paymentObj = data.payment as Record<string, unknown> | undefined
 
+      // success comes from both top-level and result.success
+      const isSuccess = data.success === true || resultObj?.success === true
+
+      // output can be a string (direct answer) or array (simulation trace)
+      let answer: string | undefined
+      if (typeof resultObj?.output === "string") {
+        answer = resultObj.output
+      } else if (Array.isArray(resultObj?.output)) {
+        // Simulation trace — summarize as "Executed N steps"
+        const steps = resultObj.output as Array<Record<string, unknown>>
+        const successSteps = steps.filter((s) => s.status === "success").length
+        answer = `Executed ${successSteps}/${steps.length} steps successfully`
+      }
+
       return {
-        success: data.success === true,
-        answer: typeof resultObj?.output === "string" ? resultObj.output : undefined,
+        success: isSuccess,
+        answer,
         confidence: typeof resultObj?.confidence === "number" ? resultObj.confidence : undefined,
         modelsAgreed: typeof resultObj?.modelsAgreed === "number" ? resultObj.modelsAgreed : undefined,
         consensusReached: typeof resultObj?.consensusReached === "boolean" ? resultObj.consensusReached : undefined,
