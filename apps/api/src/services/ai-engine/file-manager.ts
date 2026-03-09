@@ -249,7 +249,7 @@ export function buildFallbackConfig(
 
   if (intent.dataSources.includes("ccip")) {
     config.sourceChainSelector = "ethereum-testnet-sepolia"
-    config.destChainSelector = "base-testnet-sepolia"
+    config.destChainSelector = "base-sepolia"
     config.ccipRouterAddress = "0x0000000000000000000000000000000000000000"
     config.tokenAddress = "0x0000000000000000000000000000000000000000"
     config.transferAmount = "1000000000000000000"

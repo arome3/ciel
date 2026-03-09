@@ -21,6 +21,8 @@ const EVENT_BADGES: Record<string, { label: string; className: string }> = {
   execution: { label: "[EXEC]", className: "text-green-400" },
   publish: { label: "[PUB]", className: "text-blue-400" },
   discovery: { label: "[DISC]", className: "text-muted-foreground" },
+  pipeline: { label: "[PIPE]", className: "text-purple-400" },
+  deploy: { label: "[DEPLOY]", className: "text-yellow-400" },
 }
 
 function EventItem({ event }: { event: SSEEvent }) {

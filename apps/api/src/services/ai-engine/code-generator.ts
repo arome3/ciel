@@ -181,14 +181,20 @@ export async function generateCode(input: GenerateCodeInput): Promise<GeneratedC
     : template
 
   // ── Build layered prompt ──
+  // Merge template capabilities with intent-detected capabilities so that
+  // pattern guidance fires for user-requested features even when the matched
+  // template doesn't declare them (e.g. "rebalance via CCIP" → T2 + CCIP pattern)
+  const intentCaps = [...input.intent.dataSources, ...input.intent.actions]
+  const mergedCaps = [...new Set([...effectiveTemplate.requiredCapabilities, ...intentCaps])]
   const needsState = detectStateKeyword(input.intent.keywords) !== null
   const fewShotContext = buildFewShotContext(input.templateId)
   const staticBase = buildStaticBase()
   const templateContext = buildTemplateContext(
-    effectiveTemplate.requiredCapabilities,
+    mergedCaps,
     needsState,
     fewShotContext,
     input.relevantDocs,
+    effectiveTemplate.id,
   )
 
   // ── Retry loop ──

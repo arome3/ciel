@@ -4,6 +4,7 @@ import { useCallback, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { useWorkflowStore } from "@/lib/store"
 import { api } from "@/lib/api"
+import { GenerationProgressMini } from "./GenerationProgress"
 
 function StatusBadge({ status }: { status: string }) {
   switch (status) {
@@ -95,18 +96,33 @@ export function SimulationPanel() {
   ])
 
   const isCodeGenerating = useWorkflowStore((s) => s.isGenerating)
+  const isRefining = useWorkflowStore((s) => s.isRefining)
 
   if (!generatedWorkflow) {
     if (isCodeGenerating) {
       return (
         <div className="flex h-full min-h-[200px] items-center justify-center rounded-xl border border-dashed border-border/50 bg-card/30">
-          <p className="font-mono text-xs text-muted-foreground/40">
-            awaiting code generation...
-          </p>
+          <GenerationProgressMini mode="generate" />
         </div>
       )
     }
     return null
+  }
+
+  if (isRefining) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-foreground">Simulation</h3>
+          <Button variant="outline" size="sm" disabled className="active:scale-[0.98]">
+            Run Simulation
+          </Button>
+        </div>
+        <div className="flex h-[300px] items-center justify-center rounded-xl border border-dashed border-violet-500/30 bg-card/30">
+          <GenerationProgressMini mode="refine" />
+        </div>
+      </div>
+    )
   }
 
   return (

@@ -19,10 +19,9 @@ router.get("/discover", discoverLimiter, async (req, res, next) => {
 
     res.json(workflows)
 
-    // Fire-and-forget: persist discovery event (silent — no SSE broadcast)
+    // Fire-and-forget: persist + broadcast discovery event to Agent Activity feed
     emitEvent({
       type: "discovery",
-      silent: true,
       data: {
         agentAddress: (req.headers["x-owner-address"] as string) || "anonymous",
         query: JSON.stringify(query),

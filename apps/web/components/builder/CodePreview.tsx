@@ -1,9 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
 import { useWorkflowStore } from "@/lib/store"
+import { GenerationProgress, RefinementProgress } from "./GenerationProgress"
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
@@ -36,39 +37,6 @@ const EDITOR_OPTIONS = {
   },
 }
 
-function CodeSkeleton() {
-  const widths = [80, 55, 90, 40, 70, 85, 45, 65]
-  const [elapsed, setElapsed] = useState(0)
-
-  useEffect(() => {
-    const id = setInterval(() => setElapsed((s) => s + 1), 1000)
-    return () => clearInterval(id)
-  }, [])
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-border">
-      <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-3 py-1.5">
-        <span className="h-2 w-2 rounded-full bg-primary/30 animate-skeleton" />
-        <span className="font-mono text-xs text-muted-foreground/40">
-          generating...
-        </span>
-        <span className="ml-auto font-mono text-[10px] text-muted-foreground/30">
-          {elapsed}s
-        </span>
-      </div>
-      <div className="space-y-2.5 bg-[hsl(240_20%_6%)] p-4">
-        {widths.map((w, i) => (
-          <div
-            key={i}
-            className="h-3.5 rounded animate-shimmer"
-            style={{ width: `${w}%`, animationDelay: `${i * 100}ms` }}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
 export function CodePreview() {
   const generatedWorkflow = useWorkflowStore((s) => s.generatedWorkflow)
   const isGenerating = useWorkflowStore((s) => s.isGenerating)
@@ -87,7 +55,7 @@ export function CodePreview() {
   }, [generatedWorkflow?.code])
 
   if (isGenerating && !generatedWorkflow) {
-    return <CodeSkeleton />
+    return <GenerationProgress />
   }
 
   if (!generatedWorkflow) {
@@ -95,18 +63,12 @@ export function CodePreview() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 animate-fade-up">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h3 className="text-sm font-semibold text-foreground">
             Generated Code
           </h3>
-          {isRefining && (
-            <span className="flex items-center gap-1.5 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
-              refining...
-            </span>
-          )}
           {generatedWorkflow.template && (
             <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
               Template {generatedWorkflow.template.templateId}
@@ -130,15 +92,15 @@ export function CodePreview() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-lg border border-border">
+      <div className="relative overflow-hidden rounded-lg border border-border">
         {/* File tab indicator */}
         <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-3 py-1.5">
-          <span className="h-2 w-2 rounded-full bg-primary/60" />
+          <span className={`h-2 w-2 rounded-full ${isRefining ? "bg-violet-400 animate-stage-glow" : "bg-primary/60"}`} />
           <span className="font-mono text-xs text-muted-foreground">
             workflow.ts
           </span>
           <span className="ml-auto font-mono text-[10px] text-muted-foreground/50">
-            read-only
+            {isRefining ? "refining..." : "read-only"}
           </span>
         </div>
         <MonacoEditor
@@ -148,6 +110,8 @@ export function CodePreview() {
           value={generatedWorkflow.code}
           options={EDITOR_OPTIONS}
         />
+        {/* Refinement overlay */}
+        {isRefining && <RefinementProgress />}
       </div>
 
       {generatedWorkflow.explanation && (

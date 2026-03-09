@@ -196,6 +196,15 @@ const TEMPLATES: Template[] = [
     prompt:
       "On the first of each month, fetch the shareholder registry, calculate pro-rata dividend amounts, and execute batch token transfers on-chain to all holders",
   },
+  {
+    id: 0,
+    title: "Atomic DvP Settlement",
+    category: "Settlement",
+    trigger: "http",
+    description: "Lock securities, initiate SWIFT payment, and atomically release on confirmation",
+    prompt:
+      "Build an escrow workflow that locks tokenized securities upon receiving a delivery instruction, initiates fiat payment via SWIFT, polls for payment confirmation, and atomically releases the securities to the buyer only after settlement is confirmed — with automatic rollback if payment fails within 24 hours",
+  },
 ]
 
 // ─────────────────────────────────────────────

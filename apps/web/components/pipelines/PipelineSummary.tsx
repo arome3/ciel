@@ -1,11 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
+import { Loader2, CheckCircle, XCircle, Play, RotateCcw } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { useSignMessage } from "wagmi"
+import { cn } from "@/lib/utils"
 import { usePipelineBuilderStore } from "@/lib/pipeline-builder-store"
 import { toastSuccess, toastInfo, toastError } from "@/lib/toast"
+
+type ExecutionResult = "idle" | "running" | "completed" | "failed" | "partial"
 
 interface PipelineSummaryProps {
   ownerAddress?: string
@@ -26,8 +30,19 @@ export function PipelineSummary({ ownerAddress }: PipelineSummaryProps) {
   const { signMessageAsync } = useSignMessage()
 
   const [savedPipelineId, setSavedPipelineId] = useState<string | null>(null)
+  const [execResult, setExecResult] = useState<ExecutionResult>("idle")
+  const [execDuration, setExecDuration] = useState<number | null>(null)
+  const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const price = (totalPrice() / 1_000_000).toFixed(2)
+  const hasRun = execResult !== "idle" && execResult !== "running"
+
+  // Clear result timer on unmount
+  useEffect(() => {
+    return () => {
+      if (resultTimerRef.current) clearTimeout(resultTimerRef.current)
+    }
+  }, [])
 
   async function handleSave() {
     if (!ownerAddress) {
@@ -49,6 +64,12 @@ export function PipelineSummary({ ownerAddress }: PipelineSummaryProps) {
       return
     }
 
+    // Clear any previous result timer
+    if (resultTimerRef.current) clearTimeout(resultTimerRef.current)
+    setExecResult("running")
+    setExecDuration(null)
+    const startTime = Date.now()
+
     try {
       let ownerAuth: { address: string; signature: string; timestamp: string } | undefined
       if (ownerAddress) {
@@ -64,17 +85,93 @@ export function PipelineSummary({ ownerAddress }: PipelineSummaryProps) {
       }
 
       const result = await executePipelineAction(savedPipelineId, undefined, ownerAuth)
+      const duration = Date.now() - startTime
+      setExecDuration(duration)
       const status = (result as any)?.status
       if (status === "completed") {
+        setExecResult("completed")
         toastSuccess("Pipeline completed", "All steps executed successfully")
       } else if (status === "partial") {
+        setExecResult("partial")
         toastInfo("Partial completion", "Some steps failed during execution")
       } else {
+        setExecResult("failed")
         toastError("Pipeline failed", "Pipeline execution failed")
       }
     } catch {
+      setExecResult("failed")
+      setExecDuration(Date.now() - startTime)
       toastError("Execution error", "Failed to execute pipeline")
     }
+  }
+
+  // Button content based on state
+  function renderExecuteButton() {
+    if (isExecuting || execResult === "running") {
+      return (
+        <Button size="sm" disabled className="text-xs gap-1.5 min-w-[100px]">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Running...
+        </Button>
+      )
+    }
+
+    if (execResult === "completed") {
+      return (
+        <Button
+          size="sm"
+          className="text-xs gap-1.5 min-w-[100px] bg-green-600 hover:bg-green-700"
+          onClick={handleExecute}
+          disabled={!savedPipelineId}
+        >
+          <CheckCircle className="h-3 w-3" />
+          Completed
+          {execDuration && <span className="text-[10px] opacity-70">({(execDuration / 1000).toFixed(1)}s)</span>}
+        </Button>
+      )
+    }
+
+    if (execResult === "partial") {
+      return (
+        <Button
+          size="sm"
+          className="text-xs gap-1.5 min-w-[100px] bg-yellow-600 hover:bg-yellow-700"
+          onClick={handleExecute}
+          disabled={!savedPipelineId}
+        >
+          <RotateCcw className="h-3 w-3" />
+          Partial — Re-run
+        </Button>
+      )
+    }
+
+    if (execResult === "failed") {
+      return (
+        <Button
+          size="sm"
+          variant="destructive"
+          className="text-xs gap-1.5 min-w-[100px]"
+          onClick={handleExecute}
+          disabled={!savedPipelineId}
+        >
+          <XCircle className="h-3 w-3" />
+          Failed — Re-run
+        </Button>
+      )
+    }
+
+    // Default: idle / first run
+    return (
+      <Button
+        size="sm"
+        onClick={handleExecute}
+        disabled={!savedPipelineId}
+        className="text-xs gap-1.5 min-w-[100px]"
+      >
+        <Play className="h-3 w-3" />
+        Execute
+      </Button>
+    )
   }
 
   return (
@@ -115,14 +212,7 @@ export function PipelineSummary({ ownerAddress }: PipelineSummaryProps) {
       >
         {isSaving ? "Saving..." : "Save"}
       </Button>
-      <Button
-        size="sm"
-        onClick={handleExecute}
-        disabled={isExecuting || !savedPipelineId}
-        className="text-xs"
-      >
-        {isExecuting ? "Running..." : "Execute"}
-      </Button>
+      {renderExecuteButton()}
     </div>
   )
 }

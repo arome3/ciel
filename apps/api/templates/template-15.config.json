@@ -1,7 +1,7 @@
 {
   "schedule": "0 0 * * * *",
   "sourceChainSelector": "ethereum-testnet-sepolia",
-  "destChainSelector": "base-testnet-sepolia",
+  "destChainSelector": "base-sepolia",
   "ccipRouterAddress": "0x0000000000000000000000000000000000000000",
   "tokenAddress": "0x0000000000000000000000000000000000000000",
   "transferAmount": "1000000000000000000",

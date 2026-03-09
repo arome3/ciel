@@ -853,7 +853,13 @@ function checkIntentAlignment(
     distribute: /distribute|dividend|pro.rata/i,
   }
 
+  // Only enforce actions the matched template actually declares —
+  // the intent parser may detect spurious actions from keyword overlap
+  // (e.g. "minting" in a fund lifecycle prompt → "mint" action detected,
+  // but T6 doesn't declare "mint" as a required capability).
+  const templateCapsForActions = new Set(templateDef.requiredCapabilities)
   for (const action of intent.actions) {
+    if (!templateCapsForActions.has(action)) continue
     const pattern = actionPatterns[action]
     if (pattern && !pattern.test(code)) {
       errors.push(

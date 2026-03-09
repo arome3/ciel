@@ -62,6 +62,32 @@ router.get("/events", eventsSseLimiter, async (req, res, next) => {
   }
 })
 
+// GET /events/recent — fetch recent events to seed the activity feed on page load
+const recentStmt = sqlite.prepare(
+  "SELECT id, type, data, created_at FROM events ORDER BY id DESC LIMIT ?"
+)
+
+router.get("/events/recent", (_req, res, next) => {
+  try {
+    const limit = Math.min(Number(_req.query.limit) || 20, 50)
+    const rows = recentStmt.all(limit) as { id: number; type: string; data: string; created_at: string }[]
+
+    const events = rows
+      .map((row) => {
+        try {
+          return { id: row.id, type: row.type, data: JSON.parse(row.data), createdAt: row.created_at }
+        } catch {
+          return null
+        }
+      })
+      .filter(Boolean)
+
+    res.json({ events })
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get("/events/health", (_req, res) => {
   res.json({
     status: "ok",

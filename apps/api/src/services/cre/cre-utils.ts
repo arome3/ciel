@@ -138,12 +138,12 @@ function buildProjectYaml(): string {
   const rpcUrl = config.BASE_SEPOLIA_RPC_URL
   return `staging-settings:
   rpcs:
-    - chain-name: ethereum-testnet-sepolia
+    - chain-name: base-sepolia
       url: ${rpcUrl}
 
 production-settings:
   rpcs:
-    - chain-name: ethereum-testnet-sepolia
+    - chain-name: base-sepolia
       url: ${rpcUrl}
 `
 }

@@ -6,9 +6,11 @@ export interface SSEHandlers {
   onDiscovery?: (data: unknown) => void
   onDeploy?: (data: unknown) => void
   onPipelineStarted?: (data: unknown) => void
+  onPipelineStepStarted?: (data: unknown) => void
   onPipelineStepCompleted?: (data: unknown) => void
   onPipelineStepFailed?: (data: unknown) => void
   onPipelineCompleted?: (data: unknown) => void
+  onPipelineFailed?: (data: unknown) => void
   onOpen?: () => void
 }
 
@@ -80,6 +82,15 @@ export function createSSEConnection(
       }
     })
 
+    es.addEventListener("pipeline_step_started", (e) => {
+      try {
+        const data = JSON.parse((e as MessageEvent).data)
+        handlers.onPipelineStepStarted?.(data)
+      } catch {
+        // malformed event data — ignore
+      }
+    })
+
     es.addEventListener("pipeline_step_completed", (e) => {
       try {
         const data = JSON.parse((e as MessageEvent).data)
@@ -102,6 +113,15 @@ export function createSSEConnection(
       try {
         const data = JSON.parse((e as MessageEvent).data)
         handlers.onPipelineCompleted?.(data)
+      } catch {
+        // malformed event data — ignore
+      }
+    })
+
+    es.addEventListener("pipeline_failed", (e) => {
+      try {
+        const data = JSON.parse((e as MessageEvent).data)
+        handlers.onPipelineFailed?.(data)
       } catch {
         // malformed event data — ignore
       }

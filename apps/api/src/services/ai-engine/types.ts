@@ -17,7 +17,7 @@ export interface ParsedIntent {
   /** Actions to perform, e.g. ["evmWrite", "alert"] */
   actions: string[]
 
-  /** Target chains, e.g. ["base-sepolia", "ethereum-sepolia"] */
+  /** Target chains, e.g. ["base-sepolia", "ethereum-testnet-sepolia"] */
   chains: string[]
 
   /** All significant words extracted from the prompt (length > 3, lowercased) */

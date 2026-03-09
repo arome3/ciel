@@ -52,14 +52,14 @@ const CHAIN_MAP: Record<string, string> = {
   "base-sepolia": "base-sepolia",
   "base sepolia": "base-sepolia",
 
-  "ethereum": "ethereum-sepolia",
-  "eth": "ethereum-sepolia",
-  "ethereum-sepolia": "ethereum-sepolia",
-  "eth-sepolia": "ethereum-sepolia",
+  "ethereum": "ethereum-testnet-sepolia",
+  "eth": "ethereum-testnet-sepolia",
+  "ethereum-testnet-sepolia": "ethereum-testnet-sepolia",
+  "eth-sepolia": "ethereum-testnet-sepolia",
 
-  "arbitrum": "arbitrum-sepolia",
-  "arb": "arbitrum-sepolia",
-  "arbitrum-sepolia": "arbitrum-sepolia",
+  "arbitrum": "arbitrum-testnet-sepolia",
+  "arb": "arbitrum-testnet-sepolia",
+  "arbitrum-testnet-sepolia": "arbitrum-testnet-sepolia",
 
   "polygon": "polygon-amoy",
   "matic": "polygon-amoy",
@@ -67,8 +67,8 @@ const CHAIN_MAP: Record<string, string> = {
   "avalanche": "avalanche-fuji",
   "avax": "avalanche-fuji",
 
-  "optimism": "optimism-sepolia",
-  "op": "optimism-sepolia",
+  "optimism": "optimism-testnet-sepolia",
+  "op": "optimism-testnet-sepolia",
 }
 
 const DEFAULT_CHAIN = "base-sepolia"
@@ -672,7 +672,7 @@ function resolveChains(text: string, words: string[]): string[] {
   // Multi-chain keywords
   if (/\bmulti[- ]?chain\b/i.test(text) || /\bcross[- ]?chain\b/i.test(text)) {
     found.add("base-sepolia")
-    found.add("ethereum-sepolia")
+    found.add("ethereum-testnet-sepolia")
   }
 
   // Default to base-sepolia if no chain detected

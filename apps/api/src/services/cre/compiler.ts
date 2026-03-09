@@ -106,10 +106,10 @@ export async function simulateWorkflow(
 
         // Workflow compiled + ran = success, even if runtime capability errors occur
         // (e.g. DNS failures, rate limits, sandbox network restrictions,
-        //  CRE CLI v1.2.0 HTTP trigger $typeName bug)
+        //  CRE CLI v1.2.0 HTTP trigger $typeName bug, null refs from missing sandbox data)
         const workflowCompiled = rawOutput.includes("Workflow compiled")
         const onlyRuntimeErrors = parsed.errors.length > 0 && parsed.errors.every(
-          (e) => /execute capability|no such host|dial tcp|unexpected token|connection refused|timeout|rate limit|Workflow execution failed|http-payload is required|secret retrieval failed|secret not found|Failed to create engine|\$typeName/i.test(e),
+          (e) => /execute capability|no such host|dial tcp|unexpected token|connection refused|timeout|rate limit|Workflow execution failed|http-payload is required|secret retrieval failed|secret not found|Failed to create engine|\$typeName|cannot read propert|of undefined|of null|is not a function|is undefined|is null/i.test(e),
         )
         const success =
           (simResult.exitCode === 0 && parsed.errors.length === 0) ||

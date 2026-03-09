@@ -1,11 +1,13 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect } from "react"
-import { X, ZoomIn, ZoomOut, Maximize, AlignHorizontalSpaceBetween, GitBranch } from "lucide-react"
+import { X, ZoomIn, ZoomOut, Maximize, AlignHorizontalSpaceBetween, GitBranch, CheckCircle, XCircle, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getCategoryVariant } from "@/lib/design-tokens"
-import { usePipelineBuilderStore, snapToGrid } from "@/lib/pipeline-builder-store"
+import { usePipelineBuilderStore, snapToGrid, type ExecutionLogEntry } from "@/lib/pipeline-builder-store"
+import { createSSEConnection } from "@/lib/sse"
 import { ConnectionLine } from "./ConnectionLine"
+import { ExecutionLog } from "./ExecutionLog"
 import { FieldMapper } from "./FieldMapper"
 import { Button } from "@/components/ui/button"
 
@@ -26,6 +28,7 @@ export function PipelineCanvas() {
     palette,
     connectingFrom,
     connectingMouse,
+    stepStatuses,
     addStep,
     removeStep,
     moveStep,
@@ -34,6 +37,12 @@ export function PipelineCanvas() {
     startConnecting,
     updateConnectingMouse,
     cancelConnecting,
+    setStepStatus,
+    clearStepStatuses,
+    appendLog,
+    clearLog,
+    executionLog,
+    isLogOpen,
     undo,
     redo,
   } = usePipelineBuilderStore()
@@ -78,6 +87,60 @@ export function PipelineCanvas() {
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [undo, redo])
+
+  // SSE: listen for pipeline execution events to animate nodes + log
+  useEffect(() => {
+    const log = (level: ExecutionLogEntry["level"], message: string) => {
+      appendLog({ timestamp: Date.now(), level, message })
+    }
+
+    const cleanup = createSSEConnection({
+      onPipelineStarted: (data: any) => {
+        clearStepStatuses()
+        clearLog()
+        log("info", `Pipeline started (${data?.stepCount ?? "?"} steps)`)
+      },
+      onPipelineStepStarted: (data: any) => {
+        if (data?.stepId) {
+          setStepStatus(data.stepId, "running")
+          const name = usePipelineBuilderStore.getState().steps.find((s) => s.id === data.stepId)?.name ?? data.stepId
+          log("info", `Step "${name}" executing...`)
+        }
+      },
+      onPipelineStepCompleted: (data: any) => {
+        if (data?.stepId) {
+          setStepStatus(data.stepId, "completed")
+          const name = data?.stepWorkflowName ?? usePipelineBuilderStore.getState().steps.find((s) => s.id === data.stepId)?.name ?? data.stepId
+          const duration = data?.duration ? ` (${data.duration}ms)` : ""
+          log("success", `Step "${name}" completed${duration}`)
+        }
+      },
+      onPipelineStepFailed: (data: any) => {
+        if (data?.stepId) {
+          setStepStatus(data.stepId, "failed")
+          const name = usePipelineBuilderStore.getState().steps.find((s) => s.id === data.stepId)?.name ?? data.stepId
+          const err = data?.error ? `: ${data.error}` : ""
+          log("error", `Step "${name}" failed${err}`)
+        }
+      },
+      onPipelineCompleted: (data: any) => {
+        const duration = data?.duration ? ` in ${(data.duration / 1000).toFixed(1)}s` : ""
+        const status = data?.status ?? "completed"
+        if (status === "completed") {
+          log("success", `Pipeline completed successfully${duration}`)
+        } else if (status === "partial") {
+          log("warn", `Pipeline partially completed${duration} — some steps failed`)
+        }
+        setTimeout(clearStepStatuses, 5000)
+      },
+      onPipelineFailed: (data: any) => {
+        const err = data?.error ? `: ${data.error}` : ""
+        log("error", `Pipeline failed${err}`)
+        setTimeout(clearStepStatuses, 5000)
+      },
+    })
+    return cleanup
+  }, [setStepStatus, clearStepStatuses, appendLog, clearLog])
 
   // Handle drop from palette
   const handleDrop = useCallback(
@@ -424,16 +487,24 @@ export function PipelineCanvas() {
               const outCount = Object.keys(wf.outputSchema.properties ?? {}).length
               const price = wf.priceUsdc === 0 ? "Free" : `$${(wf.priceUsdc / 1_000_000).toFixed(2)}`
               const isConnectingTarget = !!connectingFrom && connectingFrom.stepId !== step.id
+              const execStatus = stepStatuses[step.id]
 
               return (
                 <div
                   key={step.id}
                   className={cn(
                     "group absolute flex cursor-move flex-col rounded-lg border bg-card p-3 shadow-sm select-none",
-                    "transition-shadow duration-150",
-                    isSelected
-                      ? "border-primary shadow-md ring-1 ring-primary"
-                      : "border-border hover:border-primary/50 hover:shadow-md",
+                    "transition-all duration-300",
+                    // Execution status overrides selection styles
+                    execStatus === "running"
+                      ? "border-yellow-500 shadow-[0_0_12px_rgba(234,179,8,0.3)] ring-1 ring-yellow-500/50"
+                      : execStatus === "completed"
+                        ? "border-green-500 shadow-[0_0_12px_rgba(34,197,94,0.3)] ring-1 ring-green-500/50"
+                        : execStatus === "failed"
+                          ? "border-red-500 shadow-[0_0_12px_rgba(239,68,68,0.3)] ring-1 ring-red-500/50"
+                          : isSelected
+                            ? "border-primary shadow-md ring-1 ring-primary"
+                            : "border-border hover:border-primary/50 hover:shadow-md",
                     draggingStepId === step.id && "opacity-90 shadow-lg",
                   )}
                   style={{
@@ -445,6 +516,27 @@ export function PipelineCanvas() {
                   }}
                   onMouseDown={(e) => handleStepMouseDown(e, step.id)}
                 >
+                  {/* Execution status indicator */}
+                  {execStatus && execStatus !== "idle" && (
+                    <div className="absolute -top-2.5 -right-2.5 z-20">
+                      {execStatus === "running" && (
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-yellow-500 animate-pulse">
+                          <Loader2 className="h-3 w-3 text-black animate-spin" />
+                        </div>
+                      )}
+                      {execStatus === "completed" && (
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500">
+                          <CheckCircle className="h-3 w-3 text-black" />
+                        </div>
+                      )}
+                      {execStatus === "failed" && (
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500">
+                          <XCircle className="h-3 w-3 text-black" />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Input handle (left) */}
                   <div
                     className={cn(
@@ -467,7 +559,13 @@ export function PipelineCanvas() {
 
                   {/* Header row */}
                   <div className="flex items-center gap-1.5">
-                    <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-bold text-muted-foreground">
+                    <span className={cn(
+                      "flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold",
+                      execStatus === "running" ? "bg-yellow-500/20 text-yellow-400" :
+                      execStatus === "completed" ? "bg-green-500/20 text-green-400" :
+                      execStatus === "failed" ? "bg-red-500/20 text-red-400" :
+                      "bg-muted text-muted-foreground"
+                    )}>
                       {stepNum}
                     </span>
                     <span
@@ -507,8 +605,11 @@ export function PipelineCanvas() {
         )}
       </div>
 
-      {/* Canvas controls — bottom right */}
-      <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-lg border border-border bg-card/90 p-1 shadow-sm backdrop-blur-sm">
+      {/* Canvas controls — bottom right, shifts up when log is open */}
+      <div className={cn(
+        "absolute right-3 flex items-center gap-1 rounded-lg border border-border bg-card/90 p-1 shadow-sm backdrop-blur-sm transition-all duration-300 z-30",
+        isLogOpen ? "bottom-52" : executionLog.length > 0 ? "bottom-12" : "bottom-3",
+      )}>
         <Button
           variant="ghost"
           size="icon"
@@ -550,6 +651,9 @@ export function PipelineCanvas() {
           <AlignHorizontalSpaceBetween className="h-3.5 w-3.5" />
         </Button>
       </div>
+
+      {/* Execution Log */}
+      <ExecutionLog />
 
       {/* Field Mapper Dialog */}
       {editingConnection && editingSourceWf && editingTargetWf && (

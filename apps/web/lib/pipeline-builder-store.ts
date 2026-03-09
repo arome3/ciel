@@ -48,6 +48,14 @@ interface UndoSnapshot {
   connections: Connection[]
 }
 
+export type StepExecutionStatus = "idle" | "running" | "completed" | "failed"
+
+export interface ExecutionLogEntry {
+  timestamp: number
+  level: "info" | "success" | "error" | "warn"
+  message: string
+}
+
 interface PipelineBuilderState {
   // Data
   steps: PipelineStep[]
@@ -70,6 +78,11 @@ interface PipelineBuilderState {
   isSaving: boolean
   isExecuting: boolean
 
+  // Execution visualization
+  stepStatuses: Record<string, StepExecutionStatus>
+  executionLog: ExecutionLogEntry[]
+  isLogOpen: boolean
+
   // Actions
   fetchPalette: () => Promise<void>
   addStep: (workflowId: string, x: number, y: number) => void
@@ -83,6 +96,11 @@ interface PipelineBuilderState {
   setDescription: (description: string) => void
   savePipeline: (ownerAddress: string) => Promise<string | null>
   executePipeline: (pipelineId: string, triggerInput?: Record<string, unknown>, ownerAuth?: { address: string; signature: string; timestamp: string }) => Promise<unknown>
+  setStepStatus: (stepId: string, status: StepExecutionStatus) => void
+  clearStepStatuses: () => void
+  appendLog: (entry: ExecutionLogEntry) => void
+  clearLog: () => void
+  toggleLog: () => void
   reset: () => void
 
   // Connection drag actions
@@ -201,6 +219,9 @@ export const usePipelineBuilderStore = create<PipelineBuilderState>(
     isLoadingPalette: false,
     isSaving: false,
     isExecuting: false,
+    stepStatuses: {},
+    executionLog: [],
+    isLogOpen: false,
 
     fetchPalette: async () => {
       set({ isLoadingPalette: true })
@@ -434,6 +455,31 @@ export const usePipelineBuilderStore = create<PipelineBuilderState>(
       }))
     },
 
+    setStepStatus: (stepId, status) => {
+      set((s) => ({
+        stepStatuses: { ...s.stepStatuses, [stepId]: status },
+      }))
+    },
+
+    clearStepStatuses: () => {
+      set({ stepStatuses: {} })
+    },
+
+    appendLog: (entry) => {
+      set((s) => ({
+        executionLog: [...s.executionLog, entry],
+        isLogOpen: true,
+      }))
+    },
+
+    clearLog: () => {
+      set({ executionLog: [] })
+    },
+
+    toggleLog: () => {
+      set((s) => ({ isLogOpen: !s.isLogOpen }))
+    },
+
     reset: () => {
       stepCounter = 0
       set({
@@ -446,6 +492,9 @@ export const usePipelineBuilderStore = create<PipelineBuilderState>(
         connectingMouse: null,
         undoStack: [],
         redoStack: [],
+        stepStatuses: {},
+        executionLog: [],
+        isLogOpen: false,
       })
     },
 

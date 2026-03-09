@@ -132,6 +132,32 @@ export interface ConfirmPublishResponse {
   donWorkflowId: string | null
 }
 
+export interface PipelineListItem {
+  id: string
+  name: string
+  description: string
+  ownerAddress: string
+  steps: string // JSON
+  totalPrice: string
+  isActive: boolean
+  executionCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PipelineExecution {
+  id: string
+  pipelineId: string
+  agentAddress: string | null
+  totalPaid: string | null
+  status: "pending" | "running" | "completed" | "failed" | "partial"
+  stepResults: unknown[] | null
+  triggerInput: Record<string, unknown> | null
+  finalOutput: unknown | null
+  duration: number | null
+  createdAt: string
+}
+
 export interface WorkflowListItem {
   id: string
   name: string
@@ -442,7 +468,7 @@ export const api = {
     limit?: number
     owner?: string
     active?: boolean
-  }): Promise<{ pipelines: unknown[]; total: number; page: number; limit: number }> {
+  }): Promise<{ pipelines: PipelineListItem[]; total: number; page: number; limit: number }> {
     const query = new URLSearchParams()
     if (params?.page) query.set("page", String(params.page))
     if (params?.limit) query.set("limit", String(params.limit))
@@ -454,6 +480,17 @@ export const api = {
 
   async getPipeline(id: string): Promise<unknown> {
     return request(`/api/pipelines/${id}`)
+  },
+
+  async getPipelineHistory(
+    id: string,
+    params?: { page?: number; limit?: number },
+  ): Promise<{ executions: PipelineExecution[]; total: number; page: number; limit: number }> {
+    const query = new URLSearchParams()
+    if (params?.page) query.set("page", String(params.page))
+    if (params?.limit) query.set("limit", String(params.limit))
+    const qs = query.toString()
+    return request(`/api/pipelines/${id}/history${qs ? `?${qs}` : ""}`)
   },
 
   async executePipeline(
@@ -672,6 +709,16 @@ export const api = {
       headers: { "X-Owner-Address": ownerAddress },
       body: JSON.stringify(body),
     })
+  },
+
+  // ─────────────────────────────────────────────
+  // Events API methods
+  // ─────────────────────────────────────────────
+
+  async getRecentEvents(limit = 20): Promise<{
+    events: Array<{ id: number; type: string; data: Record<string, unknown>; createdAt: string }>
+  }> {
+    return request(`/api/events/recent?limit=${limit}`)
   },
 
   // ─────────────────────────────────────────────

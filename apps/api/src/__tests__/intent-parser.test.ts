@@ -53,7 +53,7 @@ describe("parseIntent", () => {
   // ── Test 6: Chain extraction ──
   test("extracts chain from prompt", () => {
     const result = parseIntent("Deploy a price oracle on Arbitrum")
-    expect(result.chains).toContain("arbitrum-sepolia")
+    expect(result.chains).toContain("arbitrum-testnet-sepolia")
   })
 
   // ── Test 7: Default chain ──
@@ -132,7 +132,7 @@ describe("parseIntent", () => {
   test("cross-chain keyword adds base-sepolia and ethereum-sepolia", () => {
     const result = parseIntent("Build a cross-chain bridge monitor for token transfers")
     expect(result.chains).toContain("base-sepolia")
-    expect(result.chains).toContain("ethereum-sepolia")
+    expect(result.chains).toContain("ethereum-testnet-sepolia")
   })
 })
 
@@ -163,7 +163,7 @@ describe("parseIntent — typo tolerance (fuzzy matching)", () => {
 
   test("chain fuzzy: 'Etherem' → 'ethereum'", () => {
     const result = parseIntent("Deploy oracle on Etherem network")
-    expect(result.chains).toContain("ethereum-sepolia")
+    expect(result.chains).toContain("ethereum-testnet-sepolia")
   })
 })
 
@@ -245,7 +245,7 @@ describe("parseIntent — combined NLP stress tests", () => {
   test("slang with abbreviation: 'check dat eth every 10 min'", () => {
     const result = parseIntent("yo check dat eth bag every 10 min no cap")
     expect(result.schedule).toBe("*/10 * * * *")
-    expect(result.chains).toContain("ethereum-sepolia")
+    expect(result.chains).toContain("ethereum-testnet-sepolia")
   })
 
   test("typo + abbreviation: 'every 5 mins chekc prcice'", () => {

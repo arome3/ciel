@@ -93,9 +93,9 @@ export function PublishedDashboard() {
         ].map((s) => (
           <div key={s.label} className="rounded-lg border border-border bg-card px-4 py-3">
             <p className="text-xs font-medium text-muted-foreground">{s.label}</p>
-            <p className="mt-1 text-2xl font-bold text-foreground">
+            <div className="mt-1 text-2xl font-bold text-foreground">
               {isLoading ? <Skeleton className="h-8 w-12" /> : s.value}
-            </p>
+            </div>
           </div>
         ))}
       </div>

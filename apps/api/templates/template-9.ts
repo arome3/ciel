@@ -24,7 +24,7 @@ const configSchema = z.object({
   geminiModel: z.string().default("gemini-1.5-pro"),
   openaiApiEndpoint: z.string().default("https://api.openai.com/v1/chat/completions"),
   consumerContract: z.string().default("0x34DAba0F2295972547d3ceb42f12B50a18D8E392"),
-  chainSelectorName: z.string().default("base-testnet-sepolia"),
+  chainSelectorName: z.string().default("base-sepolia"),
 })
 
 type Config = z.infer<typeof configSchema>

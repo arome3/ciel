@@ -128,14 +128,14 @@ router.get("/workflows/:id/export", async (req, res, next) => {
     const mainnetRpc = process.env.ETHEREUM_MAINNET_RPC_URL ?? "https://ethereum-rpc.publicnode.com"
     const projectYaml = `staging-settings:
   rpcs:
-    - chain-name: ethereum-testnet-sepolia
+    - chain-name: ethereum-sepolia
       url: ${sepoliaRpc}
     - chain-name: ethereum-mainnet
       url: ${mainnetRpc}
 
 production-settings:
   rpcs:
-    - chain-name: ethereum-testnet-sepolia
+    - chain-name: ethereum-sepolia
       url: ${sepoliaRpc}
     - chain-name: ethereum-mainnet
       url: ${mainnetRpc}

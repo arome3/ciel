@@ -80,10 +80,10 @@ describe("loadTemplateConfig", () => {
 
 describe("buildFallbackConfig", () => {
   test("uses intent chain as chainName and chainSelectorName", () => {
-    const intent = makeIntent({ chains: ["ethereum-sepolia"] })
+    const intent = makeIntent({ chains: ["ethereum-testnet-sepolia"] })
     const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
-    expect(config.chainName).toBe("ethereum-sepolia")
-    expect(config.chainSelectorName).toBe("ethereum-sepolia")
+    expect(config.chainName).toBe("ethereum-testnet-sepolia")
+    expect(config.chainSelectorName).toBe("ethereum-testnet-sepolia")
   })
 
   test("defaults to base-sepolia when no chains", () => {
@@ -638,7 +638,7 @@ describe("buildFallbackConfig — new data sources (T13-T16)", () => {
     const intent = makeIntent({ dataSources: ["ccip"] })
     const config = JSON.parse(buildFallbackConfig(intent, makeTemplate()))
     expect(config.sourceChainSelector).toBe("ethereum-testnet-sepolia")
-    expect(config.destChainSelector).toBe("base-testnet-sepolia")
+    expect(config.destChainSelector).toBe("base-sepolia")
     expect(config.ccipRouterAddress).toBeDefined()
     expect(config.tokenAddress).toBeDefined()
     expect(config.transferAmount).toBe("1000000000000000000")

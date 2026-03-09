@@ -536,6 +536,43 @@ router.delete("/pipelines/:id", requirePipelineOwner, async (req, res, next) => 
 })
 
 // ─────────────────────────────────────────────
+// PATCH /pipelines/:id/restore — Restore soft-deleted pipeline
+// ─────────────────────────────────────────────
+
+router.patch("/pipelines/:id/restore", requirePipelineOwner, async (req, res, next) => {
+  try {
+    const { id } = req.params
+    if (!UUID_RE.test(id)) {
+      throw new AppError(ErrorCodes.INVALID_INPUT, 400, "Invalid pipeline ID format")
+    }
+
+    const existing = await db
+      .select({ id: pipelines.id, isActive: pipelines.isActive })
+      .from(pipelines)
+      .where(eq(pipelines.id, id))
+      .get()
+
+    if (!existing) {
+      throw new AppError(ErrorCodes.PIPELINE_NOT_FOUND, 404, "Pipeline not found")
+    }
+
+    if (existing.isActive) {
+      res.json({ message: "Pipeline is already active" })
+      return
+    }
+
+    await db
+      .update(pipelines)
+      .set({ isActive: true, updatedAt: new Date().toISOString() })
+      .where(eq(pipelines.id, id))
+
+    res.json({ message: "Pipeline restored" })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ─────────────────────────────────────────────
 // POST /pipelines/:id/execute — Execute pipeline
 // ─────────────────────────────────────────────
 

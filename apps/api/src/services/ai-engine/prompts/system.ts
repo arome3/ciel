@@ -54,7 +54,7 @@ const CRITICAL_CONSTRAINTS = `## 14 CRITICAL CONSTRAINTS — VIOLATION = INVALID
 
 9. **Secrets**: Access secrets via \`runtime.getSecret({ id: 'KEY_NAME' }).result().value\`. NEVER hardcode API keys or secrets.
 
-10. **Chain resolution**: Use \`getNetwork({chainFamily: 'evm', chainSelectorName: 'ethereum-testnet-sepolia', isTestnet: true})\` to get chain info. Access the selector via \`.chainSelector.selector\`.
+10. **Chain resolution**: Use \`getNetwork({chainFamily: 'evm', chainSelectorName: 'ethereum-sepolia', isTestnet: true})\` to get chain info. Access the selector via \`.chainSelector.selector\`.
 
 11. **NO non-deterministic patterns**: CRE DON nodes must produce identical output for BFT consensus:
    - \`Date.now()\`, \`new Date()\` → use \`runtime.now()\` (consensus-derived Date object)
@@ -365,7 +365,7 @@ CRITICAL: \`runtime.report().result()\` returns a Report class object. Pass it D
 const network = getNetwork({ chainFamily: "evm", chainSelectorName: "ethereum-testnet-sepolia", isTestnet: true })
 // network.chainSelector.selector → "16015286601757825753"
 \`\`\`
-Common chain selector names: \`"ethereum-testnet-sepolia"\`, \`"base-testnet-sepolia"\`, \`"arbitrum-testnet-sepolia"\`, \`"optimism-testnet-sepolia"\`
+Common chain selector names: \`"ethereum-testnet-sepolia"\`, \`"base-sepolia"\`, \`"arbitrum-testnet-sepolia"\`, \`"optimism-testnet-sepolia"\`
 
 ### KeystoneForwarder Addresses
 Consumer contracts that receive \`writeReport()\` data must verify the caller is the official KeystoneForwarder. Addresses per network:
@@ -784,6 +784,78 @@ evmClient.writeReport(runtime, { receiver: config.consumerContract, report: creR
 IMPORTANT: The burn function must be on the token contract itself. Some tokens use \`burnFrom(address, amount)\` — check the ABI.
 Do NOT use \`encodeFunctionData\` or \`parseAbi\` — use manual selectors + \`encodeAbiParameters\`.`
 
+const MULTI_AI_CONSENSUS_PATTERN = `## Multi-AI Consensus Pattern (GPT + Claude + Gemini)
+
+Query multiple AI models and apply majority voting to produce a verified consensus answer.
+
+### Capability Batching (Parallel API Calls)
+Fire ALL HTTP requests before calling \`.result()\` — the CRE runtime can parallelize them:
+\`\`\`typescript
+// GOOD — fire all handles first, THEN collect results (parallel)
+const openaiHandle = httpClient.sendRequest(runtime, { url: "https://api.openai.com/v1/chat/completions", method: "POST", ... })
+const claudeHandle = httpClient.sendRequest(runtime, { url: "https://api.anthropic.com/v1/messages", method: "POST", ... })
+const geminiHandle = httpClient.sendRequest(runtime, { url: "https://generativelanguage.googleapis.com/v1beta/models/...", method: "POST", ... })
+const openaiResp = openaiHandle.result()
+const claudeResp = claudeHandle.result()
+const geminiResp = geminiHandle.result()
+
+// BAD — sequential, 3x latency
+const openaiResp = httpClient.sendRequest(runtime, { ... }).result()
+const claudeResp = httpClient.sendRequest(runtime, { ... }).result()
+\`\`\`
+
+### System Prompts for Each Provider
+Each model needs an explicit system prompt to constrain output format:
+\`\`\`typescript
+// OpenAI — system message
+body: JSON.stringify({ model: runtime.config.openaiModel, temperature: 0, messages: [
+  { role: "system", content: "You are a strict classifier. Output only YES or NO." },
+  { role: "user", content: prompt },
+]})
+
+// Claude — system field (NOT a message)
+body: JSON.stringify({ model: runtime.config.claudeModel, max_tokens: 8, temperature: 0,
+  system: "You are a strict classifier. Output only YES or NO.",
+  messages: [{ role: "user", content: prompt }],
+})
+
+// Gemini — systemInstruction field
+body: JSON.stringify({
+  systemInstruction: { parts: [{ text: "You are a strict classifier. Output only YES or NO." }] },
+  contents: [{ parts: [{ text: prompt }] }],
+  generationConfig: { temperature: 0 },
+})
+\`\`\`
+
+### Strict Output Parsing
+Never use \`includes("YES")\` — it matches "YESTERDAY", "BEYOND", etc. Use strict equality:
+\`\`\`typescript
+const raw = (decoded.choices?.[0]?.message?.content ?? "").trim().toUpperCase()
+const normalized = raw.replace(/[^A-Z]/g, "")
+const isValid = normalized === "YES" || normalized === "NO"
+const vote = normalized === "YES" ? 1 : 0
+\`\`\`
+
+### Per-Call Error Handling
+Wrap each \`.result()\` in try/catch so one API outage does not kill the whole workflow:
+\`\`\`typescript
+let openaiText = ""
+let openaiValid = false
+try {
+  const resp = openaiHandle.result()
+  const json = decodeJson(resp.body) as { choices?: Array<{ message?: { content?: string } }> }
+  openaiText = (json.choices?.[0]?.message?.content ?? "").trim().toUpperCase().replace(/[^A-Z]/g, "")
+  openaiValid = openaiText === "YES" || openaiText === "NO"
+} catch {
+  runtime.log("OpenAI call failed, marking as invalid")
+}
+\`\`\`
+
+### Consensus Requirements
+- Require at least 2 valid responses out of N models
+- Reject ties (yesVotes === noVotes)
+- Track outliers: any model whose vote differs from the consensus majority`
+
 const CCIP_TRANSFER_PATTERN = `## Cross-Chain CCIP Transfer Pattern
 
 CRE workflows can execute Chainlink CCIP cross-chain token transfers via the CCIP Router contract.
@@ -862,6 +934,63 @@ evmClient.writeReport(runtime, { receiver: config.consumerContract, report: creR
 - Fee token \`0x0000000000000000000000000000000000000000\` = pay in native ETH
 - Do NOT use \`encodeFunctionData\` or \`parseAbi\` — use manual selectors + \`encodeAbiParameters\`
 - The consumer contract handles the actual approve + ccipSend execution from the decoded report`
+
+const DUAL_TRIGGER_PATTERN = `## Dual-Trigger Workflow Pattern (Cron + EVMLog)
+
+CRE workflows can have multiple triggers by returning multiple \`cre.handler()\` entries from \`initWorkflow\`.
+
+### Handler Structure — Return Array with Multiple Handlers
+\`\`\`typescript
+const initWorkflow = (config: Config) => {
+  // Handler 1: Cron trigger
+  const cronTrigger = new cre.capabilities.CronCapability().trigger({ schedule: config.schedule })
+
+  // Handler 2: EVM log trigger
+  const network = getNetwork({ chainFamily: "evm", chainSelectorName: config.chainSelectorName, isTestnet: true })
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
+  const transferSig = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+  const logTrigger = evmClient.logTrigger({
+    addresses: [hexToBase64(config.contractAddress)],
+    topics: [hexToBase64(transferSig)],
+  })
+
+  return [
+    cre.handler(cronTrigger, onCronHandler),
+    cre.handler(logTrigger, onLogHandler),
+  ]
+}
+\`\`\`
+
+### EVMLog Handler — Topics and Data are Uint8Array
+\`\`\`typescript
+import type { EVMLog } from "@chainlink/cre-sdk"
+
+// CRITICAL: EVMLog.topics is Uint8Array[] and EVMLog.data is Uint8Array (NOT strings)
+const onLogHandler = (runtime: Runtime<Config>, log: EVMLog): string => {
+  const fromAddress = bytesToHex(log.topics[1].slice(12))   // Last 20 bytes of 32-byte topic
+  const toAddress = bytesToHex(log.topics[2].slice(12))
+  const value = BigInt("0x" + bytesToHex(log.data))          // Uint8Array → hex → BigInt
+
+  runtime.log("Transfer: " + fromAddress + " -> " + toAddress + " value=" + value.toString())
+  // ... build report and write onchain ...
+  return JSON.stringify({ from: fromAddress, to: toAddress, value: value.toString() })
+}
+\`\`\`
+
+### EVMLogCapability Trigger Config
+\`\`\`typescript
+// logTrigger accepts { addresses?: string[], topics?: string[] }
+// Use hexToBase64() to convert hex addresses/topics to base64 strings
+evmClient.logTrigger({
+  addresses: [hexToBase64(config.contractAddress)],   // Filter by contract
+  topics: [hexToBase64(eventSignatureHex)],            // Filter by event
+})
+\`\`\`
+
+IMPORTANT:
+- Each handler has its OWN named function (e.g. \`onCronHandler\`, \`onLogHandler\`)
+- EVMLog topics/data are **Uint8Array** — use \`bytesToHex()\` to convert, NOT string casts
+- logTrigger config uses \`addresses\` and \`topics\` (NOT \`contractAddress\`)`
 
 const ESCROW_PATTERN = `## Escrow Lock/Release Pattern
 
@@ -1080,6 +1209,7 @@ export function buildTemplateContext(
   needsState: boolean,
   fewShotContext?: string,
   relevantDocs?: string,
+  templateId?: number,
 ): string {
   const caps = new Set(capabilities)
   const sections: string[] = []
@@ -1102,9 +1232,19 @@ export function buildTemplateContext(
     sections.push(WALLET_MONITOR_PATTERN)
   }
 
+  // Multi-AI consensus pattern (T3, T9 — only templates that query multiple LLMs)
+  if (templateId === 3 || templateId === 9) {
+    sections.push(MULTI_AI_CONSENSUS_PATTERN)
+  }
+
   // Cross-chain CCIP transfer pattern
   if (caps.has("ccip") || caps.has("ccipTransfer")) {
     sections.push(CCIP_TRANSFER_PATTERN)
+  }
+
+  // Dual-trigger pattern (T16, T23 — cron + evm_log handlers)
+  if (templateId === 16 || templateId === 23) {
+    sections.push(DUAL_TRIGGER_PATTERN)
   }
 
   // State management (cross-run persistence)
